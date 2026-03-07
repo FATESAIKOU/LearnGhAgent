@@ -45,7 +45,6 @@ def run_agent(
         "gh", "copilot",
         "-p", prompt,
         "--yolo",
-        "-s",
         "--no-ask-user",
         "--add-dir", "/workspace",
     ]
