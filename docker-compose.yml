@@ -3,7 +3,7 @@ version: "3.8"
 services:
   agent:
     build: .
-    container_name: gh-issue-agent
+    container_name: learnghagent
     restart: unless-stopped
     environment:
       - TARGET_REPO=${TARGET_REPO}
