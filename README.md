@@ -116,8 +116,45 @@ docker stop gh-issue-agent && docker rm gh-issue-agent
 | `TARGET_REPO` | 監控的 repo（`owner/repo` 格式） | **必填** |
 | `POLL_INTERVAL` | 輪詢間隔（秒） | `60` |
 | `AGENT_TIMEOUT` | Agent 單次執行超時（秒） | `900` |
-| `COPILOT_MODEL` | 指定 AI 模型 | 不指定（用預設） |
+| `COPILOT_MODEL` | 指定 AI 模型（見下方模型表） | 不指定（用預設） |
 | `DEFAULT_ROLE` | 預設 Agent 角色 | `default` |
+
+---
+
+## 可用模型
+
+透過環境變數 `COPILOT_MODEL` 或角色 `config.json` 中的 `model` 欄位指定。
+
+```bash
+# 範例：使用 Claude Sonnet 4.6
+docker run -d --name gh-issue-agent \
+  -e TARGET_REPO=owner/repo \
+  -e COPILOT_MODEL=claude-sonnet-4.6 \
+  ...
+```
+
+| VS Code 顯示名稱 | CLI `--model` 值 | Premium 倍率 |
+|---|---|---|
+| Claude Haiku 4.5 | `claude-haiku-4.5` | 0.33x |
+| Claude Sonnet 4 | `claude-sonnet-4` | 1x |
+| Claude Sonnet 4.5 | `claude-sonnet-4.5` | 1x |
+| Claude Sonnet 4.6 | `claude-sonnet-4.6` | 1x |
+| Claude Opus 4.5 | `claude-opus-4.5` | 3x |
+| Claude Opus 4.6 | `claude-opus-4.6` | 3x |
+| *(CLI 專屬)* | `claude-opus-4.6-fast` | — |
+| GPT-4.1 | `gpt-4.1` | 0x |
+| GPT-5 mini | `gpt-5-mini` | 0x |
+| GPT-5.1 | `gpt-5.1` | 1x |
+| GPT-5.1-Codex | `gpt-5.1-codex` | 1x |
+| GPT-5.1-Codex-Max | `gpt-5.1-codex-max` | 1x |
+| GPT-5.1-Codex-Mini (Preview) | `gpt-5.1-codex-mini` | 0.33x |
+| GPT-5.2 | `gpt-5.2` | 1x |
+| GPT-5.2-Codex | `gpt-5.2-codex` | 1x |
+| GPT-5.3-Codex | `gpt-5.3-codex` | 1x |
+| GPT-5.4 | `gpt-5.4` | 1x |
+| Gemini 3 Pro (Preview) | `gemini-3-pro-preview` | 1x |
+
+> **注意**：以下 VS Code 模型在 CLI **不可用**：GPT-4o、Raptor mini、Gemini 2.5 Pro、Gemini 3 Flash、Gemini 3.1 Pro、Grok Code Fast 1。
 
 ---
 
@@ -171,6 +208,6 @@ agents/
 
 1. **輪詢**：每 `POLL_INTERVAL` 秒取得 repo 所有 open issues
 2. **偵測新活動**：比對每個 Issue 的最新 comment 時間與 `state.json` 中的記錄
-3. **執行**：有新活動時，組合 issue 內容 + 角色 instructions 為 prompt，呼叫 `gh copilot -p "..." --yolo -s --no-ask-user`
+3. **執行**：有新活動時，組合 issue 內容 + 角色 instructions 為 prompt，呼叫 `gh copilot -p "..." --yolo --no-ask-user --output-format json`
 4. **回寫**：將 Agent 輸出作為 comment 回寫到 Issue
 5. **更新狀態**：記錄已處理時間，下次輪詢跳過無新活動的 Issue
