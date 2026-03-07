@@ -36,6 +36,28 @@ if ! gh copilot -- --version 2>&1; then
     exit 1
 fi
 
+# --- Clone TARGET_REPO 到 /workspace ---
+if [ -d /workspace/.git ]; then
+    # 已有 repo，確認 remote 是否正確
+    CURRENT_REMOTE=$(cd /workspace && git remote get-url origin 2>/dev/null || echo "")
+    EXPECTED_URL="https://github.com/${TARGET_REPO}.git"
+    if [ "${CURRENT_REMOTE}" != "${EXPECTED_URL}" ]; then
+        log WARN "workspace remote mismatch: ${CURRENT_REMOTE} != ${EXPECTED_URL}"
+        log INFO "Removing stale workspace and re-cloning..."
+        rm -rf /workspace/*  /workspace/.[!.]* 2>/dev/null || true
+        gh repo clone "${TARGET_REPO}" /workspace -- --depth=1
+        log INFO "Cloned ${TARGET_REPO} into /workspace"
+    else
+        log INFO "workspace already has correct repo, pulling latest..."
+        (cd /workspace && git pull --ff-only 2>&1) || log WARN "git pull failed, continuing with existing state"
+    fi
+else
+    log INFO "Cloning ${TARGET_REPO} into /workspace..."
+    rm -rf /workspace/*  /workspace/.[!.]* 2>/dev/null || true
+    gh repo clone "${TARGET_REPO}" /workspace -- --depth=1
+    log INFO "Cloned ${TARGET_REPO} into /workspace"
+fi
+
 # --- 初始化 ---
 STATE_FILE="/data/state.json"
 if [ ! -f "${STATE_FILE}" ]; then
