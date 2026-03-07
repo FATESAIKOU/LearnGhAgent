@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  agent:
+    build: .
+    container_name: gh-issue-agent
+    restart: unless-stopped
+    environment:
+      - TARGET_REPO=${TARGET_REPO}
+      - POLL_INTERVAL=${POLL_INTERVAL:-60}
+      - AGENT_TIMEOUT=${AGENT_TIMEOUT:-900}
+      - COPILOT_MODEL=${COPILOT_MODEL:-}
+      - DEFAULT_ROLE=${DEFAULT_ROLE:-default}
+    volumes:
+      - ./auth/hosts.yml:/auth-src/hosts.yml:ro   # gh 認證（ro，entrypoint copy 到可寫位置）
+      - ./data:/data                               # 狀態持久化
+      - ./agents:/app/agents:ro                    # Agent 角色定義
+      - ./workspace:/workspace                     # Agent 工作區
