@@ -5,7 +5,7 @@
 ### 設計方針
 
 - 基於 `ubuntu:24.04`
-- 分階段安裝：系統套件 → gh CLI → gh copilot CLI → Node.js
+- 分階段安裝：系統套件 → Node.js → gh CLI → gh copilot CLI（全部 build time 完成）
 - 容器啟動時不需要再安裝任何東西
 
 ### 詳細規格
@@ -13,25 +13,32 @@
 ```dockerfile
 FROM ubuntu:24.04
 
-# 系統套件
+# 系統套件（含 python3）
 RUN apt-get update && apt-get install -y \
-    curl git jq ca-certificates gnupg \
+    curl git jq ca-certificates gnupg python3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.js (gh copilot CLI 需要 npx)
+# Node.js (gh copilot CLI 內含 Node.js runtime，但 npx 等工具仍需系統 Node)
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
 # GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=...] ..." \
     > /etc/apt/sources.list.d/github-cli.list \
-    && apt-get update && apt-get install -y gh
+    && apt-get update && apt-get install -y gh \
+    && rm -rf /var/lib/apt/lists/*
 
-# gh copilot CLI 預安裝
-# (容器 build 時先安裝好，避免每次啟動等待下載)
-RUN gh copilot -- --version || true
+# gh copilot CLI — build time 直接下載，跳過互動式安裝提示
+# 來源：github/copilot-cli repo（非 github/gh-copilot）
+RUN mkdir -p /root/.local/share/gh/copilot \
+    && curl -sL "https://github.com/github/copilot-cli/releases/latest/download/copilot-linux-arm64.tar.gz" \
+       -o /tmp/copilot.tar.gz \
+    && tar xzf /tmp/copilot.tar.gz -C /root/.local/share/gh/copilot \
+    && chmod +x /root/.local/share/gh/copilot/copilot \
+    && rm /tmp/copilot.tar.gz
 
 # 工作目錄
 WORKDIR /workspace
@@ -45,9 +52,10 @@ ENTRYPOINT ["/app/entrypoint.sh"]
 
 ### 注意事項
 
-- `gh copilot` 的安裝需要 `gh auth` 先完成（認證在 runtime 透過 mount 提供）
-- 所以 Dockerfile 中 `gh copilot -- --version` 可能會失敗，用 `|| true` 容許
-- 實際 copilot CLI binary 可能需要在首次 runtime 自動下載
+- Copilot binary 來源是 `github/copilot-cli` repo（v1.0.2，支援 `-p`、`--yolo`、`--agent`）
+- 與 `github/gh-copilot` repo 的舊版 Go binary（僅 suggest/explain）不同
+- 下載 URL 模式：`https://github.com/github/copilot-cli/releases/latest/download/copilot-{platform}-{arch}.tar.gz`
+- 認證不在 build time 處理，改在 runtime 由 entrypoint.sh 從 ro mount copy
 
 ---
 
@@ -70,10 +78,10 @@ services:
       - COPILOT_MODEL=${COPILOT_MODEL:-}
       - DEFAULT_ROLE=${DEFAULT_ROLE:-default}
     volumes:
-      - ./auth:/root/.config/gh:ro          # gh 認證
-      - ./data:/data                         # 狀態持久化
-      - ./agents:/app/agents:ro             # Agent 角色定義
-      - ./workspace:/workspace               # Agent 工作區
+      - ./auth/hosts.yml:/auth-src/hosts.yml:ro   # gh 認證（ro，entrypoint copy 到可寫位置）
+      - ./data:/data                               # 狀態持久化
+      - ./agents:/app/agents:ro                    # Agent 角色定義
+      - ./workspace:/workspace                     # Agent 工作區
 ```
 
 ### 使用方式
@@ -95,6 +103,7 @@ docker compose down
 
 ### 職責
 
+- 從 ro mount 複製認證檔案到可寫位置
 - 驗證必要環境變數
 - 驗證 gh 認證有效
 - 確認 gh copilot CLI 可用
@@ -110,6 +119,16 @@ set -euo pipefail
 log(level, msg):
     echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] [${level}] ${msg}"
 
+# --- Auth 設定（從 ro mount copy 到可寫位置）---
+log INFO "Setting up auth..."
+if [ ! -f /auth-src/hosts.yml ]:
+    log ERROR "Auth file not found. Mount hosts.yml to /auth-src/hosts.yml"
+    exit 1
+
+mkdir -p /root/.config/gh
+cp /auth-src/hosts.yml /root/.config/gh/hosts.yml
+chmod 600 /root/.config/gh/hosts.yml
+
 # --- 驗證 ---
 if TARGET_REPO 為空:
     log ERROR "TARGET_REPO is required"
@@ -117,14 +136,13 @@ if TARGET_REPO 為空:
 
 log INFO "Verifying gh auth..."
 if ! gh auth status:
-    log ERROR "gh auth failed. Check ./auth/ mount."
+    log ERROR "gh auth failed. Check auth/hosts.yml content."
     exit 1
 
 log INFO "Verifying gh copilot..."
 if ! gh copilot -- --version:
-    log INFO "Installing gh copilot CLI..."
-    # 自動安裝（需處理互動式 prompt）
-    echo "y" | gh copilot -- --version
+    log ERROR "gh copilot CLI not found. Dockerfile build may have failed."
+    exit 1
 
 # --- 初始化 ---
 STATE_FILE="/data/state.json"
@@ -362,7 +380,8 @@ fi
 ### 職責
 
 - 在 host 端執行
-- 協助 User 設定 gh 認證並複製到 `./auth/`
+- 協助 User 設定 gh 認證
+- 產生含 `oauth_token` 的 `hosts.yml`（macOS Keychain 無法直接複製）
 
 ### 詳細虛擬碼
 
@@ -381,35 +400,29 @@ if ! command -v gh:
     echo "Error: gh CLI not found. Install from https://cli.github.com/"
     exit 1
 
-# Step 2: 選擇認證方式
-echo ""
-echo "Choose authentication method:"
-echo "  1) Interactive login (gh auth login)"
-echo "  2) Paste a personal access token"
-read -p "Choice [1/2]: " choice
-
-if choice == "1":
+# Step 2: 確認已登入
+if ! gh auth status:
+    echo "Not logged in. Starting gh auth login..."
     gh auth login --hostname github.com
-elif choice == "2":
-    read -sp "Enter your GitHub personal access token: " token
-    echo ""
-    echo "${token}" | gh auth login --with-token
-else:
-    echo "Invalid choice"
-    exit 1
 
-# Step 3: 驗證
+# Step 3: 再次驗證
 if ! gh auth status:
     echo "Error: Authentication failed"
     exit 1
 
-# Step 4: 複製認證檔案
+# Step 4: 取得 token 並產生 hosts.yml
+# macOS 的 token 存在 Keychain，無法直接複製 hosts.yml
+# 必須用 gh auth token 取得後，自行產生舊版單帳號格式
 mkdir -p "${AUTH_DIR}"
-cp ~/.config/gh/hosts.yml "${AUTH_DIR}/hosts.yml"
+TOKEN=$(gh auth token)
+USER=$(gh api user --jq '.login')
 
-# 可選：也複製 config.yml
-if [ -f ~/.config/gh/config.yml ]:
-    cp ~/.config/gh/config.yml "${AUTH_DIR}/config.yml"
+cat > "${AUTH_DIR}/hosts.yml" << EOF
+github.com:
+    oauth_token: ${TOKEN}
+    git_protocol: https
+    user: ${USER}
+EOF
 
 # Step 5: 設定權限
 chmod 600 "${AUTH_DIR}/hosts.yml"
@@ -465,7 +478,7 @@ workspace/
 | 情境 | 處理方式 |
 |---|---|
 | gh auth 失敗 | entrypoint 階段就失敗退出，log 提示檢查 mount |
-| gh copilot 未安裝 | entrypoint 自動安裝 |
+| gh copilot 未安裝 | entrypoint 報錯退出（copilot 應在 Dockerfile build time 已安裝） |
 | GitHub API 呼叫失敗 | log ERROR，skip 該 Issue，繼續處理下一個 |
 | Agent 超時 (TimeoutExpired) | log WARN，不回寫 Comment，繼續下一個 Issue |
 | Agent 異常退出 (非 0) | log ERROR，不回寫 Comment，繼續下一個 Issue |

@@ -27,7 +27,7 @@
 ```
 Host                              Container                    用途
 ─────────────────────────────     ──────────────────           ──────────────────
-./auth/                     →    /root/.config/gh/   (ro)     gh 認證情報
+./auth/hosts.yml            →    /auth-src/hosts.yml (ro)     gh 認證情報（entrypoint copy 到可寫位置）
 ./data/                     →    /data/                        state.json 持久化
 ./agents/                   →    /app/agents/        (ro)     自訂 Agent 角色定義
 ./workspace/                →    /workspace/                   Agent 工作區
@@ -143,18 +143,28 @@ Loop:
 ```
 setup-auth.sh:
   1. 檢查 host 上是否已安裝 gh CLI
-  2. 執行 gh auth login（或讓 User 以 token 方式設定）
-  3. 將 ~/.config/gh/ 下的認證檔案複製到 ./auth/
-  4. 驗證認證是否有效（gh auth status）
-  5. 提示完成
+  2. 若未登入，執行 gh auth login
+  3. 用 gh auth token 取得 token，產生含 oauth_token 的 hosts.yml
+     （macOS 的 token 存在 Keychain，無法直接複製 hosts.yml）
+  4. hosts.yml 必須使用舊版單帳號格式（非 multi-user users: 格式）
+  5. 驗證認證是否有效
+  6. 提示完成
 ```
 
 ### 所需認證檔案
 
 ```
 auth/
-├── hosts.yml       # gh 的認證 token 資訊
-└── config.yml      # gh 的基本設定（可選）
+└── hosts.yml       # gh 的認證 token 資訊（含 oauth_token 欄位）
+```
+
+#### hosts.yml 格式（舊版單帳號格式）
+
+```yaml
+github.com:
+    oauth_token: gho_xxxxxxxxxxxxxxxxxxxx
+    git_protocol: https
+    user: USERNAME
 ```
 
 ## 狀態檔格式
@@ -176,7 +186,7 @@ auth/
 
 ## 安全考量
 
-- 認證目錄（`./auth/`）以 **read-only** mount 進容器
+- 認證檔案（`./auth/hosts.yml`）以 **read-only** mount 進容器（`/auth-src/hosts.yml:ro`），entrypoint 再 copy 到可寫位置
 - Agent 定義目錄（`./agents/`）以 **read-only** mount
 - Agent 檔案操作範圍限制在 `/workspace`（`--add-dir /workspace`）
 - 超時強制 kill 防止 Agent 失控
@@ -192,7 +202,9 @@ LearnGhAgent/
 ├── .gitignore
 ├── docs/
 │   ├── 01-requirements.md       # 需求定義
-│   └── 02-system-design.md      # 系統要件設計（本文件）
+│   ├── 02-system-design.md      # 系統要件設計（本文件）
+│   ├── 03-basic-design.md       # 系統基本設計
+│   └── 04-poc-validation.md     # PoC 驗證報告
 ├── scripts/
 │   ├── agent_loop.py            # 主控程式 (Python)
 │   ├── config.py                # 環境變數讀取、設定管理
