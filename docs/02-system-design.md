@@ -5,7 +5,7 @@
 | 組件 | 說明 |
 |---|---|
 | Docker Container | 運行環境，包含所有工具和 Script |
-| 主控 Script (`agent-loop.sh`) | 常駐 loop，定期輪詢 Issue、依角色分派 Agent |
+| 主控程式 (`agent_loop.py`) | 常駐 loop，定期輪詢 Issue、依角色分派 Agent |
 | 角色分派器（dispatcher 邏輯） | 根據 Issue label 決定用哪個 Agent 角色 |
 | 認證設定工具 (`setup-auth.sh`) | host 端執行，協助 User 設定 gh 認證情報 |
 | gh copilot CLI | Agent 本體，以 `--yolo` 模式執行任務 |
@@ -194,7 +194,13 @@ LearnGhAgent/
 │   ├── 01-requirements.md       # 需求定義
 │   └── 02-system-design.md      # 系統要件設計（本文件）
 ├── scripts/
-│   ├── agent-loop.sh            # 主控 loop Script
+│   ├── agent_loop.py            # 主控程式 (Python)
+│   ├── config.py                # 環境變數讀取、設定管理
+│   ├── github_client.py         # GitHub API 封裝
+│   ├── state_manager.py         # state.json 讀寫
+│   ├── role_resolver.py         # 角色分派邏輯
+│   ├── prompt_builder.py        # Prompt 組合
+│   ├── agent_runner.py          # gh copilot 子程序管理
 │   ├── setup-auth.sh            # 認證設定工具（host 端執行）
 │   └── entrypoint.sh            # Docker entrypoint
 ├── agents/                      # 角色 Agent 定義
