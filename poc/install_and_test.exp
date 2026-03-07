@@ -1,0 +1,13 @@
+#!/usr/bin/expect -f
+set timeout 300
+spawn gh copilot -p "Reply with exactly: Docker PoC OK" --yolo -s --no-ask-user
+expect {
+    -re {install.*\?} {
+        send "y\r"
+        exp_continue
+    }
+    eof
+}
+foreach {pid spawnid os_error_flag value} [wait] break
+puts "=== expect exit: $value ==="
+exit $value
