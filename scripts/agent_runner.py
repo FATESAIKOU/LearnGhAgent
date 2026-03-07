@@ -1,9 +1,10 @@
-"""Agent runner — execute gh copilot as a subprocess."""
+"""Agent runner — execute gh copilot as a subprocess with real-time output."""
 
 import json
 import logging
 import os
 import subprocess
+import threading
 from dataclasses import dataclass
 from typing import Optional
 
@@ -62,21 +63,52 @@ def run_agent(
     logger.debug("Command: %s", " ".join(cmd[:6]) + " ...")
 
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # merge stderr into stdout
             text=True,
-            timeout=timeout,
+            bufsize=1,  # line-buffered
         )
+
+        # Watchdog timer — kill process on timeout
+        timed_out_flag = threading.Event()
+
+        def _watchdog():
+            timed_out_flag.set()
+            proc.kill()
+
+        timer = threading.Timer(timeout, _watchdog)
+        timer.start()
+
+        # Stream output line by line
+        lines: list[str] = []
+        try:
+            for line in proc.stdout:            # type: ignore[union-attr]
+                stripped = line.rstrip("\n")
+                logger.info("[copilot] %s", stripped)
+                lines.append(line)
+        finally:
+            proc.wait()
+            timer.cancel()
+
+        if timed_out_flag.is_set():
+            logger.warning("Agent timed out after %ds", timeout)
+            return AgentResult(
+                exit_code=-1,
+                output="".join(lines).strip(),
+                timed_out=True,
+            )
+
         return AgentResult(
-            exit_code=result.returncode,
-            output=result.stdout.strip(),
+            exit_code=proc.returncode,
+            output="".join(lines).strip(),
             timed_out=False,
         )
-    except subprocess.TimeoutExpired:
-        logger.warning("Agent timed out after %ds", timeout)
+    except Exception as e:
+        logger.error("Agent execution error: %s", e)
         return AgentResult(
             exit_code=-1,
             output="",
-            timed_out=True,
+            timed_out=False,
         )
