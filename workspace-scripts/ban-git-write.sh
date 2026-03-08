@@ -27,9 +27,13 @@ for arg in "$@"; do
     esac
 done
 
-# Blocked write operations
+# Blocked write operations (only truly dangerous ones)
+# NOTE: add/commit are ALLOWED — they are local-only operations.
+# The system's push_workspace handles staging/committing after the agent.
+# Allowing commit prevents copilot CLI from failing when it bundles
+# git commit into a compound shell command.
 case "$subcmd" in
-    checkout|switch|commit|push|reset|rebase|merge|branch|stash|cherry-pick|revert|pull|am|apply)
+    checkout|switch|push|reset|rebase|merge|branch|stash|cherry-pick|revert|pull|am|apply)
         echo "ERROR: 'git $subcmd' is blocked during agent execution." >&2
         echo "The system manages git operations automatically." >&2
         exit 1
