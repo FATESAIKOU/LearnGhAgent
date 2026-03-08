@@ -94,6 +94,14 @@ class GitCliAdapter:
                 # Branch exists locally
                 _run_cmd(["git", "rev-parse", "--verify", branch], cwd=repo_dir)
                 _run_cmd(["git", "checkout", branch], cwd=repo_dir)
+                # Sync with remote to avoid non-fast-forward on push
+                try:
+                    _run_cmd(
+                        ["git", "reset", "--hard", f"origin/{branch}"],
+                        cwd=repo_dir,
+                    )
+                except Exception:
+                    pass  # remote branch may not exist yet (before first push)
                 logger.info("%s: checked out existing branch '%s'", name, branch)
             except Exception:
                 try:
