@@ -13,9 +13,9 @@
 ```dockerfile
 FROM ubuntu:24.04
 
-# 系統套件（含 python3）
+# 系統套件（含 python3、python3-yaml）
 RUN apt-get update && apt-get install -y \
-    curl git jq ca-certificates gnupg python3 \
+    curl git jq ca-certificates gnupg python3 python3-pip python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.js (gh copilot CLI 內含 Node.js runtime，但 npx 等工具仍需系統 Node)
@@ -33,8 +33,11 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 
 # gh copilot CLI — build time 直接下載，跳過互動式安裝提示
 # 來源：github/copilot-cli repo（非 github/gh-copilot）
-RUN mkdir -p /root/.local/share/gh/copilot \
-    && curl -sL "https://github.com/github/copilot-cli/releases/latest/download/copilot-linux-arm64.tar.gz" \
+# 自動偵測 CPU 架構（amd64 → x64 / arm64）
+RUN DPKG_ARCH=$(dpkg --print-architecture) \
+    && if [ "$DPKG_ARCH" = "amd64" ]; then COPILOT_ARCH="x64"; else COPILOT_ARCH="$DPKG_ARCH"; fi \
+    && mkdir -p /root/.local/share/gh/copilot \
+    && curl -sL "https://github.com/github/copilot-cli/releases/latest/download/copilot-linux-${COPILOT_ARCH}.tar.gz" \
        -o /tmp/copilot.tar.gz \
     && tar xzf /tmp/copilot.tar.gz -C /root/.local/share/gh/copilot \
     && chmod +x /root/.local/share/gh/copilot/copilot \
@@ -45,6 +48,7 @@ WORKDIR /workspace
 
 # Script
 COPY scripts/ /app/
+RUN chmod +x /app/entrypoint.sh
 
 # Entrypoint
 ENTRYPOINT ["/app/entrypoint.sh"]
@@ -55,6 +59,7 @@ ENTRYPOINT ["/app/entrypoint.sh"]
 - Copilot binary 來源是 `github/copilot-cli` repo（v1.0.2，支援 `-p`、`--yolo`、`--agent`）
 - 與 `github/gh-copilot` repo 的舊版 Go binary（僅 suggest/explain）不同
 - 下載 URL 模式：`https://github.com/github/copilot-cli/releases/latest/download/copilot-{platform}-{arch}.tar.gz`
+- Linux amd64 的 asset 名稱為 `copilot-linux-x64.tar.gz`（非 `amd64`），需做架構名稱映射
 - 認證不在 build time 處理，改在 runtime 由 entrypoint.sh 從 ro mount copy
 
 ---
@@ -64,12 +69,10 @@ ENTRYPOINT ["/app/entrypoint.sh"]
 ### 詳細規格
 
 ```yaml
-version: "3.8"
-
 services:
   agent:
     build: .
-    container_name: gh-issue-agent
+    container_name: learnghagent
     restart: unless-stopped
     environment:
       - TARGET_REPO=${TARGET_REPO}
@@ -77,10 +80,12 @@ services:
       - AGENT_TIMEOUT=${AGENT_TIMEOUT:-900}
       - COPILOT_MODEL=${COPILOT_MODEL:-}
       - DEFAULT_ROLE=${DEFAULT_ROLE:-default}
+      - ENABLED_AGENTS=${ENABLED_AGENTS:-}
+      - WORKFLOW_FILE=${WORKFLOW_FILE:-/app/workflows/default.yml}
     volumes:
       - ./auth/hosts.yml:/auth-src/hosts.yml:ro   # gh 認證（ro，entrypoint copy 到可寫位置）
-      - ./data:/data                               # 狀態持久化
       - ./agents:/app/agents:ro                    # Agent 角色定義
+      - ./workflows:/app/workflows:ro              # Workflow 定義
       - ./workspace:/workspace                     # Agent 工作區
 ```
 
@@ -107,7 +112,7 @@ docker compose down
 - 驗證必要環境變數
 - 驗證 gh 認證有效
 - 確認 gh copilot CLI 可用
-- 初始化 state.json（若不存在）
+- Auto-clone TARGET_REPO 到 /workspace（若未 clone）
 - 啟動 agent_loop.py
 
 ### 詳細虛擬碼
@@ -144,11 +149,10 @@ if ! gh copilot -- --version:
     log ERROR "gh copilot CLI not found. Dockerfile build may have failed."
     exit 1
 
-# --- 初始化 ---
-STATE_FILE="/data/state.json"
-if state.json 不存在:
-    echo '{"issues":{}}' > $STATE_FILE
-    log INFO "Initialized state.json"
+# --- Auto-clone TARGET_REPO ---
+if /workspace 為空:
+    log INFO "Cloning ${TARGET_REPO} into /workspace..."
+    gh repo clone "${TARGET_REPO}" /workspace
 
 # --- 啟動主迴圈 ---
 log INFO "Starting agent loop for ${TARGET_REPO}"
@@ -165,196 +169,84 @@ exec python3 /app/agent_loop.py
 
 - 無限迴圈，每 POLL_INTERVAL 秒執行一次
 - 取得 Open Issue 清單
-- 對每個 Issue 判斷是否有新進度
-- 分派角色並執行 Agent
-- 回寫結果、更新狀態
+- 對每個 Issue 檢查是否有 `role:xxx` label（以 label 存在與否作為觸發依據）
+- 解析 workflow/phase label，分派角色並執行 Agent
+- 回寫結果、執行階段轉換
 
 ### 詳細虛擬碼
 
+> ℹ️ 實際實作為 Python（agent_loop.py），以下為簡化虛擬碼。
+
 ```python
-#!/usr/bin/env bash
-set -euo pipefail
-
-STATE_FILE="/data/state.json"
-OWNER="${TARGET_REPO%%/*}"
-REPO="${TARGET_REPO##*/}"
-
-# ============================================================
-# 輔助函式
-# ============================================================
-
-log(level, msg):
-    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] [${level}] ${msg}"
-
-# 取得 state.json 中某 Issue 的 last_processed_at
-get_last_processed(issue_number):
-    jq -r ".issues[\"${issue_number}\"].last_processed_at // \"\"" $STATE_FILE
-
-# 更新 state.json 中某 Issue 的 last_processed_at
-update_last_processed(issue_number, timestamp):
-    tmp=$(mktemp)
-    jq ".issues[\"${issue_number}\"].last_processed_at = \"${timestamp}\"" $STATE_FILE > $tmp
-    mv $tmp $STATE_FILE
-
-# 從 Issue labels 取得角色名
-get_role_from_labels(labels_json):
-    # labels_json 格式: [{"name":"bug"},{"name":"role:coder"}]
-    role = echo $labels_json | jq -r '.[] | select(.name | startswith("role:")) | .name | sub("role:";"")' | head -1
-    if role 為空:
-        echo "${DEFAULT_ROLE}"
-    else:
-        echo "${role}"
-
 # ============================================================
 # Issue 處理函式
 # ============================================================
 
-get_latest_comment_time(issue_number):
-    # 取得 Issue 本身的 created_at 作為基準
-    issue_created=$(gh api "repos/${OWNER}/${REPO}/issues/${issue_number}" --jq '.created_at')
+process_issue(issue_number, labels, config, workflows):
+    # Step 1: 解析 labels
+    resolved = resolve_labels(labels, config.agents_dir, config.enabled_agents)
     
-    # 取得所有 comments 的最新時間
-    latest_comment=$(gh api "repos/${OWNER}/${REPO}/issues/${issue_number}/comments" \
-        --jq 'map(.created_at) | sort | last // empty')
+    if 無 role:
+        return  # skip
     
-    # 回傳較晚的那個（若無 comment 則用 issue 建立時間）
-    if latest_comment 為空:
-        echo "${issue_created}"
+    log INFO "Issue #${issue_number}: processing (role=${resolved.role})"
+    
+    # Step 2: 解析 workflow/phase
+    if resolved.workflow_name in workflows:
+        workflow = workflows[resolved.workflow_name]
+        if resolved.phase_name:
+            phase_idx = find_phase_by_label(workflow, resolved.phase_name)
+        if phase_idx is None:
+            phase_idx = 0  # 預設第一階段
+            add_label(repo, issue_number, f"phase:{workflow.phases[0].phasename}")
+        phase_model = workflow.phases[phase_idx].llm_model
+        phase_extra_flags = workflow.phases[phase_idx].extra_flags
+    
+    # Step 3: 組 prompt
+    issue = get_issue(owner, repo, issue_number)
+    comments = get_issue_comments(owner, repo, issue_number)
+    prompt = build_prompt(issue, comments, resolved.role, agents_dir,
+                          extra_context=phase_context)
+    
+    # Step 4: 執行 Agent
+    effective_model = phase_model or config.copilot_model
+    result = run_agent(prompt, role, agents_dir, timeout, effective_model, phase_extra_flags)
+    
+    if result.timed_out or result.exit_code != 0:
+        return
+    
+    # Step 5: 回寫 Comment
+    if result.output:
+        post_comment(repo, issue_number, comment_body)
+    
+    # Step 6: 階段轉換
+    if 有 workflow:
+        remove_label(repo, issue_number, current_role_label)
+        remove_label(repo, issue_number, current_phase_label)
+        if 有下一階段:
+            add_label(repo, issue_number, next_role_label)
+            add_label(repo, issue_number, next_phase_label)
     else:
-        echo "${latest_comment}"
-
-build_prompt(issue_number, role):
-    # 取 Issue body
-    issue_data=$(gh api "repos/${OWNER}/${REPO}/issues/${issue_number}" \
-        --jq '{title: .title, body: .body, user: .user.login}')
-    
-    title=$(echo $issue_data | jq -r '.title')
-    body=$(echo $issue_data | jq -r '.body')
-    author=$(echo $issue_data | jq -r '.user')
-    
-    # 取所有 comments
-    comments=$(gh api "repos/${OWNER}/${REPO}/issues/${issue_number}/comments" \
-        --jq '.[] | "[\(.user.login) at \(.created_at)]:\n\(.body)\n"')
-    
-    # 讀取角色 instructions
-    role_dir="/app/agents/${role}"
-    if [ -f "${role_dir}/instructions.md" ]:
-        instructions=$(cat "${role_dir}/instructions.md")
-    else:
-        instructions="You are an AI assistant. Execute the task described in the issue."
-    
-    # 組合完整 prompt
-    prompt="${instructions}
-
----
-
-# Issue #${issue_number}: ${title}
-
-**Author:** ${author}
-
-## Description
-${body}
-
-## Comments
-${comments}
-
----
-
-Please execute the task and provide a summary of what you did."
-    
-    echo "${prompt}"
-
-run_agent(issue_number, role, prompt):
-    log INFO "Running agent for issue #${issue_number} with role '${role}'"
-    
-    # ℹ️ 已調整：config.json 已移除，model/extra_flags 改由 Workflow YAML 傳入
-    # 詳見 05-design-adjustments.md 調整二
-    role_dir="/app/agents/${role}"
-    
-    model=""
-    extra_flags=""
-    if [ -f "${config}" ]:
-        model=$(jq -r '.model // empty' "${config}")
-        extra_flags=$(jq -r '.extra_flags // empty' "${config}")
-    
-    # 組合 gh copilot 指令
-    cmd_args=(-p "${prompt}" --yolo -s --no-ask-user --add-dir /workspace)
-    
-    if model 不為空:
-        cmd_args+=(--model "${model}")
-    elif COPILOT_MODEL 不為空:
-        cmd_args+=(--model "${COPILOT_MODEL}")
-    
-    # 帶超時執行
-    output=$(timeout ${AGENT_TIMEOUT} gh copilot "${cmd_args[@]}" 2>&1)
-    exit_code=$?
-    
-    return exit_code, output
-
-process_issue(issue_number, labels_json):
-    # Step 1: 取最新 comment 時間
-    latest_time=$(get_latest_comment_time $issue_number)
-    
-    # Step 2: 比對 state
-    last_processed=$(get_last_processed $issue_number)
-    
-    if last_processed 不為空 且 last_processed >= latest_time:
-        log DEBUG "Issue #${issue_number}: no new activity, skipping"
-        return
-    
-    log INFO "Issue #${issue_number}: new activity detected"
-    
-    # Step 3: 決定角色
-    role=$(get_role_from_labels $labels_json)
-    
-    # Step 4: 組 prompt
-    prompt=$(build_prompt $issue_number $role)
-    
-    # Step 5: 執行 Agent
-    exit_code, output = run_agent $issue_number $role "$prompt"
-    
-    if exit_code == 124:
-        log WARN "Issue #${issue_number}: agent timed out after ${AGENT_TIMEOUT}s"
-        return
-    elif exit_code != 0:
-        log ERROR "Issue #${issue_number}: agent failed with exit code ${exit_code}"
-        return
-    
-    # Step 6: 回寫 Comment
-    if output 不為空:
-        comment_body="## Agent Report (role: ${role})
-
-${output}"
-        gh issue comment "${issue_number}" --repo "${TARGET_REPO}" --body "${comment_body}"
-        log INFO "Issue #${issue_number}: comment posted"
-    
-    # Step 7: 更新 state
-    now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    update_last_processed $issue_number $now
-    log INFO "Issue #${issue_number}: state updated"
+        remove_label(repo, issue_number, role_label)
 
 # ============================================================
 # 主迴圈
 # ============================================================
 
 main():
+    config = load_config()
+    workflows = load_workflows(config.workflow_file)
+    
     while true:
         log INFO "Polling issues for ${TARGET_REPO}..."
         
-        # 取得所有 open issues
-        issues=$(gh issue list --repo "${TARGET_REPO}" --state open \
-            --json number,labels --limit 100)
+        issues = list_open_issues(config.target_repo)
+        log INFO "Found ${len(issues)} open issues"
         
-        count=$(echo $issues | jq length)
-        log INFO "Found ${count} open issues"
-        
-        # 逐一處理
-        for i in 0..count-1:
-            number=$(echo $issues | jq -r ".[${i}].number")
-            labels=$(echo $issues | jq ".[${i}].labels")
-            
-            process_issue $number "$labels"
-        done
+        for issue in issues:
+            number = issue.number
+            labels = issue.labels
+            process_issue(number, labels, config, workflows)
         
         log INFO "Sleeping ${POLL_INTERVAL}s..."
         sleep ${POLL_INTERVAL}
@@ -362,16 +254,9 @@ main():
 main
 ```
 
-### 時間比較邏輯
+### 觸發機制
 
-GitHub API 回傳 ISO 8601 格式（`2026-03-07T12:00:00Z`），在 bash 中比較方式：
-
-```bash
-# 字串比較即可（ISO 8601 格式的字串排序 = 時間排序）
-if [[ "${last_processed}" > "${latest_time}" ]] || [[ "${last_processed}" == "${latest_time}" ]]; then
-    # 無新進度
-fi
-```
+以 `role:xxx` label 存在與否作為處理依據，無需時間戳比對。Agent 完成後會移除 label，因此下次輪詢不會重複處理。
 
 ---
 
@@ -452,16 +337,9 @@ Your task is to read the issue description and comments, understand what is bein
 - Be concise in your summary
 ```
 
-### config.json
+### ~~config.json~~（已移除）
 
 > **ℹ️ 已調整**：`config.json` 已移除，model 和 extra_flags 改由 Workflow YAML 集中管理。詳見 [05-design-adjustments.md](05-design-adjustments.md) 調整二。
-
-```json
-{
-  "model": "",
-  "extra_flags": ""
-}
-```
 
 ---
 
@@ -469,7 +347,6 @@ Your task is to read the issue description and comments, understand what is bein
 
 ```
 auth/
-data/state.json
 workspace/
 ```
 
@@ -484,8 +361,7 @@ workspace/
 | GitHub API 呼叫失敗 | log ERROR，skip 該 Issue，繼續處理下一個 |
 | Agent 超時 (TimeoutExpired) | log WARN，不回寫 Comment，繼續下一個 Issue |
 | Agent 異常退出 (非 0) | log ERROR，不回寫 Comment，繼續下一個 Issue |
-| Agent 輸出為空 | 不回寫 Comment，僅更新 state |
-| state.json 讀寫失敗 | log ERROR，skip 該 Issue |
+| Agent 輸出為空 | 不回寫 Comment，僅移除 label |
 | 角色目錄不存在 | fallback 到內建預設 instructions |
 | prompt 過長 | 暫不處理（v1），未來可截斷或摘要 |
 
@@ -498,11 +374,11 @@ workspace/
 ```
 [2026-03-07T12:00:00Z] [INFO] Polling issues for owner/repo...
 [2026-03-07T12:00:01Z] [INFO] Found 5 open issues
-[2026-03-07T12:00:01Z] [DEBUG] Issue #1: no new activity, skipping
-[2026-03-07T12:00:02Z] [INFO] Issue #3: new activity detected
-[2026-03-07T12:00:02Z] [INFO] Running agent for issue #3 with role 'default'
+[2026-03-07T12:00:01Z] [INFO] Issue #1: no role label, skipping
+[2026-03-07T12:00:02Z] [INFO] Issue #3: processing (role=coder)
+[2026-03-07T12:00:02Z] [INFO] Running agent for issue #3 with role 'coder'
 [2026-03-07T12:01:30Z] [INFO] Issue #3: comment posted
-[2026-03-07T12:01:30Z] [INFO] Issue #3: state updated
+[2026-03-07T12:01:30Z] [INFO] Issue #3: removed label role:coder
 [2026-03-07T12:01:30Z] [INFO] Sleeping 60s...
 ```
 
@@ -529,7 +405,6 @@ participant "entrypoint.sh" as EP
 participant "agent_loop.py" as AL
 participant "GitHub API\n(via gh CLI)" as GH
 participant "gh copilot CLI" as Agent
-participant "state.json" as State
 
 == 啟動 ==
 EP -> EP : 驗證 TARGET_REPO
@@ -537,7 +412,7 @@ EP -> GH : gh auth status
 GH --> EP : ok
 EP -> Agent : gh copilot -- --version
 Agent --> EP : ok
-EP -> State : 初始化 (若不存在)
+EP -> GH : gh repo clone (若 /workspace 為空)
 EP -> AL : exec python3 agent_loop.py
 
 == 主迴圈 ==
@@ -546,28 +421,27 @@ loop 每 POLL_INTERVAL 秒
     GH --> AL : issues[]
     
     loop 每個 issue
-        AL -> GH : gh api .../comments
-        GH --> AL : comments[]
-        AL -> AL : latest_comment_time = max(comments.created_at)
-        AL -> State : get last_processed_at
-        State --> AL : last_processed_at
+        AL -> AL : 解析 labels (role/workflow/phase)
         
-        alt last_processed_at >= latest_comment_time
-            AL -> AL : skip (no new activity)
-        else 有新進度
-            AL -> AL : 決定角色 (from labels)
+        alt 無 role:xxx label
+            AL -> AL : skip
+        else 有 role:xxx label
+            AL -> AL : 解析 workflow/phase，決定 model 和 flags
             AL -> GH : gh api .../issue + comments (完整內容)
             GH --> AL : issue data
             AL -> AL : 讀取 instructions.md + 組合 prompt
-            AL -> Agent : subprocess.run(timeout) gh copilot -p "..." --yolo -s
+            AL -> Agent : Popen(gh copilot -p "..." --yolo --output-format json)
             
             alt 超時
                 AL -> AL : kill agent, log WARN
             else 正常完成
-                Agent --> AL : output (summary)
+                Agent --> AL : JSONL output (streaming)
                 AL -> GH : gh issue comment --body "..."
                 GH --> AL : ok
-                AL -> State : update last_processed_at = now
+                AL -> GH : remove label (role:xxx, phase:xxx)
+                alt 有下一階段
+                    AL -> GH : add label (next role:xxx, next phase:xxx)
+                end
             end
         end
     end

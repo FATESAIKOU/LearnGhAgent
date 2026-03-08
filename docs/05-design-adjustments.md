@@ -40,8 +40,7 @@
 以下項目經 PoC 驗證後確認與原設計一致，無需調整：
 
 - **agent_loop.py 主迴圈邏輯**：Python subprocess + timeout 方式如設計所述
-- **gh copilot 呼叫方式**：`gh copilot -p "..." --yolo -s --no-ask-user` 確認可用
-- **state.json 格式**：無變更
+- **gh copilot 呼叫方式**：`gh copilot -p "..." --yolo --no-ask-user --output-format json` 確認可用
 - **agents/ 角色目錄結構**：無變更
 - **日誌設計**：無變更
 - **元件互動序列圖**：流程不變（僅 entrypoint 內部多了 auth copy，不影響序列）
@@ -67,7 +66,7 @@
 | 7 | Agent 設定 | `config.json`（model, extra_flags） | 移除 `config.json`，model/flags 集中在 Workflow YAML |
 | 8 | Docker 映像 | 無 python3-yaml | 新增 `python3-yaml` 到 apt install |
 | 9 | Volume mount | 無 workflows | 新增 `./workflows:/app/workflows:ro` |
-| 10 | 階段轉換 state | 更新 state 為當前時間 | 轉換到下一階段時清除 state，使下次輪詢立即觸發 |
+| 10 | 觸發機制 | 時間戳比對判斷是否有新進度 | 改為 `role:xxx` label 存在即處理，移除 state.json 和時間戳比對 |
 
 ### 新增/修改的檔案
 
@@ -75,8 +74,8 @@
 |------|---------|------|
 | `scripts/workflow_loader.py` | 新增 | Workflow YAML 解析、Phase/Workflow dataclass（含 extra_flags）、階段查詢與轉換 |
 | `scripts/role_resolver.py` | 重寫 | ResolvedLabels dataclass、解析 `role:`/`workflow:`/`phase:` label、agents_dir 驗證、enabled_agents 過濾 |
-| `scripts/agent_loop.py` | 重寫 | process_issue() 整合 workflow、model 優先順序、_advance_workflow() 自動轉換、階段轉換時清除 state |
-| `scripts/state_manager.py` | 修改 | 新增 `clear_last_processed()` 方法 |
+| `scripts/agent_loop.py` | 重寫 | process_issue() 整合 workflow、model 優先順序、_advance_workflow() 自動轉換、純 label 觸發（無 state） |
+| `scripts/state_manager.py` | 刪除 | state.json 與時間戳機制已全部移除 |
 | `scripts/agent_runner.py` | 修改 | 移除 config.json 讀取，改由參數傳入 model 和 extra_flags |
 | `scripts/github_client.py` | 新增函式 | `add_label()`, `remove_label()` |
 | `scripts/prompt_builder.py` | 修改 | 新增 `extra_context` 參數（插入 workflow phase 資訊） |
@@ -113,3 +112,38 @@ Issue labels: [role:manager, workflow:full-development, phase:requirement-analys
      加上 role:coder, phase:implementation
   → ... 直到最後一個階段完成
 ```
+
+---
+
+## 調整三：State 移除與其他修正
+
+### 調整背景
+
+觸發機制簡化為純 label 存在即處理，移除 state.json 與時間戳比對邏輯。同時修正 Dockerfile 在 Linux x86_64 的架構偵測問題，以及 Workflow 無 phase label 時的自動推斷。
+
+### 調整一覽
+
+| # | 調整項目 | 原設計 | 修正內容 |
+|---|---------|--------|---------|
+| 1 | 觸發機制 | 比對 `last_processed_at` 與最新 comment 時間 | 改為 `role:xxx` label 存在即處理，完成後移除 label |
+| 2 | state.json | 持久化每個 Issue 的處理時間 | 完全移除（檔案、StateManager、volume mount） |
+| 3 | state_manager.py | 管理 state.json 讀寫 | 刪除整個檔案 |
+| 4 | github_client.py | 包含 `get_latest_activity_time()` | 移除該函式 |
+| 5 | config.py | 包含 `state_file` 欄位 | 移除該欄位 |
+| 6 | docker-compose.yml | `./data:/data` volume mount | 移除 data volume；移除 `version: "3.8"` |
+| 7 | entrypoint.sh | 初始化 state.json | 移除初始化邏輯，改為 auto-clone TARGET_REPO |
+| 8 | Dockerfile 架構偵測 | 寫死 `copilot-linux-arm64.tar.gz` | 改用 `dpkg --print-architecture` 自動偵測，`amd64` 映射為 `x64` |
+| 9 | Phase 自動推斷 | 必須手動加 `phase:xxx` label | 若有 `workflow:xxx` 但無 `phase:xxx`，自動採用第一階段並加上 label |
+| 10 | .gitignore | 包含 `data/state.json` | 移除該行 |
+
+### 影響範圍
+
+- **scripts/agent_loop.py**：移除 state 相關 import 與邏輯，觸發條件改為 label 檢查
+- **scripts/state_manager.py**：刪除
+- **scripts/github_client.py**：移除 `get_latest_activity_time()`
+- **scripts/config.py**：移除 `state_file`
+- **scripts/entrypoint.sh**：移除 state.json 初始化，新增 auto-clone
+- **Dockerfile**：架構自動偵測，新增 `python3-pip python3-yaml`、`chmod +x`
+- **docker-compose.yml**：移除 `version`、移除 data volume
+- **.gitignore**：移除 `data/state.json`
+- **README.md**：流程圖從 8 步簡化為 6 步

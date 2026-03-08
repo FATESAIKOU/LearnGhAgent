@@ -36,12 +36,11 @@ if ! gh copilot -- --version 2>&1; then
     exit 1
 fi
 
-# --- 初始化 ---
-STATE_FILE="/data/state.json"
-if [ ! -f "${STATE_FILE}" ]; then
-    mkdir -p /data
-    echo '{"issues":{}}' > "${STATE_FILE}"
-    log INFO "Initialized state.json"
+# --- Auto-clone TARGET_REPO ---
+REPO_DIR="/workspace/$(basename "${TARGET_REPO}")"
+if [ -z "$(ls -A /workspace 2>/dev/null)" ]; then
+    log INFO "Cloning ${TARGET_REPO} into /workspace..."
+    gh repo clone "${TARGET_REPO}" /workspace
 fi
 
 # --- 啟動主迴圈 ---

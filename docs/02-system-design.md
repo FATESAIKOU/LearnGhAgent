@@ -10,8 +10,7 @@
 | Workflow 載入器 (`workflow_loader.py`) | 載入 Workflow YAML、解析階段、處理階段轉換 |
 | 認證設定工具 (`setup-auth.sh`) | host 端執行，協助 User 設定 gh 認證情報 |
 | gh copilot CLI | Agent 本體，以 `--yolo` 模式執行任務 |
-| 狀態檔 (`state.json`) | 記錄每個 Issue 的最後處理時間 |
-| 角色 Agent 設定 (`agents/`) | 每個角色一個目錄，包含 instructions 和設定 |
+| 角色 Agent 設定 (`agents/`) | 每個角色一個目錄，包含 instructions |
 | Workflow 定義 (`workflows/`) | YAML 定義多階段工作流 |
 
 ## Docker 映像要件
@@ -19,10 +18,9 @@
 | 項目 | 規格 |
 |---|---|
 | Base Image | `ubuntu:24.04` |
-| 必裝軟體 | `gh` (GitHub CLI)、`gh copilot` CLI、`jq`、`curl`、`git`、`node` (npm/npx)、`python3-yaml` |
+| 必裝軟體 | `gh` (GitHub CLI)、`gh copilot` CLI、`jq`、`curl`、`git`、`node` (npm/npx)、`python3`、`python3-yaml` |
 | 工作目錄 | `/workspace` |
 | Script 位置 | `/app/` |
-| 設定/狀態目錄 | `/data/`（mount volume） |
 
 ## Docker Mount 結構
 
@@ -30,7 +28,6 @@
 Host                              Container                    用途
 ─────────────────────────────     ──────────────────           ──────────────────
 ./auth/hosts.yml            →    /auth-src/hosts.yml (ro)     gh 認證情報（entrypoint copy 到可寫位置）
-./data/                     →    /data/                        state.json 持久化
 ./agents/                   →    /app/agents/        (ro)     自訂 Agent 角色定義
 ./workflows/                →    /app/workflows/     (ro)     Workflow 定義檔
 ./workspace/                →    /workspace/                   Agent 工作區
@@ -126,9 +123,12 @@ full-development:
 Agent 完成當前階段後：
 1. 移除當前的 `role:xxx` 和 `phase:xxx` label
 2. 根據 Workflow 定義，加上下一階段的 `role:xxx` 和 `phase:xxx` label
-3. 清除該 Issue 的 state，使下次輪詢立即觸發下一階段
-4. 若已是最後階段，僅移除 label（Workflow 完成），更新 state
+3. 下次輪詢時自動偵測到新的 `role:xxx` label 並執行
+4. 若已是最後階段，僅移除 label（Workflow 完成）
 5. 若 Issue 無 Workflow label，完成後僅移除 `role:xxx` label
+6. 若有 `workflow:xxx` 但無 `phase:xxx`，自動採用 Workflow 第一階段
+
+> **觸發機制**：以 `role:xxx` label 存在與否作為處理依據，無需時間戳比對。Agent 完成後會移除 label，因此下次輪詢不會重複處理。
 
 ## Agent 呼叫方式
 
@@ -154,20 +154,21 @@ timeout ${AGENT_TIMEOUT} bash -c "${CMD}"
 
 ```
 Loop:
-  1. gh issue list --repo $TARGET_REPO --state open --json number,labels,updatedAt
+  1. gh issue list --repo $TARGET_REPO --state open --json number,labels
   2. 對每個 Issue:
-     a. 取最新 comment 時間
-        → gh api repos/{owner}/{repo}/issues/{n}/comments --jq '.[].created_at' | sort | tail -1
-     b. 比對 state.json 中的 last_processed_at
-     c. 若 last_processed_at >= 最新 comment 時間 → skip
-     d. 否則：
-        i.   決定角色：從 Issue labels 找 "role:xxx"，沒有就用 DEFAULT_ROLE
-        ii.  取 Issue body + 所有 comments → 組成對話內容
-        iii. 讀取角色 instructions.md → 前置到 prompt
-        iv.  timeout $AGENT_TIMEOUT gh copilot -p "<prompt>" --yolo -s --no-ask-user
-        v.   若超時（exit code 124）→ 不回寫
-        vi.  若正常完成 → 取 stdout 作為總結，gh issue comment 回寫
-        vii. 更新 state.json 中該 Issue 的 last_processed_at = 當前時間
+     a. 解析 labels：取得 role:xxx / workflow:xxx / phase:xxx
+     b. 若無 role:xxx label → skip
+     c. 若 role 不在 ENABLED_AGENTS 中 → skip
+     d. 若有 workflow:xxx：
+        - 有 phase:xxx → 查找對應階段
+        - 無 phase:xxx → 自動採用第一階段，補上 phase label
+     e. 取 Issue body + 所有 comments → 組成對話內容
+     f. 讀取角色 instructions.md + workflow context → 組合 prompt
+     g. timeout $AGENT_TIMEOUT gh copilot -p "<prompt>" --yolo --no-ask-user --output-format json
+     h. 若超時 → 不回寫
+     i. 若正常完成 → 取 stdout 作為總結，gh issue comment 回寫
+     j. Workflow 階段轉換：移除當前 role/phase label，加上下一階段 label
+     k. 若無 Workflow：僅移除 role label
   3. sleep $POLL_INTERVAL
 ```
 
@@ -202,30 +203,12 @@ github.com:
     user: USERNAME
 ```
 
-## 狀態檔格式
-
-### state.json
-
-```json
-{
-  "issues": {
-    "1": {
-      "last_processed_at": "2026-03-07T12:00:00Z"
-    },
-    "42": {
-      "last_processed_at": "2026-03-07T11:30:00Z"
-    }
-  }
-}
-```
-
 ## 安全考量
 
 - 認證檔案（`./auth/hosts.yml`）以 **read-only** mount 進容器（`/auth-src/hosts.yml:ro`），entrypoint 再 copy 到可寫位置
 - Agent 定義目錄（`./agents/`）以 **read-only** mount
 - Agent 檔案操作範圍限制在 `/workspace`（`--add-dir /workspace`）
 - 超時強制 kill 防止 Agent 失控
-- state.json 以 volume mount 持久化，容器重啟不遺失
 - `./auth/` 應加入 `.gitignore`
 
 ## 專案檔案結構
@@ -245,7 +228,6 @@ LearnGhAgent/
 │   ├── agent_loop.py            # 主控程式 (Python)
 │   ├── config.py                # 環境變數讀取、設定管理
 │   ├── github_client.py         # GitHub API 封裝（含 label 操作）
-│   ├── state_manager.py         # state.json 讀寫
 │   ├── role_resolver.py         # 角色分派邏輯（label 解析）
 │   ├── prompt_builder.py        # Prompt 組合（含 workflow context）
 │   ├── agent_runner.py          # gh copilot 子程序管理（JSONL streaming）
@@ -266,7 +248,5 @@ LearnGhAgent/
 ├── workflows/                   # Workflow 定義
 │   └── default.yml              # 預設 Workflow（full-development, quick-fix）
 ├── auth/                        # gh 認證情報（gitignore）
-├── data/                        # 持久化狀態
-│   └── state.json
 └── workspace/                   # Agent 工作區
 ```
