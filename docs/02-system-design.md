@@ -86,7 +86,7 @@ Host                              Container                    用途
 
 | 變數名 | 說明 | 預設值 |
 |---|---|---|
-| `TARGET_REPO` | 監控的 GitHub repo（`owner/repo`） | **必填** |
+| `TARGET_ISSUE_REPO` | 監控的 GitHub repo（`owner/repo`） | **必填** |
 | `POLL_INTERVAL` | 輪詢間隔（秒） | `60` |
 | `AGENT_TIMEOUT` | Agent 執行超時（秒） | `900`（15 分鐘） |
 | `COPILOT_MODEL` | 使用的 AI 模型 | 不指定（用預設） |
@@ -137,30 +137,42 @@ Workflow 定義在 YAML 檔案中（預設 `/app/workflows/default.yml`），描
 
 ```yaml
 full-development:
-  - role: manager
-    phasename: requirement-analysis
-    phasetarget: "Analyze the issue, clarify requirements."
-    llm-model: ""
-    extra-flags: ""
-  - role: architect
-    phasename: system-design
-    phasetarget: "Design the system architecture."
-    llm-model: ""
-    extra-flags: ""
-  - role: coder
-    phasename: implementation
-    phasetarget: "Implement the design."
-    llm-model: ""
-    extra-flags: ""
-  - role: qa
-    phasename: verification
-    phasetarget: "Verify the implementation."
-    llm-model: ""
-    extra-flags: ""
+  config:
+    - repo: owner/some-project
+      url: ""
+      description: "專案說明"
+  steps:
+    - role: manager
+      phasename: requirement-analysis
+      phasetarget: "Analyze the issue, clarify requirements."
+      llm-model: ""
+      extra-flags: ""
+      workspace-init: []
+      workspace-cleanup: []
+    - role: architect
+      phasename: system-design
+      phasetarget: "Design the system architecture."
+      llm-model: ""
+      extra-flags: ""
+    - role: coder
+      phasename: implementation
+      phasetarget: "Implement the design."
+      llm-model: ""
+      extra-flags: ""
+      workspace-init:
+        - ban-git-write.sh
+      workspace-cleanup:
+        - unban-git-write.sh
+    - role: qa
+      phasename: verification
+      phasetarget: "Verify the implementation."
+      llm-model: ""
+      extra-flags: ""
 ```
 
-- `llm-model`：指定該階段使用的 LLM 模型（空字串 = 使用 `COPILOT_MODEL` 環境變數）
-- `extra-flags`：傳給 `gh copilot` 的額外旗標（空字串 = 無額外旗標）
+- `config`：工作 repo 清單。`repo` 為 `owner/repo` 格式，`url` 可選（空 = 用 `gh repo clone`），`description` 會帶入 prompt。
+- `steps`：階段設定。`llm-model` 指定該階段使用的 LLM 模型（空字串 = 使用 `COPILOT_MODEL` 環境變數）。`extra-flags` 傳給 `gh copilot` 的額外旗標。
+- `workspace-init` / `workspace-cleanup`：Agent 執行前/後跑的腳本（從 `workspace-scripts/` 載入）。
 
 #### Model 優先順序
 
@@ -182,22 +194,11 @@ Agent 完成當前階段後：
 ## Agent 呼叫方式
 
 ```bash
-# 讀取角色 instructions
-ROLE_DIR="/app/agents/${ROLE}"
-INSTRUCTIONS=$(cat "${ROLE_DIR}/instructions.md")
-
-# Model 和 extra flags 從 Workflow YAML 取得（由 Python 程式處理）
-# 組合 prompt
-PROMPT="${INSTRUCTIONS}\n\n---\n\n以下是 Issue #${ISSUE_NUMBER} 的完整對話內容：\n${ISSUE_CONTENT}"
-
-# 組合指令
-CMD="gh copilot -p \"${PROMPT}\" --yolo --no-ask-user --add-dir /workspace"
-[ -n "${MODEL}" ] && CMD="${CMD} --model ${MODEL}"
-[ -n "${EXTRA_FLAGS}" ] && CMD="${CMD} ${EXTRA_FLAGS}"
-
-# 帶超時執行
-timeout ${AGENT_TIMEOUT} bash -c "${CMD}"
+gh copilot -p "<prompt>" --yolo --no-ask-user --add-dir /workspace [--model MODEL] [EXTRA_FLAGS]
 ```
+
+- prompt 由 PromptService 組裝：role instructions + issue 內容 + workflow/repos context
+- Model 與 extra flags 由 Workflow YAML 或環境變數決定
 
 ## 主控流程（Hexagonal Architecture）
 
@@ -208,33 +209,34 @@ main():
   1. config = load_config()
   2. 建立 Adapter 實例（github, git, agent, hooks）
   3. 建立 Service 實例，注入 Port/Adapter
-  4. Loop:
+  4. workflows = workflow_service.load_workflows(config.workflow_file)
+  5. Loop:
      a. issues = github_adapter.list_open_issues(config.target_issue_repo)
      b. 對每個 issue:
-        pipeline_service.process_issue(issue, config)
+        pipeline_service.process_issue(issue["number"], issue["labels"], config, workflows)
      c. sleep $POLL_INTERVAL
 ```
 
 ### Pipeline Service（process_issue）
 
 ```
-process_issue(issue, config):  # 透過 Port 介面存取外部資源
-  1. role_service.resolve_labels() → 解析 role/workflow/phase
+process_issue(number, labels, config, workflows):
+  1. role_service.resolve_labels(labels) → ResolvedLabels（role, workflow, phase）
   2. 若無 role → skip
-  3. workflow_service.resolve_phase() → 決定 phase、model、flags
-  4. git_port.init_workspace() → clone + checkout branch
-  5. hooks_port.run_workspace_scripts("init") → 執行 workspace-init 腳本
-  6. prompt_service.build_prompt() → 組合完整 prompt
-  7. agent_port.run() → 執行 Agent
-  8. hooks_port.run_workspace_scripts("cleanup") → 執行 workspace-cleanup 腳本
-  9. git_port.push_workspace() → push + PR
-  10. github_port.post_comment() → 回寫結果
-  11. workflow_service.advance_phase() → 階段轉換（移除/加上 label）
+  3. workflow_service.resolve_phase(workflow, phase_name, repo, number) → (idx, phase)
+  4. git_port.init_workspace(repos, number) → clone + checkout branch
+  5. prompt_service.build_prompt(repo, number, role, agents_dir, phase, workflow_repos)
+  6. hooks_port.run_workspace_scripts(phase.workspace_init)
+  7. agent_port.run(prompt, role, agents_dir, timeout, model, extra_flags) → AgentResult
+  8. hooks_port.run_workspace_scripts(phase.workspace_cleanup)
+  9. git_port.push_workspace(repos, number, issue_repo, phase_name) → push + PR
+  10. github_port.post_comment(repo, number, body)
+  11. workflow_service.advance_phase(workflow, idx, resolved, repo, number) → 階段轉換
 ```
 
 ### 依賴注入方式
 
-Service 透過建構式或函式參數接收 Port 介面（`typing.Protocol`），不直接 import Adapter 實作。
+Service 透過建構式接收 Port 介面（`typing.Protocol`），不直接 import Adapter 實作。
 `main.py` 負責建立 Adapter 實例並注入到 Service。
 
 ## 認證設定工具
@@ -286,9 +288,7 @@ LearnGhAgent/
 ├── docs/
 │   ├── 01-requirements.md       # 需求定義
 │   ├── 02-system-design.md      # 系統要件設計（本文件）
-│   ├── 03-basic-design.md       # 系統基本設計
-│   ├── 04-poc-validation.md     # PoC 驗證報告
-│   └── 05-design-adjustments.md # 設計調整報告
+│   └── 03-basic-design.md       # 系統基本設計
 ├── scripts/
 │   ├── main.py                  # Composition Root（組裝依賴 + Polling Loop）
 │   ├── config.py                # 環境變數讀取、Config dataclass
@@ -327,7 +327,7 @@ LearnGhAgent/
 │   └── qa/
 │       └── instructions.md
 ├── workflows/                   # Workflow 定義
-│   └── default.yml              # 預設 Workflow（full-development, quick-fix）
+│   └── default.yml              # 預設 Workflow
 ├── test/
 │   └── e2e-test.sh              # E2E 測試腳本
 ├── auth/                        # gh 認證情報（gitignore）

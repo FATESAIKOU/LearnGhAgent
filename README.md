@@ -80,6 +80,7 @@ docker run -d --name gh-issue-agent \
   -v "$(pwd)/auth/hosts.yml:/auth-src/hosts.yml:ro" \
   -v "$(pwd)/agents:/app/agents:ro" \
   -v "$(pwd)/workflows:/app/workflows:ro" \
+  -v "$(pwd)/workspace-scripts:/app/workspace-scripts:ro" \
   -v "$(pwd)/workspace:/workspace" \
   gh-issue-agent
 ```
@@ -95,6 +96,7 @@ docker run -d --name gh-issue-agent \
   -v "$(pwd)/auth/hosts.yml:/auth-src/hosts.yml:ro" \
   -v "$(pwd)/agents:/app/agents:ro" \
   -v "$(pwd)/workflows:/app/workflows:ro" \
+  -v "$(pwd)/workspace-scripts:/app/workspace-scripts:ro" \
   -v "$(pwd)/workspace:/workspace" \
   gh-issue-agent
 ```
@@ -179,6 +181,10 @@ LearnGhAgent/
 ├── Dockerfile                   # Docker 映像定義
 ├── docker-compose.yml           # Docker Compose 設定
 ├── .gitignore
+├── docs/                        # 設計文件
+│   ├── 01-requirements.md       # 需求定義
+│   ├── 02-system-design.md      # 系統要件設計
+│   └── 03-basic-design.md       # 系統基本設計
 ├── scripts/
 │   ├── main.py                  # Composition Root（組裝依賴 + Polling Loop）
 │   ├── config.py                # 環境變數讀取、Config dataclass
