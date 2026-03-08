@@ -188,6 +188,9 @@ LearnGhAgent/
 │   ├── workflow_loader.py       # Workflow YAML 載入與階段轉換
 │   ├── workspace_manager.py     # Git workspace 管理（clone/branch/push/PR）
 │   └── setup-auth.sh            # 認證設定工具（host 端）
+├── workspace-scripts/           # Workspace hook scripts
+│   ├── ban-git-write.sh         # 攔截 Agent 的 git write 操作
+│   └── unban-git-write.sh       # 移除 git write 攔截
 ├── agents/                      # Agent 角色定義
 │   ├── default/                 # 預設角色
 │   ├── manager/                 # 需求分析、任務分解
@@ -279,6 +282,8 @@ full-development:
       phasetarget: "Analyze the issue, clarify requirements."
       llm-model: ""          # 空字串 = 使用預設 model
       extra-flags: ""         # 額外 gh copilot CLI flags
+      workspace-init: []      # Agent 執行前跑的腳本（從 workspace-scripts/ 載入）
+      workspace-cleanup: []   # Agent 執行後跑的腳本
     - role: architect
       phasename: system-design
       phasetarget: "Design the system architecture."
@@ -289,6 +294,10 @@ full-development:
       phasetarget: "Implement the design, write code."
       llm-model: ""
       extra-flags: ""
+      workspace-init:
+        - ban-git-write.sh    # 攔截 Agent 的 git write 操作
+      workspace-cleanup:
+        - unban-git-write.sh  # 移除攔截，讓 push 正常運作
     - role: qa
       phasename: verification
       phasetarget: "Verify the implementation."
@@ -314,6 +323,18 @@ technical-investigation:
 | `url` | 可選的 git URL override（空 = 用 `gh repo clone`）|
 | `description` | repo 說明（會帶入 Agent prompt）|
 
+**step 欄位（每階段設定）：**
+
+| 欄位 | 說明 |
+|------|------|
+| `role` | Agent 角色（對應 `agents/xxx/` 目錄） |
+| `phasename` | 階段識別名（用於 `phase:xxx` label） |
+| `phasetarget` | 該階段的目標說明（帶入 prompt） |
+| `llm-model` | LLM 模型 override（空 = 用環境變數） |
+| `extra-flags` | 額外 gh copilot CLI flags |
+| `workspace-init` | Agent 執行前跑的腳本列表（從 `workspace-scripts/` 載入） |
+| `workspace-cleanup` | Agent 執行後跑的腳本列表 |
+
 ### Model 優先順序
 
 1. Workflow phase 的 `llm-model`（若非空）
@@ -327,9 +348,11 @@ technical-investigation:
 2. **Label 解析**：檢查每個 Issue 的 `role:xxx` label，對應 `agents/xxx/` 目錄，過濾 `ENABLED_AGENTS`
 3. **Workflow 解析**：若有 `workflow:xxx` label，載入對應 Workflow 定義；若無 `phase:xxx` 則自動採用第一階段
 4. **Workspace 初始化**：根據 Workflow `config` 中的 repo 清單，git clone + checkout feature branch (`agent/issue-N`)
-5. **執行**：組合 issue 內容 + 角色 instructions + workflow/repos context 為 prompt，呼叫 `gh copilot`
-6. **Git push**：Agent 執行後自動 stage + commit + push 所有 repo 變更，並建立 draft PR
-7. **回寫**：將 Agent 輸出作為 comment 回寫到 Issue
-8. **階段轉換**：移除當前 label，加上下一階段 label（若有 Workflow）
+5. **Workspace-init hooks**：執行當前 phase 定義的 `workspace-init` 腳本（例如安裝 git write 攔截 wrapper）
+6. **執行**：組合 issue 內容 + 角色 instructions + workflow/repos context 為 prompt，呼叫 `gh copilot`
+7. **Workspace-cleanup hooks**：執行當前 phase 定義的 `workspace-cleanup` 腳本（例如移除 git wrapper）
+8. **Git push**：Agent 執行後自動 stage + commit + push 所有 repo 變更，並建立 draft PR
+9. **回寫**：將 Agent 輸出作為 comment 回寫到 Issue
+10. **階段轉換**：移除當前 label，加上下一階段 label（若有 Workflow）
 
 > **觸發機制**：以 `role:xxx` label 存在與否作為處理依據，無需時間戳比對。Agent 完成後會移除 label，因此下次輪詢不會重複處理。

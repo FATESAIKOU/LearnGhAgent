@@ -12,6 +12,7 @@
 | gh copilot CLI | Agent 本體，以 `--yolo` 模式執行任務 |
 | 角色 Agent 設定 (`agents/`) | 每個角色一個目錄，包含 instructions |
 | Workflow 定義 (`workflows/`) | YAML 定義多階段工作流 |
+| Workspace hook scripts (`workspace-scripts/`) | Agent 執行前後的環境設定腳本（如 git write 攔截） |
 
 ## Docker 映像要件
 
@@ -30,6 +31,7 @@ Host                              Container                    用途
 ./auth/hosts.yml            →    /auth-src/hosts.yml (ro)     gh 認證情報（entrypoint copy 到可寫位置）
 ./agents/                   →    /app/agents/        (ro)     自訂 Agent 角色定義
 ./workflows/                →    /app/workflows/     (ro)     Workflow 定義檔
+./workspace-scripts/        →    /app/workspace-scripts/ (ro)  Workspace hook scripts
 ./workspace/                →    /workspace/                   Agent 工作區
 ```
 
@@ -164,8 +166,10 @@ Loop:
         - 無 phase:xxx → 自動採用第一階段，補上 phase label
      e. 取 Issue body + 所有 comments → 組成對話內容
      f. 讀取角色 instructions.md + workflow context → 組合 prompt
+     f2. 若當前 phase 有 workspace-init scripts → 依序執行（如 ban-git-write.sh）
      g. timeout $AGENT_TIMEOUT gh copilot -p "<prompt>" --yolo --no-ask-user --output-format json
      h. 若超時 → 不回寫
+     h2. 若當前 phase 有 workspace-cleanup scripts → 依序執行（如 unban-git-write.sh）
      i. 若正常完成 → 取 stdout 作為總結，gh issue comment 回寫
      j. Workflow 階段轉換：移除當前 role/phase label，加上下一階段 label
      k. 若無 Workflow：僅移除 role label
@@ -232,8 +236,12 @@ LearnGhAgent/
 │   ├── prompt_builder.py        # Prompt 組合（含 workflow context）
 │   ├── agent_runner.py          # gh copilot 子程序管理（JSONL streaming）
 │   ├── workflow_loader.py       # Workflow YAML 載入與階段轉換
+│   ├── workspace_manager.py     # Git workspace 管理（clone/branch/push/PR）+ hook 執行
 │   ├── setup-auth.sh            # 認證設定工具（host 端執行）
 │   └── entrypoint.sh            # Docker entrypoint（含 auto-clone）
+├── workspace-scripts/           # Workspace hook scripts
+│   ├── ban-git-write.sh         # 攔截 Agent 的 git write 操作
+│   └── unban-git-write.sh       # 移除 git write 攔截
 ├── agents/                      # 角色 Agent 定義
 │   ├── default/
 │   │   └── instructions.md

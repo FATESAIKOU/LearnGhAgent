@@ -30,6 +30,8 @@ class Phase:
     phasetarget: str = ""
     llm_model: str = ""
     extra_flags: str = ""
+    workspace_init: list[str] = field(default_factory=list)
+    workspace_cleanup: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -77,6 +79,8 @@ def _parse_phases(raw_list: list[dict[str, Any]]) -> list[Phase]:
             phasetarget=item.get("phasetarget", ""),
             llm_model=item.get("llm-model", ""),
             extra_flags=item.get("extra-flags", ""),
+            workspace_init=item.get("workspace-init", []) or [],
+            workspace_cleanup=item.get("workspace-cleanup", []) or [],
         ))
     return phases
 

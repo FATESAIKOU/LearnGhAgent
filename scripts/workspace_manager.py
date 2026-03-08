@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 WORKSPACE_ROOT = "/workspace"
+WORKSPACE_SCRIPTS_DIR = "/app/workspace-scripts"
 
 
 # ---------------------------------------------------------------------------
@@ -142,16 +143,33 @@ def push_workspace(
             continue
 
         try:
+            # Stage any uncommitted changes first
             status = _run_cmd(["git", "status", "--porcelain"], cwd=repo_dir)
-            if not status:
-                logger.info("%s: no changes to push", name)
-                continue
+            if status:
+                _run_cmd(["git", "add", "-A"], cwd=repo_dir)
+                msg = f"[Agent] Issue #{issue_number}"
+                if phase_name:
+                    msg += f" - {phase_name}"
+                _run_cmd(["git", "commit", "-m", msg], cwd=repo_dir)
 
-            _run_cmd(["git", "add", "-A"], cwd=repo_dir)
-            msg = f"[Agent] Issue #{issue_number}"
-            if phase_name:
-                msg += f" - {phase_name}"
-            _run_cmd(["git", "commit", "-m", msg], cwd=repo_dir)
+            # Check if local branch is ahead of origin (catches agent's own commits)
+            try:
+                _run_cmd(
+                    ["git", "rev-parse", "--verify", f"origin/{branch}"],
+                    cwd=repo_dir,
+                )
+                # Origin branch exists — compare
+                diff = _run_cmd(
+                    ["git", "rev-list", f"origin/{branch}..{branch}", "--count"],
+                    cwd=repo_dir,
+                )
+                if diff.strip() == "0":
+                    logger.info("%s: no changes to push", name)
+                    continue
+            except Exception:
+                # Origin branch doesn't exist yet — definitely need to push
+                pass
+
             _run_cmd(["git", "push", "-u", "origin", branch], cwd=repo_dir)
             logger.info("%s: pushed changes for issue #%d", name, issue_number)
 
@@ -182,6 +200,7 @@ def _ensure_pr(
         pass  # Can't check — try creating anyway
 
     default_br = _get_default_branch(repo_dir)
+
     title = f"[Agent] Issue #{issue_number}"
     body = (
         f"Automated PR created by GitHub Issue Agent.\n\n"
@@ -202,3 +221,37 @@ def _ensure_pr(
         logger.info("Created draft PR for %s branch '%s'", rc.repo, branch)
     except Exception as e:
         logger.warning("Failed to create PR for %s: %s", rc.repo, e)
+
+
+# ---------------------------------------------------------------------------
+# Workspace scripts — run hook scripts from workspace-scripts/
+# ---------------------------------------------------------------------------
+
+def run_workspace_scripts(
+    script_names: list[str],
+    scripts_dir: str = WORKSPACE_SCRIPTS_DIR,
+) -> bool:
+    """Execute a list of workspace scripts sequentially.
+
+    Returns True if all scripts succeeded, False if any failed.
+    On failure, logs the error but continues with remaining scripts.
+    """
+    if not script_names:
+        return True
+
+    all_ok = True
+    for name in script_names:
+        script_path = os.path.join(scripts_dir, name)
+        if not os.path.isfile(script_path):
+            logger.error("Workspace script not found: %s", script_path)
+            all_ok = False
+            continue
+
+        logger.info("Running workspace script: %s", name)
+        try:
+            _run_cmd(["bash", script_path], timeout=60)
+        except Exception as e:
+            logger.error("Workspace script '%s' failed: %s", name, e)
+            all_ok = False
+
+    return all_ok

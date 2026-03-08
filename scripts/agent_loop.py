@@ -17,7 +17,7 @@ from github_client import (
 from role_resolver import resolve_labels
 from prompt_builder import build_prompt
 from agent_runner import run_agent
-from workspace_manager import init_workspace, push_workspace
+from workspace_manager import init_workspace, push_workspace, run_workspace_scripts
 from workflow_loader import (
     Workflow,
     find_phase_by_label,
@@ -124,13 +124,18 @@ def process_issue(
         # Add repos context to prompt
         if repos:
             repos_context = "\n\n## Available Repositories\n"
-            repos_context += "The following repos have been cloned into /workspace:\n\n"
+            repos_context += "The following repos have been cloned into /workspace and are on branch `agent/issue-{}`:\n\n".format(number)
             for rc in repos:
                 dir_name = rc.repo.split("/")[-1] if "/" in rc.repo else rc.repo
                 repos_context += f"- **{rc.repo}** → `/workspace/{dir_name}/`"
                 if rc.description:
                     repos_context += f"  — {rc.description}"
                 repos_context += "\n"
+            repos_context += (
+                "\n**IMPORTANT:** All files you create or modify MUST be inside the repo directory "
+                "(e.g. `/workspace/{}/`). Changes in these directories will be automatically "
+                "committed and pushed after your work. Do NOT write files to `/workspace/` root.\n"
+            ).format(repos[0].repo.split("/")[-1])
             phase_context += repos_context
 
         prompt = build_prompt(issue, comments, resolved.role, config.agents_dir,
@@ -138,6 +143,14 @@ def process_issue(
     except Exception as e:
         logger.error("Issue #%d: failed to build prompt: %s", number, e)
         return
+
+    # Step 3.5: Run workspace-init hooks (e.g. ban-git-write)
+    ws_init_scripts = []
+    if current_workflow and current_phase_idx is not None:
+        ws_init_scripts = current_workflow.phases[current_phase_idx].workspace_init
+    if ws_init_scripts:
+        logger.info("Issue #%d: running workspace-init scripts: %s", number, ws_init_scripts)
+        run_workspace_scripts(ws_init_scripts)
 
     # Step 4: Run agent (model priority: workflow phase > env default)
     effective_model = phase_model or config.copilot_model
@@ -152,6 +165,11 @@ def process_issue(
 
     if result.timed_out:
         logger.warning("Issue #%d: agent timed out after %ds", number, config.agent_timeout)
+        # Run workspace-cleanup hooks before push
+        if ws_init_scripts:
+            ws_cleanup_scripts = current_workflow.phases[current_phase_idx].workspace_cleanup
+            if ws_cleanup_scripts:
+                run_workspace_scripts(ws_cleanup_scripts)
         # Still push partial work
         if repos:
             _try_push(repos, number, config.target_issue_repo, resolved.phase_name)
@@ -159,12 +177,24 @@ def process_issue(
 
     if result.exit_code != 0:
         logger.error("Issue #%d: agent failed with exit code %d", number, result.exit_code)
+        # Run workspace-cleanup hooks before push
+        if ws_init_scripts:
+            ws_cleanup_scripts = current_workflow.phases[current_phase_idx].workspace_cleanup
+            if ws_cleanup_scripts:
+                run_workspace_scripts(ws_cleanup_scripts)
         # Still push partial work
         if repos:
             _try_push(repos, number, config.target_issue_repo, resolved.phase_name)
         return
 
-    # Step 5: Push workspace changes BEFORE posting comment
+    # Step 5: Run workspace-cleanup hooks (e.g. unban-git-write) before push
+    if ws_init_scripts:
+        ws_cleanup_scripts = current_workflow.phases[current_phase_idx].workspace_cleanup
+        if ws_cleanup_scripts:
+            logger.info("Issue #%d: running workspace-cleanup scripts: %s", number, ws_cleanup_scripts)
+            run_workspace_scripts(ws_cleanup_scripts)
+
+    # Step 5.5: Push workspace changes BEFORE posting comment
     if repos:
         _try_push(repos, number, config.target_issue_repo, resolved.phase_name)
 

@@ -39,6 +39,8 @@ fi
 # --- Git config for agent commits ---
 git config --global user.name "GitHub Issue Agent"
 git config --global user.email "agent@learnghagent.local"
+git config --global --add safe.directory '*'
+git config --global credential.helper '!gh auth git-credential'
 log INFO "Git identity configured"
 
 # --- 啟動主迴圈 ---
