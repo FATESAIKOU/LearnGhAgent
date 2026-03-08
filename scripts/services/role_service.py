@@ -74,9 +74,6 @@ class RoleService:
                 phase_name = name[len(PHASE_LABEL_PREFIX):]
                 logger.debug("Resolved phase '%s' from label '%s'", phase_name, name)
 
-        if not role:
-            logger.debug("No valid role label found")
-
         return ResolvedLabels(
             role=role,
             role_label=role_label,

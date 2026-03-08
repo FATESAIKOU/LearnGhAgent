@@ -55,37 +55,44 @@ class PipelineService:
             labels, config.agents_dir, config.enabled_agents,
         )
 
-        if not resolved.role:
-            logger.debug("Issue #%d: no matching role label, skipping", number)
+        # Trigger requires workflow:xxx label
+        if not resolved.workflow_name:
+            logger.debug("Issue #%d: no workflow label, skipping", number)
             return
 
-        logger.info(
-            "Issue #%d: processing (role=%s, workflow=%s, phase=%s)",
-            number, resolved.role, resolved.workflow_name or "none",
-            resolved.phase_name or "none",
-        )
+        # Skip completed workflows (phase:end)
+        if resolved.phase_name == "end":
+            logger.debug("Issue #%d: workflow already completed (phase:end), skipping", number)
+            return
 
         # Step 2: Resolve workflow/phase
-        current_workflow = None
-        current_phase_idx = None
-        phase = None
-
-        if resolved.workflow_name and resolved.workflow_name in workflows:
-            current_workflow = workflows[resolved.workflow_name]
-            current_phase_idx, phase = self.workflow_service.resolve_phase(
-                current_workflow, resolved.phase_name,
-                config.target_issue_repo, number,
+        current_workflow = workflows.get(resolved.workflow_name)
+        if not current_workflow:
+            logger.warning(
+                "Issue #%d: workflow '%s' not found in loaded workflows, skipping",
+                number, resolved.workflow_name,
             )
-            if current_phase_idx is not None:
-                logger.info(
-                    "Issue #%d: workflow '%s' phase '%s' (idx=%d)",
-                    number, resolved.workflow_name,
-                    current_workflow.phases[current_phase_idx].phasename,
-                    current_phase_idx,
-                )
+            return
+
+        current_phase_idx, phase = self.workflow_service.resolve_phase(
+            current_workflow, resolved.phase_name,
+            config.target_issue_repo, number,
+        )
+
+        if phase is None:
+            logger.warning("Issue #%d: could not resolve phase, skipping", number)
+            return
+
+        # Role comes from workflow phase definition
+        effective_role = phase.role
+        logger.info(
+            "Issue #%d: processing (role=%s, workflow=%s, phase=%s)",
+            number, effective_role, resolved.workflow_name,
+            phase.phasename,
+        )
 
         # Step 3: Init workspace — clone repos & create branches
-        repos = current_workflow.repos if current_workflow else []
+        repos = current_workflow.repos
         if repos:
             try:
                 self.git.init_workspace(repos, number)
@@ -96,7 +103,7 @@ class PipelineService:
         # Step 4: Build prompt
         try:
             prompt = self.prompt_service.build_prompt(
-                config.target_issue_repo, number, resolved.role,
+                config.target_issue_repo, number, effective_role,
                 config.agents_dir, phase, repos,
             )
         except Exception as e:
@@ -104,7 +111,7 @@ class PipelineService:
             return
 
         # Step 5: Run workspace-init hooks (e.g. ban-git-write)
-        ws_init_scripts = phase.workspace_init if phase else []
+        ws_init_scripts = phase.workspace_init
         if ws_init_scripts:
             logger.info(
                 "Issue #%d: running workspace-init scripts: %s",
@@ -113,11 +120,11 @@ class PipelineService:
             self.hooks.run_workspace_scripts(ws_init_scripts)
 
         # Step 6: Run agent (model priority: workflow phase > env default)
-        effective_model = (phase.llm_model if phase else "") or config.copilot_model
-        extra_flags = phase.extra_flags if phase else ""
+        effective_model = phase.llm_model or config.copilot_model
+        extra_flags = phase.extra_flags
         result = self.agent.run(
             prompt=prompt,
-            role=resolved.role,
+            role=effective_role,
             agents_dir=config.agents_dir,
             timeout=config.agent_timeout,
             model=effective_model,
@@ -126,7 +133,7 @@ class PipelineService:
 
         # Step 7: Run workspace-cleanup hooks (always after ws-init)
         if ws_init_scripts:
-            ws_cleanup_scripts = phase.workspace_cleanup if phase else []
+            ws_cleanup_scripts = phase.workspace_cleanup
             if ws_cleanup_scripts:
                 logger.info(
                     "Issue #%d: running workspace-cleanup scripts: %s",
@@ -152,12 +159,10 @@ class PipelineService:
             return
 
         # Step 10: Post comment
-        phase_info = ""
-        if resolved.phase_name:
-            phase_info = f" | phase: {resolved.phase_name}"
+        phase_info = f" | phase: {phase.phasename}"
         if result.output:
             comment_body = (
-                f"## Agent Report (role: {resolved.role}{phase_info})\n\n{result.output}"
+                f"## Agent Report (role: {effective_role}{phase_info})\n\n{result.output}"
             )
             try:
                 self.github.post_comment(config.target_issue_repo, number, comment_body)
@@ -166,26 +171,13 @@ class PipelineService:
                 return
 
         # Step 11: Workflow transition
-        if current_workflow and current_phase_idx is not None:
-            try:
-                self.workflow_service.advance_phase(
-                    current_workflow, current_phase_idx, resolved,
-                    config.target_issue_repo, number,
-                )
-            except Exception as e:
-                logger.error("Issue #%d: failed to advance workflow: %s", number, e)
-
-        elif resolved.role_label:
-            # No workflow — just remove the role label after processing
-            try:
-                self.github.remove_label(
-                    config.target_issue_repo, number, resolved.role_label,
-                )
-            except Exception as e:
-                logger.warning(
-                    "Issue #%d: failed to remove label '%s': %s",
-                    number, resolved.role_label, e,
-                )
+        try:
+            self.workflow_service.advance_phase(
+                current_workflow, current_phase_idx, resolved,
+                config.target_issue_repo, number,
+            )
+        except Exception as e:
+            logger.error("Issue #%d: failed to advance workflow: %s", number, e)
 
     def _try_push(
         self,
