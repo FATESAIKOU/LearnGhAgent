@@ -47,3 +47,28 @@ quick-fix:
     phasetarget: "Verify the fix is correct and does not introduce regressions."
     llm-model: ""
     extra-flags: ""
+
+technical-investigation:
+  - role: manager
+    phasename: investigation-scope
+    phasetarget: "Analyze all given topics, define investigation boundaries, extract the user-provided evaluation viewpoints, and structure the report in a way that is easy for the user to understand."
+    llm-model: "gpt-5-mini"
+    extra-flags: ""
+
+  - role: architect
+    phasename: evaluation-framework
+    phasetarget: "Build the investigation framework for all topics, including evaluation axes, comparison dimensions, assumptions, risks, trade-offs, and validation criteria based on the user's viewpoints."
+    llm-model: "gpt-5-mini"
+    extra-flags: ""
+
+  - role: coder
+    phasename: evidence-validation
+    phasetarget: "Investigate and validate all given topics against the defined framework, examine supporting and opposing evidence, compare alternatives where relevant, and organize findings without implementing, committing, or pushing code."
+    llm-model: "gpt-5-mini"
+    extra-flags: ""
+
+  - role: qa
+    phasename: report-consolidation
+    phasetarget: "Verify that every given topic has been examined from all required viewpoints, check logical consistency and coverage, and produce a structured final report in the user-specified format without pushing code changes."
+    llm-model: "gpt-5-mini"
+    extra-flags: ""
