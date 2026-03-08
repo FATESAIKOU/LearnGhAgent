@@ -87,11 +87,30 @@ def process_issue(
         current_workflow = workflows[resolved.workflow_name]
         if resolved.phase_name:
             current_phase_idx = find_phase_by_label(current_workflow, resolved.phase_name)
-            if current_phase_idx is not None:
-                phase_model = current_workflow.phases[current_phase_idx].llm_model
-                phase_extra_flags = current_workflow.phases[current_phase_idx].extra_flags
-                logger.info("Issue #%d: workflow '%s' phase '%s' (idx=%d)",
-                            number, resolved.workflow_name, resolved.phase_name, current_phase_idx)
+            if current_phase_idx is None:
+                logger.warning("Issue #%d: phase '%s' not found in workflow '%s', "
+                               "falling back to first phase",
+                               number, resolved.phase_name, resolved.workflow_name)
+
+        # If no phase label or phase not found, default to first phase
+        if current_phase_idx is None and current_workflow.phases:
+            current_phase_idx = 0
+            first_phase = current_workflow.phases[0]
+            logger.info("Issue #%d: defaulting to first phase '%s' of workflow '%s'",
+                        number, first_phase.phasename, resolved.workflow_name)
+            # Auto-add the phase label for tracking
+            try:
+                add_label(config.target_repo, number, f"phase:{first_phase.phasename}")
+            except Exception as e:
+                logger.warning("Issue #%d: failed to auto-add phase label: %s", number, e)
+
+        if current_phase_idx is not None:
+            phase_model = current_workflow.phases[current_phase_idx].llm_model
+            phase_extra_flags = current_workflow.phases[current_phase_idx].extra_flags
+            logger.info("Issue #%d: workflow '%s' phase '%s' (idx=%d)",
+                        number, resolved.workflow_name,
+                        current_workflow.phases[current_phase_idx].phasename,
+                        current_phase_idx)
 
     # Step 5: Fetch issue data and build prompt (include phase target in prompt)
     try:
@@ -191,11 +210,18 @@ def _advance_workflow(
     """
     repo = config.target_repo
 
+    # Use the actual current phase name from the workflow (not just resolved.phase_name,
+    # which may be empty if the phase was auto-inferred from workflow's first phase)
+    current_phase = workflow.phases[current_phase_idx]
+
     # Remove current role + phase labels
     if resolved.role_label:
         remove_label(repo, number, resolved.role_label)
-    if resolved.phase_name:
-        remove_label(repo, number, f"phase:{resolved.phase_name}")
+    # Always remove the current phase label (whether it came from the issue or was auto-added)
+    try:
+        remove_label(repo, number, f"phase:{current_phase.phasename}")
+    except Exception:
+        pass  # Label might not exist if phase was auto-inferred and add_label failed
 
     # Get next phase
     next_phase = get_next_phase(workflow, current_phase_idx)
