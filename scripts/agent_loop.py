@@ -17,6 +17,7 @@ from github_client import (
 from role_resolver import resolve_labels
 from prompt_builder import build_prompt
 from agent_runner import run_agent
+from workspace_manager import init_workspace, push_workspace, run_workspace_scripts
 from workflow_loader import (
     Workflow,
     find_phase_by_label,
@@ -83,7 +84,7 @@ def process_issue(
                         number, first_phase.phasename, resolved.workflow_name)
             # Auto-add the phase label for tracking
             try:
-                add_label(config.target_repo, number, f"phase:{first_phase.phasename}")
+                add_label(config.target_issue_repo, number, f"phase:{first_phase.phasename}")
             except Exception as e:
                 logger.warning("Issue #%d: failed to auto-add phase label: %s", number, e)
 
@@ -94,6 +95,15 @@ def process_issue(
                         number, resolved.workflow_name,
                         current_workflow.phases[current_phase_idx].phasename,
                         current_phase_idx)
+
+    # Step 2.5: Init workspace — clone repos & create branches
+    repos = current_workflow.repos if current_workflow else []
+    if repos:
+        try:
+            init_workspace(repos, number)
+        except Exception as e:
+            logger.error("Issue #%d: workspace init failed: %s", number, e)
+            return
 
     # Step 3: Fetch issue data and build prompt (include phase target in prompt)
     try:
@@ -111,11 +121,36 @@ def process_issue(
                 f"- **Target:** {phase.phasetarget}\n"
             )
 
+        # Add repos context to prompt
+        if repos:
+            repos_context = "\n\n## Available Repositories\n"
+            repos_context += "The following repos have been cloned into /workspace and are on branch `agent/issue-{}`:\n\n".format(number)
+            for rc in repos:
+                dir_name = rc.repo.split("/")[-1] if "/" in rc.repo else rc.repo
+                repos_context += f"- **{rc.repo}** → `/workspace/{dir_name}/`"
+                if rc.description:
+                    repos_context += f"  — {rc.description}"
+                repos_context += "\n"
+            repos_context += (
+                "\n**IMPORTANT:** All files you create or modify MUST be inside the repo directory "
+                "(e.g. `/workspace/{}/`). Changes in these directories will be automatically "
+                "committed and pushed after your work. Do NOT write files to `/workspace/` root.\n"
+            ).format(repos[0].repo.split("/")[-1])
+            phase_context += repos_context
+
         prompt = build_prompt(issue, comments, resolved.role, config.agents_dir,
                               extra_context=phase_context)
     except Exception as e:
         logger.error("Issue #%d: failed to build prompt: %s", number, e)
         return
+
+    # Step 3.5: Run workspace-init hooks (e.g. ban-git-write)
+    ws_init_scripts = []
+    if current_workflow and current_phase_idx is not None:
+        ws_init_scripts = current_workflow.phases[current_phase_idx].workspace_init
+    if ws_init_scripts:
+        logger.info("Issue #%d: running workspace-init scripts: %s", number, ws_init_scripts)
+        run_workspace_scripts(ws_init_scripts)
 
     # Step 4: Run agent (model priority: workflow phase > env default)
     effective_model = phase_model or config.copilot_model
@@ -130,25 +165,52 @@ def process_issue(
 
     if result.timed_out:
         logger.warning("Issue #%d: agent timed out after %ds", number, config.agent_timeout)
+        # Run workspace-cleanup hooks before push
+        if ws_init_scripts:
+            ws_cleanup_scripts = current_workflow.phases[current_phase_idx].workspace_cleanup
+            if ws_cleanup_scripts:
+                run_workspace_scripts(ws_cleanup_scripts)
+        # Still push partial work
+        if repos:
+            _try_push(repos, number, config.target_issue_repo, resolved.phase_name)
         return
 
     if result.exit_code != 0:
         logger.error("Issue #%d: agent failed with exit code %d", number, result.exit_code)
+        # Run workspace-cleanup hooks before push
+        if ws_init_scripts:
+            ws_cleanup_scripts = current_workflow.phases[current_phase_idx].workspace_cleanup
+            if ws_cleanup_scripts:
+                run_workspace_scripts(ws_cleanup_scripts)
+        # Still push partial work
+        if repos:
+            _try_push(repos, number, config.target_issue_repo, resolved.phase_name)
         return
 
-    # Step 5: Post comment
+    # Step 5: Run workspace-cleanup hooks (e.g. unban-git-write) before push
+    if ws_init_scripts:
+        ws_cleanup_scripts = current_workflow.phases[current_phase_idx].workspace_cleanup
+        if ws_cleanup_scripts:
+            logger.info("Issue #%d: running workspace-cleanup scripts: %s", number, ws_cleanup_scripts)
+            run_workspace_scripts(ws_cleanup_scripts)
+
+    # Step 5.5: Push workspace changes BEFORE posting comment
+    if repos:
+        _try_push(repos, number, config.target_issue_repo, resolved.phase_name)
+
+    # Step 6: Post comment
     phase_info = ""
     if resolved.phase_name:
         phase_info = f" | phase: {resolved.phase_name}"
     if result.output:
         comment_body = f"## Agent Report (role: {resolved.role}{phase_info})\n\n{result.output}"
         try:
-            post_comment(config.target_repo, number, comment_body)
+            post_comment(config.target_issue_repo, number, comment_body)
         except Exception as e:
             logger.error("Issue #%d: failed to post comment: %s", number, e)
             return
 
-    # Step 6: Workflow transition — remove current labels, add next phase labels
+    # Step 7: Workflow transition — remove current labels, add next phase labels
     if current_workflow and current_phase_idx is not None:
         try:
             _advance_workflow(config, number, resolved, current_workflow, current_phase_idx)
@@ -158,10 +220,18 @@ def process_issue(
     elif resolved.role_label:
         # No workflow — just remove the role label after processing
         try:
-            remove_label(config.target_repo, number, resolved.role_label)
+            remove_label(config.target_issue_repo, number, resolved.role_label)
         except Exception as e:
             logger.warning("Issue #%d: failed to remove label '%s': %s",
                            number, resolved.role_label, e)
+
+
+def _try_push(repos, number: int, issue_repo: str, phase_name: str = "") -> None:
+    """Push workspace changes, logging but not raising on failure."""
+    try:
+        push_workspace(repos, number, issue_repo, phase_name)
+    except Exception as e:
+        logger.error("Issue #%d: push_workspace failed: %s", number, e)
 
 
 def _advance_workflow(
@@ -175,7 +245,7 @@ def _advance_workflow(
 
     Returns True if there is a next phase, False if workflow is complete.
     """
-    repo = config.target_repo
+    repo = config.target_issue_repo
 
     # Remove current role + phase labels
     current_phase = workflow.phases[current_phase_idx]
@@ -210,7 +280,7 @@ def main() -> None:
     config = load_config()
     workflows = load_workflows(config.workflow_file)
 
-    logger.info("Agent loop started for %s", config.target_repo)
+    logger.info("Agent loop started for %s", config.target_issue_repo)
     logger.info("Poll interval: %ds, Timeout: %ds", config.poll_interval, config.agent_timeout)
     if config.enabled_agents:
         logger.info("Enabled agents: %s", ", ".join(config.enabled_agents))
@@ -220,10 +290,10 @@ def main() -> None:
         logger.info("Loaded workflows: %s", ", ".join(workflows.keys()))
 
     while True:
-        logger.info("Polling issues for %s...", config.target_repo)
+        logger.info("Polling issues for %s...", config.target_issue_repo)
 
         try:
-            issues = list_open_issues(config.target_repo)
+            issues = list_open_issues(config.target_issue_repo)
         except Exception as e:
             logger.error("Failed to list issues: %s", e)
             issues = []

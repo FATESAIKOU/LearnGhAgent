@@ -4,7 +4,7 @@ services:
     container_name: learnghagent
     restart: unless-stopped
     environment:
-      - TARGET_REPO=${TARGET_REPO}
+      - TARGET_ISSUE_REPO=${TARGET_ISSUE_REPO}
       - POLL_INTERVAL=${POLL_INTERVAL:-60}
       - AGENT_TIMEOUT=${AGENT_TIMEOUT:-900}
       - COPILOT_MODEL=${COPILOT_MODEL:-}
@@ -15,4 +15,5 @@ services:
       - ./auth/hosts.yml:/auth-src/hosts.yml:ro   # gh 認證（ro，entrypoint copy 到可寫位置）
       - ./agents:/app/agents:ro                    # Agent 角色定義
       - ./workflows:/app/workflows:ro              # Workflow 定義
+      - ./workspace-scripts:/app/workspace-scripts:ro  # Workspace hook scripts
       - ./workspace:/workspace                     # Agent 工作區

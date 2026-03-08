@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Config:
-    target_repo: str
+    target_issue_repo: str   # The repo where issues are tracked (owner/repo)
     poll_interval: int
     agent_timeout: int
     copilot_model: str
@@ -17,24 +17,24 @@ class Config:
 
     @property
     def owner(self) -> str:
-        return self.target_repo.split("/")[0]
+        return self.target_issue_repo.split("/")[0]
 
     @property
     def repo(self) -> str:
-        return self.target_repo.split("/")[1]
+        return self.target_issue_repo.split("/")[1]
 
 
 def load_config() -> Config:
-    target_repo = os.environ.get("TARGET_REPO", "")
-    if not target_repo or "/" not in target_repo:
-        raise ValueError("TARGET_REPO must be set in 'owner/repo' format")
+    target_issue_repo = os.environ.get("TARGET_ISSUE_REPO", "")
+    if not target_issue_repo or "/" not in target_issue_repo:
+        raise ValueError("TARGET_ISSUE_REPO must be set in 'owner/repo' format")
 
     # ENABLED_AGENTS: comma-separated list of agent names, empty = all
     enabled_raw = os.environ.get("ENABLED_AGENTS", "").strip()
     enabled_agents = [a.strip() for a in enabled_raw.split(",") if a.strip()] if enabled_raw else []
 
     return Config(
-        target_repo=target_repo,
+        target_issue_repo=target_issue_repo,
         poll_interval=int(os.environ.get("POLL_INTERVAL", "60")),
         agent_timeout=int(os.environ.get("AGENT_TIMEOUT", "900")),
         copilot_model=os.environ.get("COPILOT_MODEL", ""),

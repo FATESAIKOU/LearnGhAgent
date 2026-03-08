@@ -19,8 +19,8 @@ cp /auth-src/hosts.yml /root/.config/gh/hosts.yml
 chmod 600 /root/.config/gh/hosts.yml
 
 # --- 驗證 ---
-if [ -z "${TARGET_REPO:-}" ]; then
-    log ERROR "TARGET_REPO is required"
+if [ -z "${TARGET_ISSUE_REPO:-}" ]; then
+    log ERROR "TARGET_ISSUE_REPO is required"
     exit 1
 fi
 
@@ -36,15 +36,15 @@ if ! gh copilot -- --version 2>&1; then
     exit 1
 fi
 
-# --- Auto-clone TARGET_REPO ---
-REPO_DIR="/workspace/$(basename "${TARGET_REPO}")"
-if [ -z "$(ls -A /workspace 2>/dev/null)" ]; then
-    log INFO "Cloning ${TARGET_REPO} into /workspace..."
-    gh repo clone "${TARGET_REPO}" /workspace
-fi
+# --- Git config for agent commits ---
+git config --global user.name "GitHub Issue Agent"
+git config --global user.email "agent@learnghagent.local"
+git config --global --add safe.directory '*'
+git config --global credential.helper '!gh auth git-credential'
+log INFO "Git identity configured"
 
 # --- 啟動主迴圈 ---
-log INFO "Starting agent loop for ${TARGET_REPO}"
+log INFO "Starting agent loop for ${TARGET_ISSUE_REPO}"
 log INFO "Poll interval: ${POLL_INTERVAL:-60}s, Timeout: ${AGENT_TIMEOUT:-900}s"
 
 exec python3 /app/agent_loop.py
