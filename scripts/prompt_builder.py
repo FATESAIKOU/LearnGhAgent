@@ -16,6 +16,7 @@ def build_prompt(
     comments: list[dict[str, Any]],
     role: str,
     agents_dir: str,
+    extra_context: str = "",
 ) -> str:
     """Build the full prompt from issue data, comments, and role instructions."""
 
@@ -58,7 +59,7 @@ def build_prompt(
 
 ## Comments
 {comments_text}
-
+{extra_context}
 ---
 
 Please execute the task and provide a summary of what you did."""

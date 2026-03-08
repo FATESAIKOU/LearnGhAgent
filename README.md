@@ -4,9 +4,9 @@
 
 ## 使用場景
 
-### 1. 自動回覆 Issue 任務
+### 1. 單一角色任務
 
-在 Issue 中描述一個任務，Agent 會自動讀取並嘗試執行，完成後回寫摘要。
+在 Issue 上加上 `role:coder` label，Agent 會自動用 Coder 角色讀取 Issue 並執行任務，完成後回寫摘要並移除 label。
 
 **適合用在：**
 - 「幫我在 workspace 裡建立一個 hello world 的 Python script」
@@ -15,19 +15,25 @@
 
 ### 2. 持續監控 + 對話式任務
 
-Agent 每隔固定秒數輪詢一次，發現 Issue 有新 comment 就會重新處理。你可以在 Issue 裡持續追加指示，Agent 會接續執行。
+Agent 每隔固定秒數輪詢一次，發現 Issue 有新 comment 就會重新處理。你可以重新加上 `role:xxx` label 並追加指示，Agent 會接續執行。
 
 **適合用在：**
 - 對 Agent 的結果不滿意，追加修改指示
 - 多步驟任務，分次下達
 
-### 3. 多角色分派（未來擴展）
+### 3. 多角色 Workflow 自動串接
 
-透過 Issue label 指定不同的 Agent 角色（如 `role:coder`、`role:qa`），每個角色有獨立的 instructions 和設定。
+透過 Workflow YAML 定義多階段任務，Issue 加上 `role:xxx` + `workflow:xxx` + `phase:xxx` 三個 label 啟動。Agent 完成每個階段後自動轉換到下一個角色/階段。
+
+**範例：** `full-development` workflow
+1. `role:manager` + `phase:requirement-analysis` → Manager 分析需求
+2. 自動轉換 → `role:architect` + `phase:system-design` → Architect 設計架構
+3. 自動轉換 → `role:coder` + `phase:implementation` → Coder 寫程式
+4. 自動轉換 → `role:qa` + `phase:verification` → QA 驗證
 
 **適合用在：**
-- 不同 Issue 用不同風格的 AI 處理
-- 建立 Manager / Architect / Coder / QA 多角色工作流
+- 完整的功能開發流程（需求 → 設計 → 實作 → 驗證）
+- 快速修復流程（修復 → 驗證）
 
 ---
 
@@ -72,19 +78,23 @@ docker run -d --name gh-issue-agent \
   -v "$(pwd)/auth/hosts.yml:/auth-src/hosts.yml:ro" \
   -v "$(pwd)/data:/data" \
   -v "$(pwd)/agents:/app/agents:ro" \
+  -v "$(pwd)/workflows:/app/workflows:ro" \
   -v "$(pwd)/workspace:/workspace" \
   gh-issue-agent
 ```
 
 ```bash
-# 自訂 poll 間隔和 timeout
+# 自訂設定（指定啟用角色、model、poll 間隔）
 docker run -d --name gh-issue-agent \
   -e TARGET_REPO=owner/repo \
   -e POLL_INTERVAL=30 \
   -e AGENT_TIMEOUT=120 \
+  -e COPILOT_MODEL=claude-sonnet-4.6 \
+  -e ENABLED_AGENTS=coder,qa \
   -v "$(pwd)/auth/hosts.yml:/auth-src/hosts.yml:ro" \
   -v "$(pwd)/data:/data" \
   -v "$(pwd)/agents:/app/agents:ro" \
+  -v "$(pwd)/workflows:/app/workflows:ro" \
   -v "$(pwd)/workspace:/workspace" \
   gh-issue-agent
 ```
@@ -118,6 +128,8 @@ docker stop gh-issue-agent && docker rm gh-issue-agent
 | `AGENT_TIMEOUT` | Agent 單次執行超時（秒） | `900` |
 | `COPILOT_MODEL` | 指定 AI 模型（見下方模型表） | 不指定（用預設） |
 | `DEFAULT_ROLE` | 預設 Agent 角色 | `default` |
+| `ENABLED_AGENTS` | 啟用的 agent 角色（逗號分隔，空=全部） | 空（全部啟用） |
+| `WORKFLOW_FILE` | Workflow YAML 定義檔路徑 | `/app/workflows/default.yml` |
 
 ---
 
@@ -166,19 +178,24 @@ LearnGhAgent/
 ├── docker-compose.yml           # Docker Compose 設定
 ├── .gitignore
 ├── scripts/
-│   ├── entrypoint.sh            # 容器啟動腳本
-│   ├── agent_loop.py            # 主控迴圈
+│   ├── entrypoint.sh            # 容器啟動腳本（含 auto-clone）
+│   ├── agent_loop.py            # 主控迴圈（含 workflow 支援）
 │   ├── config.py                # 環境變數讀取
-│   ├── github_client.py         # GitHub API 封裝
+│   ├── github_client.py         # GitHub API 封裝（含 label 操作）
 │   ├── state_manager.py         # 狀態持久化
-│   ├── role_resolver.py         # 角色分派
-│   ├── prompt_builder.py        # Prompt 組合
-│   ├── agent_runner.py          # gh copilot 執行器
+│   ├── role_resolver.py         # 角色分派（label 解析）
+│   ├── prompt_builder.py        # Prompt 組合（含 workflow context）
+│   ├── agent_runner.py          # gh copilot 執行器（JSONL streaming）
+│   ├── workflow_loader.py       # Workflow YAML 載入與階段轉換
 │   └── setup-auth.sh            # 認證設定工具（host 端）
 ├── agents/                      # Agent 角色定義
-│   └── default/
-│       ├── instructions.md      # 角色系統指示
-│       └── config.json          # 角色設定
+│   ├── default/                 # 預設角色
+│   ├── manager/                 # 需求分析、任務分解
+│   ├── architect/               # 系統設計、架構規劃
+│   ├── coder/                   # 程式實作
+│   └── qa/                      # 品質驗證、測試
+├── workflows/                   # Workflow 定義
+│   └── default.yml              # 預設 Workflow
 ├── auth/                        # 認證檔案（gitignored）
 ├── data/                        # 狀態持久化（state.json）
 └── workspace/                   # Agent 工作區
@@ -192,22 +209,106 @@ LearnGhAgent/
 
 ```
 agents/
-├── default/
-│   ├── instructions.md
-│   └── config.json
-└── coder/                  # 新角色
+└── my-role/
     ├── instructions.md     # 角色的系統指示
     └── config.json         # {"model": "", "extra_flags": ""}
 ```
 
-然後在 Issue 上加 label `role:coder`，Agent 就會使用該角色的 instructions 執行。
+然後在 Issue 上加 label `role:my-role`，Agent 就會使用該角色的 instructions 執行。
+
+### 內建角色
+
+| 角色 | Label | 說明 |
+|------|-------|------|
+| default | `role:default` | 通用 AI 助手 |
+| manager | `role:manager` | 需求分析、任務分解、產出需求文件 |
+| architect | `role:architect` | 系統設計、架構規劃、技術選型 |
+| coder | `role:coder` | 程式實作、撰寫測試、commit 變更 |
+| qa | `role:qa` | 品質驗證、測試執行、安全審查 |
+
+---
+
+## Workflow 系統
+
+### Label 系統
+
+Issue 使用三種 label 控制 Agent 行為：
+
+| Label | 格式 | 說明 |
+|-------|------|------|
+| 角色 | `role:xxx` | **必須**。指定執行的 Agent 角色（對應 `agents/xxx/` 目錄） |
+| 工作流 | `workflow:xxx` | 選用。指定使用的 Workflow 定義（對應 YAML 中的 key） |
+| 階段 | `phase:xxx` | 選用。指定 Workflow 目前階段（對應 YAML 中的 phasename） |
+
+### 單一角色（無 Workflow）
+
+只加 `role:xxx` label → Agent 執行後自動移除該 label。
+
+### 多階段 Workflow
+
+加上 `role:xxx` + `workflow:xxx` + `phase:xxx` → Agent 完成後自動轉換到下一階段。
+
+**範例：啟動 full-development workflow**
+
+在 Issue 加上以下 3 個 label：
+- `role:manager`
+- `workflow:full-development`
+- `phase:requirement-analysis`
+
+Agent 會依序自動執行：
+1. Manager → 需求分析
+2. Architect → 系統設計
+3. Coder → 程式實作
+4. QA → 品質驗證
+
+### Workflow YAML 格式
+
+定義在 `workflows/default.yml`：
+
+```yaml
+full-development:
+  - role: manager
+    phasename: requirement-analysis
+    phasetarget: "Analyze the issue, clarify requirements."
+    llm-model: ""          # 空字串 = 使用預設 model
+  - role: architect
+    phasename: system-design
+    phasetarget: "Design the system architecture."
+    llm-model: ""
+  - role: coder
+    phasename: implementation
+    phasetarget: "Implement the design, write code."
+    llm-model: ""
+  - role: qa
+    phasename: verification
+    phasetarget: "Verify the implementation."
+    llm-model: ""
+
+quick-fix:
+  - role: coder
+    phasename: fix
+    phasetarget: "Fix the bug described in the issue."
+    llm-model: ""
+  - role: qa
+    phasename: verify-fix
+    phasetarget: "Verify the fix is correct."
+    llm-model: ""
+```
+
+### Model 優先順序
+
+1. Workflow phase 的 `llm-model`（若非空）
+2. 環境變數 `COPILOT_MODEL`
 
 ---
 
 ## 運作原理
 
 1. **輪詢**：每 `POLL_INTERVAL` 秒取得 repo 所有 open issues
-2. **偵測新活動**：比對每個 Issue 的最新 comment 時間與 `state.json` 中的記錄
-3. **執行**：有新活動時，組合 issue 內容 + 角色 instructions 為 prompt，呼叫 `gh copilot -p "..." --yolo --no-ask-user --output-format json`
-4. **回寫**：將 Agent 輸出作為 comment 回寫到 Issue
-5. **更新狀態**：記錄已處理時間，下次輪詢跳過無新活動的 Issue
+2. **Label 解析**：檢查每個 Issue 的 `role:xxx` label，對應 `agents/xxx/` 目錄，過濾 `ENABLED_AGENTS`
+3. **偵測新活動**：比對 Issue 最新 comment 時間與 `state.json` 記錄
+4. **Workflow 解析**：若有 `workflow:xxx` + `phase:xxx` label，載入對應 Workflow 定義，注入 phase 資訊到 prompt
+5. **執行**：組合 issue 內容 + 角色 instructions + workflow context 為 prompt，呼叫 `gh copilot -p "..." --yolo --no-ask-user --output-format json`
+6. **回寫**：將 Agent 輸出作為 comment 回寫到 Issue
+7. **階段轉換**：移除當前 `role:` + `phase:` label，加上下一階段的 label（若有 Workflow）
+8. **更新狀態**：記錄已處理時間

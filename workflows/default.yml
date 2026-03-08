@@ -1,0 +1,36 @@
+# Default Workflow Definition
+# Each workflow defines a sequence of phases.
+# Issues are matched by labels: workflow:<name> + phase:<phasename>
+# After each phase completes, the agent auto-transitions to the next phase.
+
+full-development:
+  - role: manager
+    phasename: requirement-analysis
+    phasetarget: "Analyze the issue, clarify requirements, and produce a structured requirements document."
+    llm-model: ""
+
+  - role: architect
+    phasename: system-design
+    phasetarget: "Design the system architecture based on the requirements document."
+    llm-model: ""
+
+  - role: coder
+    phasename: implementation
+    phasetarget: "Implement the design, write code, and commit changes."
+    llm-model: ""
+
+  - role: qa
+    phasename: verification
+    phasetarget: "Verify the implementation against requirements and design."
+    llm-model: ""
+
+quick-fix:
+  - role: coder
+    phasename: fix
+    phasetarget: "Fix the bug or implement the small change described in the issue."
+    llm-model: ""
+
+  - role: qa
+    phasename: verify-fix
+    phasetarget: "Verify the fix is correct and does not introduce regressions."
+    llm-model: ""

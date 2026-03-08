@@ -1,7 +1,7 @@
 """Configuration management — reads environment variables."""
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -13,6 +13,8 @@ class Config:
     default_role: str
     state_file: str
     agents_dir: str
+    enabled_agents: list[str] = field(default_factory=list)
+    workflow_file: str = ""
 
     @property
     def owner(self) -> str:
@@ -28,6 +30,10 @@ def load_config() -> Config:
     if not target_repo or "/" not in target_repo:
         raise ValueError("TARGET_REPO must be set in 'owner/repo' format")
 
+    # ENABLED_AGENTS: comma-separated list of agent names, empty = all
+    enabled_raw = os.environ.get("ENABLED_AGENTS", "").strip()
+    enabled_agents = [a.strip() for a in enabled_raw.split(",") if a.strip()] if enabled_raw else []
+
     return Config(
         target_repo=target_repo,
         poll_interval=int(os.environ.get("POLL_INTERVAL", "60")),
@@ -36,4 +42,6 @@ def load_config() -> Config:
         default_role=os.environ.get("DEFAULT_ROLE", "default"),
         state_file=os.environ.get("STATE_FILE", "/data/state.json"),
         agents_dir=os.environ.get("AGENTS_DIR", "/app/agents"),
+        enabled_agents=enabled_agents,
+        workflow_file=os.environ.get("WORKFLOW_FILE", "/app/workflows/default.yml"),
     )

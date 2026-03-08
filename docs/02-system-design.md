@@ -6,18 +6,20 @@
 |---|---|
 | Docker Container | 運行環境，包含所有工具和 Script |
 | 主控程式 (`agent_loop.py`) | 常駐 loop，定期輪詢 Issue、依角色分派 Agent |
-| 角色分派器（dispatcher 邏輯） | 根據 Issue label 決定用哪個 Agent 角色 |
+| 角色分派器 (`role_resolver.py`) | 根據 Issue label 決定用哪個 Agent 角色 |
+| Workflow 載入器 (`workflow_loader.py`) | 載入 Workflow YAML、解析階段、處理階段轉換 |
 | 認證設定工具 (`setup-auth.sh`) | host 端執行，協助 User 設定 gh 認證情報 |
 | gh copilot CLI | Agent 本體，以 `--yolo` 模式執行任務 |
 | 狀態檔 (`state.json`) | 記錄每個 Issue 的最後處理時間 |
 | 角色 Agent 設定 (`agents/`) | 每個角色一個目錄，包含 instructions 和設定 |
+| Workflow 定義 (`workflows/`) | YAML 定義多階段工作流 |
 
 ## Docker 映像要件
 
 | 項目 | 規格 |
 |---|---|
 | Base Image | `ubuntu:24.04` |
-| 必裝軟體 | `gh` (GitHub CLI)、`gh copilot` CLI、`jq`、`curl`、`git`、`node` (npm/npx) |
+| 必裝軟體 | `gh` (GitHub CLI)、`gh copilot` CLI、`jq`、`curl`、`git`、`node` (npm/npx)、`python3-yaml` |
 | 工作目錄 | `/workspace` |
 | Script 位置 | `/app/` |
 | 設定/狀態目錄 | `/data/`（mount volume） |
@@ -30,6 +32,7 @@ Host                              Container                    用途
 ./auth/hosts.yml            →    /auth-src/hosts.yml (ro)     gh 認證情報（entrypoint copy 到可寫位置）
 ./data/                     →    /data/                        state.json 持久化
 ./agents/                   →    /app/agents/        (ro)     自訂 Agent 角色定義
+./workflows/                →    /app/workflows/     (ro)     Workflow 定義檔
 ./workspace/                →    /workspace/                   Agent 工作區
 ```
 
@@ -42,6 +45,8 @@ Host                              Container                    用途
 | `AGENT_TIMEOUT` | Agent 執行超時（秒） | `900`（15 分鐘） |
 | `COPILOT_MODEL` | 使用的 AI 模型 | 不指定（用預設） |
 | `DEFAULT_ROLE` | 預設 Agent 角色 | `default` |
+| `ENABLED_AGENTS` | 啟用的 agent 角色（逗號分隔，空=全部啟用） | 空（全部） |
+| `WORKFLOW_FILE` | Workflow YAML 定義檔路徑 | `/app/workflows/default.yml` |
 
 ## 角色 Agent 設計
 
@@ -49,19 +54,19 @@ Host                              Container                    用途
 
 ```
 agents/
-├── default/                    # 預設角色（v1 唯一角色）
+├── default/                    # 預設角色
 │   ├── instructions.md         # 該角色的 system prompt / instructions
-│   └── config.json             # 該角色的特殊設定（可選：model、tools 等）
-├── manager/                    # 未來：Manager 角色
+│   └── config.json             # 該角色的特殊設定
+├── manager/                    # Manager 角色（需求分析、任務分解）
 │   ├── instructions.md
 │   └── config.json
-├── architect/                  # 未來：Architect 角色
+├── architect/                  # Architect 角色（系統設計、架構規劃）
 │   ├── instructions.md
 │   └── config.json
-├── coder/                      # 未來：Coder 角色
+├── coder/                      # Coder 角色（程式實作）
 │   ├── instructions.md
 │   └── config.json
-└── qa/                         # 未來：QA 角色
+└── qa/                         # QA 角色（品質驗證、測試）
     ├── instructions.md
     └── config.json
 ```
@@ -82,14 +87,58 @@ agents/
 
 ### 角色分派邏輯
 
-- **v1（目前）**：所有 Issue 使用 `default` 角色
-- **v2（未來）**：根據 Issue 的 label 分派
-  - `role:manager` → `manager` 角色
-  - `role:architect` → `architect` 角色
-  - `role:coder` → `coder` 角色
-  - `role:qa` → `qa` 角色
-  - 無 role label → 使用 `DEFAULT_ROLE`
-- **限制**：一個 Issue 同一時間只有一個角色在處理
+- Issue 必須帶有 `role:xxx` label 才會觸發對應角色
+- `role:xxx` 中的 `xxx` 必須對應 `agents/` 下的子目錄
+- 若設定了 `ENABLED_AGENTS`，只有在清單中的角色會被啟用
+- 一個 Issue 同一時間只有一個角色在處理
+
+### Label 系統
+
+| Label 類型 | 格式 | 說明 |
+|---|---|---|
+| 角色 | `role:xxx` | 指定執行的 Agent 角色（對應 `agents/xxx/`） |
+| 工作流 | `workflow:xxx` | 指定使用的 Workflow 定義 |
+| 階段 | `phase:xxx` | 指定目前所在的 Workflow 階段 |
+
+### Workflow 系統
+
+Workflow 定義在 YAML 檔案中（預設 `/app/workflows/default.yml`），描述多階段任務的執行順序。
+
+#### Workflow YAML 格式
+
+```yaml
+full-development:
+  - role: manager
+    phasename: requirement-analysis
+    phasetarget: "Analyze the issue, clarify requirements."
+    llm-model: ""
+  - role: architect
+    phasename: system-design
+    phasetarget: "Design the system architecture."
+    llm-model: ""
+  - role: coder
+    phasename: implementation
+    phasetarget: "Implement the design."
+    llm-model: ""
+  - role: qa
+    phasename: verification
+    phasetarget: "Verify the implementation."
+    llm-model: ""
+```
+
+#### Model 優先順序
+
+1. Workflow phase 的 `llm-model`（若非空）
+2. 角色 `config.json` 的 `model`（若非空）
+3. 環境變數 `COPILOT_MODEL`
+
+#### 自動階段轉換
+
+Agent 完成當前階段後：
+1. 移除當前的 `role:xxx` 和 `phase:xxx` label
+2. 根據 Workflow 定義，加上下一階段的 `role:xxx` 和 `phase:xxx` label
+3. 若已是最後階段，僅移除 label（Workflow 完成）
+4. 若 Issue 無 Workflow label，完成後僅移除 `role:xxx` label
 
 ## Agent 呼叫方式
 
@@ -204,21 +253,37 @@ LearnGhAgent/
 │   ├── 01-requirements.md       # 需求定義
 │   ├── 02-system-design.md      # 系統要件設計（本文件）
 │   ├── 03-basic-design.md       # 系統基本設計
-│   └── 04-poc-validation.md     # PoC 驗證報告
+│   ├── 04-poc-validation.md     # PoC 驗證報告
+│   └── 05-design-adjustments.md # 設計調整報告
 ├── scripts/
 │   ├── agent_loop.py            # 主控程式 (Python)
 │   ├── config.py                # 環境變數讀取、設定管理
-│   ├── github_client.py         # GitHub API 封裝
+│   ├── github_client.py         # GitHub API 封裝（含 label 操作）
 │   ├── state_manager.py         # state.json 讀寫
-│   ├── role_resolver.py         # 角色分派邏輯
-│   ├── prompt_builder.py        # Prompt 組合
-│   ├── agent_runner.py          # gh copilot 子程序管理
+│   ├── role_resolver.py         # 角色分派邏輯（label 解析）
+│   ├── prompt_builder.py        # Prompt 組合（含 workflow context）
+│   ├── agent_runner.py          # gh copilot 子程序管理（JSONL streaming）
+│   ├── workflow_loader.py       # Workflow YAML 載入與階段轉換
 │   ├── setup-auth.sh            # 認證設定工具（host 端執行）
-│   └── entrypoint.sh            # Docker entrypoint
+│   └── entrypoint.sh            # Docker entrypoint（含 auto-clone）
 ├── agents/                      # 角色 Agent 定義
-│   └── default/
+│   ├── default/
+│   │   ├── instructions.md
+│   │   └── config.json
+│   ├── manager/
+│   │   ├── instructions.md
+│   │   └── config.json
+│   ├── architect/
+│   │   ├── instructions.md
+│   │   └── config.json
+│   ├── coder/
+│   │   ├── instructions.md
+│   │   └── config.json
+│   └── qa/
 │       ├── instructions.md
 │       └── config.json
+├── workflows/                   # Workflow 定義
+│   └── default.yml              # 預設 Workflow（full-development, quick-fix）
 ├── auth/                        # gh 認證情報（gitignore）
 ├── data/                        # 持久化狀態
 │   └── state.json

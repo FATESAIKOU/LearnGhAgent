@@ -45,3 +45,66 @@
 - **agents/ 角色目錄結構**：無變更
 - **日誌設計**：無變更
 - **元件互動序列圖**：流程不變（僅 entrypoint 內部多了 auth copy，不影響序列）
+
+---
+
+## 調整二：Workflow 多階段系統（觸發規則改版）
+
+### 調整背景
+
+原設計僅使用 `role:xxx` label 作為簡單的角色分派，完成後需手動管理 label。為支援多角色自動串接的工作流程，進行以下大幅重構。
+
+### 調整一覽
+
+| # | 調整項目 | 原設計 | 修正內容 |
+|---|---------|--------|---------|
+| 1 | 觸發條件 | 任何 open issue、無 role label 用 DEFAULT_ROLE | 必須有 `role:xxx` label 才觸發，且 `xxx` 對應 `agents/` 子目錄 |
+| 2 | 角色啟用 | 所有角色都啟用 | 新增 `ENABLED_AGENTS` 環境變數，可限制只啟用部分角色 |
+| 3 | 預設角色 | default, manager/architect/coder/qa 為「未來」 | 4 個角色全部實作：manager, architect, coder, qa |
+| 4 | 完成後行為 | 不管理 label | 自動移除當前 `role:xxx` + `phase:xxx`，加上下一階段的 label |
+| 5 | Workflow 系統 | 無 | 新增 Workflow YAML 定義檔，支援多階段任務串接 |
+| 6 | Model 優先順序 | `config.json` > `COPILOT_MODEL` | Workflow phase `llm-model` > `config.json` model > `COPILOT_MODEL` |
+| 7 | Docker 映像 | 無 python3-yaml | 新增 `python3-yaml` 到 apt install |
+| 8 | Volume mount | 無 workflows | 新增 `./workflows:/app/workflows:ro` |
+
+### 新增/修改的檔案
+
+| 檔案 | 變更類型 | 說明 |
+|------|---------|------|
+| `scripts/workflow_loader.py` | 新增 | Workflow YAML 解析、Phase/Workflow dataclass、階段查詢與轉換 |
+| `scripts/role_resolver.py` | 重寫 | ResolvedLabels dataclass、解析 `role:`/`workflow:`/`phase:` label、agents_dir 驗證、enabled_agents 過濾 |
+| `scripts/agent_loop.py` | 重寫 | process_issue() 整合 workflow、model 優先順序、_advance_workflow() 自動轉換 |
+| `scripts/github_client.py` | 新增函式 | `add_label()`, `remove_label()` |
+| `scripts/prompt_builder.py` | 修改 | 新增 `extra_context` 參數（插入 workflow phase 資訊） |
+| `scripts/config.py` | 修改 | 新增 `enabled_agents`, `workflow_file` 欄位 |
+| `docker-compose.yml` | 修改 | 新增 `ENABLED_AGENTS`, `WORKFLOW_FILE` 環境變數、`workflows` volume |
+| `Dockerfile` | 修改 | apt install 新增 `python3-yaml` |
+| `agents/manager/` | 新增 | Manager 角色（需求分析、任務分解） |
+| `agents/architect/` | 新增 | Architect 角色（系統設計、架構規劃） |
+| `agents/coder/` | 新增 | Coder 角色（程式實作） |
+| `agents/qa/` | 新增 | QA 角色（品質驗證、測試） |
+| `workflows/default.yml` | 新增 | 預設 Workflow 定義（full-development, quick-fix） |
+
+### Label 系統
+
+```
+role:xxx       → 指定執行的 Agent 角色（必須對應 agents/xxx/ 目錄）
+workflow:xxx   → 指定使用的 Workflow 定義（對應 YAML 中的 key）
+phase:xxx      → 指定目前所在的 Workflow 階段（對應 YAML 中的 phasename）
+```
+
+### Workflow 自動轉換流程
+
+```
+Issue labels: [role:manager, workflow:full-development, phase:requirement-analysis]
+  → Agent 執行 manager 角色
+  → 完成後：
+     移除 role:manager, phase:requirement-analysis
+     加上 role:architect, phase:system-design
+  → 下次輪詢時：
+     Agent 執行 architect 角色
+  → 完成後：
+     移除 role:architect, phase:system-design
+     加上 role:coder, phase:implementation
+  → ... 直到最後一個階段完成
+```

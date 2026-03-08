@@ -2,7 +2,7 @@ FROM ubuntu:24.04
 
 # 系統套件（含 python3）
 RUN apt-get update && apt-get install -y \
-    curl git jq ca-certificates gnupg python3 \
+    curl git jq ca-certificates gnupg python3 python3-pip python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.js (gh copilot CLI 內含 Node.js runtime，但 npx 等工具仍需系統 Node)

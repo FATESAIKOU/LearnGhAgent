@@ -69,3 +69,23 @@ def get_latest_activity_time(owner: str, repo: str, number: int) -> str:
             return max(issue_created, latest_comment)
 
     return issue_created
+
+
+def add_label(repo: str, number: int, label: str) -> None:
+    """Add a label to an issue. Creates the label if it doesn't exist."""
+    _run_gh(
+        "issue", "edit", str(number),
+        "--repo", repo,
+        "--add-label", label,
+    )
+    logger.info("Issue #%d: added label '%s'", number, label)
+
+
+def remove_label(repo: str, number: int, label: str) -> None:
+    """Remove a label from an issue."""
+    _run_gh(
+        "issue", "edit", str(number),
+        "--repo", repo,
+        "--remove-label", label,
+    )
+    logger.info("Issue #%d: removed label '%s'", number, label)
