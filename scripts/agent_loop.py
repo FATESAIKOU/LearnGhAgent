@@ -78,8 +78,9 @@ def process_issue(
                 number, resolved.role, resolved.workflow_name or "none",
                 resolved.phase_name or "none")
 
-    # Step 4: Determine model — workflow phase > role config > env default
+    # Step 4: Determine model & flags — workflow phase > env default
     phase_model = ""
+    phase_extra_flags = ""
     current_workflow = None
     current_phase_idx = None
     if resolved.workflow_name and resolved.workflow_name in workflows:
@@ -88,6 +89,7 @@ def process_issue(
             current_phase_idx = find_phase_by_label(current_workflow, resolved.phase_name)
             if current_phase_idx is not None:
                 phase_model = current_workflow.phases[current_phase_idx].llm_model
+                phase_extra_flags = current_workflow.phases[current_phase_idx].extra_flags
                 logger.info("Issue #%d: workflow '%s' phase '%s' (idx=%d)",
                             number, resolved.workflow_name, resolved.phase_name, current_phase_idx)
 
@@ -113,7 +115,7 @@ def process_issue(
         logger.error("Issue #%d: failed to build prompt: %s", number, e)
         return
 
-    # Step 6: Run agent (model priority: phase > role config > env default)
+    # Step 6: Run agent (model priority: workflow phase > env default)
     effective_model = phase_model or config.copilot_model
     result = run_agent(
         prompt=prompt,
@@ -121,6 +123,7 @@ def process_issue(
         agents_dir=config.agents_dir,
         timeout=config.agent_timeout,
         copilot_model=effective_model,
+        extra_flags=phase_extra_flags,
     )
 
     if result.timed_out:
@@ -144,9 +147,10 @@ def process_issue(
             return
 
     # Step 8: Workflow transition — remove current labels, add next phase labels
+    has_next_phase = False
     if current_workflow and current_phase_idx is not None:
         try:
-            _advance_workflow(config, number, resolved, current_workflow, current_phase_idx)
+            has_next_phase = _advance_workflow(config, number, resolved, current_workflow, current_phase_idx)
         except Exception as e:
             logger.error("Issue #%d: failed to advance workflow: %s", number, e)
 
@@ -159,11 +163,19 @@ def process_issue(
                            number, resolved.role_label, e)
 
     # Step 9: Update state
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    try:
-        state.update_last_processed(number, now)
-    except Exception as e:
-        logger.error("Issue #%d: failed to update state: %s", number, e)
+    # If there's a next phase, reset state so the next poll picks it up immediately
+    if has_next_phase:
+        try:
+            state.clear_last_processed(number)
+            logger.info("Issue #%d: state cleared for next phase", number)
+        except Exception as e:
+            logger.error("Issue #%d: failed to clear state: %s", number, e)
+    else:
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        try:
+            state.update_last_processed(number, now)
+        except Exception as e:
+            logger.error("Issue #%d: failed to update state: %s", number, e)
 
 
 def _advance_workflow(
@@ -172,8 +184,11 @@ def _advance_workflow(
     resolved,
     workflow: Workflow,
     current_phase_idx: int,
-) -> None:
-    """Remove current phase labels, add next phase labels."""
+) -> bool:
+    """Remove current phase labels, add next phase labels.
+
+    Returns True if there is a next phase, False if workflow is complete.
+    """
     repo = config.target_repo
 
     # Remove current role + phase labels
@@ -190,9 +205,11 @@ def _advance_workflow(
         add_label(repo, number, f"phase:{next_phase.phasename}")
         logger.info("Issue #%d: advanced to next phase -> role:%s phase:%s",
                      number, next_phase.role, next_phase.phasename)
+        return True
     else:
         logger.info("Issue #%d: workflow '%s' completed (no more phases)",
                      number, workflow.name)
+        return False
 
 
 # ---------------------------------------------------------------------------

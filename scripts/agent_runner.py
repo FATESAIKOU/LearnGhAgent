@@ -1,8 +1,6 @@
 """Agent runner — execute gh copilot as a subprocess with real-time output."""
 
-import json
 import logging
-import os
 import subprocess
 import threading
 from dataclasses import dataclass
@@ -24,21 +22,9 @@ def run_agent(
     agents_dir: str,
     timeout: int,
     copilot_model: str = "",
+    extra_flags: str = "",
 ) -> AgentResult:
     """Run gh copilot with the given prompt and return the result."""
-
-    # Read role config
-    config_path = os.path.join(agents_dir, role, "config.json")
-    model = ""
-    extra_flags = ""
-    if os.path.isfile(config_path):
-        try:
-            with open(config_path, "r") as f:
-                config = json.load(f)
-            model = config.get("model", "")
-            extra_flags = config.get("extra_flags", "")
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning("Failed to read role config %s: %s", config_path, e)
 
     # Build command
     cmd = [
@@ -49,10 +35,9 @@ def run_agent(
         "--add-dir", "/workspace",
     ]
 
-    # Model selection: role config > env var
-    effective_model = model or copilot_model
-    if effective_model:
-        cmd.extend(["--model", effective_model])
+    # Model selection
+    if copilot_model:
+        cmd.extend(["--model", copilot_model])
 
     # Extra flags
     if extra_flags:

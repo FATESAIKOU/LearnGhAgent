@@ -21,6 +21,7 @@ class Phase:
     phasename: str
     phasetarget: str = ""
     llm_model: str = ""
+    extra_flags: str = ""
 
 
 @dataclass
@@ -83,6 +84,7 @@ def load_workflows(workflow_file: str) -> dict[str, Workflow]:
                 phasename=item.get("phasename", ""),
                 phasetarget=item.get("phasetarget", ""),
                 llm_model=item.get("llm-model", ""),
+                extra_flags=item.get("extra-flags", ""),
             ))
         workflows[wf_name] = Workflow(name=wf_name, phases=phases)
         logger.info("Loaded workflow '%s' with %d phases", wf_name, len(phases))

@@ -135,7 +135,7 @@ docker stop gh-issue-agent && docker rm gh-issue-agent
 
 ## 可用模型
 
-透過環境變數 `COPILOT_MODEL` 或角色 `config.json` 中的 `model` 欄位指定。
+透過環境變數 `COPILOT_MODEL` 或 Workflow YAML 中的 `llm-model` 欄位指定。
 
 ```bash
 # 範例：使用 Claude Sonnet 4.6
@@ -210,8 +210,7 @@ LearnGhAgent/
 ```
 agents/
 └── my-role/
-    ├── instructions.md     # 角色的系統指示
-    └── config.json         # {"model": "", "extra_flags": ""}
+    └── instructions.md     # 角色的系統指示（唯一必要檔案）
 ```
 
 然後在 Issue 上加 label `role:my-role`，Agent 就會使用該角色的 instructions 執行。
@@ -271,28 +270,34 @@ full-development:
     phasename: requirement-analysis
     phasetarget: "Analyze the issue, clarify requirements."
     llm-model: ""          # 空字串 = 使用預設 model
+    extra-flags: ""         # 額外 gh copilot CLI flags
   - role: architect
     phasename: system-design
     phasetarget: "Design the system architecture."
     llm-model: ""
+    extra-flags: ""
   - role: coder
     phasename: implementation
     phasetarget: "Implement the design, write code."
     llm-model: ""
+    extra-flags: ""
   - role: qa
     phasename: verification
     phasetarget: "Verify the implementation."
     llm-model: ""
+    extra-flags: ""
 
 quick-fix:
   - role: coder
     phasename: fix
     phasetarget: "Fix the bug described in the issue."
     llm-model: ""
+    extra-flags: ""
   - role: qa
     phasename: verify-fix
     phasetarget: "Verify the fix is correct."
     llm-model: ""
+    extra-flags: ""
 ```
 
 ### Model 優先順序
@@ -310,5 +315,5 @@ quick-fix:
 4. **Workflow 解析**：若有 `workflow:xxx` + `phase:xxx` label，載入對應 Workflow 定義，注入 phase 資訊到 prompt
 5. **執行**：組合 issue 內容 + 角色 instructions + workflow context 為 prompt，呼叫 `gh copilot -p "..." --yolo --no-ask-user --output-format json`
 6. **回寫**：將 Agent 輸出作為 comment 回寫到 Issue
-7. **階段轉換**：移除當前 `role:` + `phase:` label，加上下一階段的 label（若有 Workflow）
-8. **更新狀態**：記錄已處理時間
+7. **階段轉換**：移除當前 `role:` + `phase:` label，加上下一階段的 label（若有 Workflow），並清除 state 使下次輪詢立即觸發
+8. **更新狀態**：記錄已處理時間（最後階段完成時）

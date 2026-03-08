@@ -48,3 +48,10 @@ class StateManager:
         self._state["issues"][key] = {"last_processed_at": timestamp}
         self._save()
         logger.info("Issue #%d: state updated to %s", issue_number, timestamp)
+
+    def clear_last_processed(self, issue_number: int) -> None:
+        """Remove state for an issue so it gets reprocessed on next poll."""
+        key = str(issue_number)
+        if "issues" in self._state and key in self._state["issues"]:
+            del self._state["issues"][key]
+            self._save()

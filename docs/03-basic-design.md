@@ -267,9 +267,9 @@ Please execute the task and provide a summary of what you did."
 run_agent(issue_number, role, prompt):
     log INFO "Running agent for issue #${issue_number} with role '${role}'"
     
-    # 讀取角色 config
+    # ℹ️ 已調整：config.json 已移除，model/extra_flags 改由 Workflow YAML 傳入
+    # 詳見 05-design-adjustments.md 調整二
     role_dir="/app/agents/${role}"
-    config="${role_dir}/config.json"
     
     model=""
     extra_flags=""
@@ -453,6 +453,8 @@ Your task is to read the issue description and comments, understand what is bein
 ```
 
 ### config.json
+
+> **ℹ️ 已調整**：`config.json` 已移除，model 和 extra_flags 改由 Workflow YAML 集中管理。詳見 [05-design-adjustments.md](05-design-adjustments.md) 調整二。
 
 ```json
 {

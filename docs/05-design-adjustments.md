@@ -63,26 +63,31 @@
 | 3 | 預設角色 | default, manager/architect/coder/qa 為「未來」 | 4 個角色全部實作：manager, architect, coder, qa |
 | 4 | 完成後行為 | 不管理 label | 自動移除當前 `role:xxx` + `phase:xxx`，加上下一階段的 label |
 | 5 | Workflow 系統 | 無 | 新增 Workflow YAML 定義檔，支援多階段任務串接 |
-| 6 | Model 優先順序 | `config.json` > `COPILOT_MODEL` | Workflow phase `llm-model` > `config.json` model > `COPILOT_MODEL` |
-| 7 | Docker 映像 | 無 python3-yaml | 新增 `python3-yaml` 到 apt install |
-| 8 | Volume mount | 無 workflows | 新增 `./workflows:/app/workflows:ro` |
+| 6 | Model 優先順序 | `config.json` > `COPILOT_MODEL` | Workflow phase `llm-model` > `COPILOT_MODEL`（移除 config.json） |
+| 7 | Agent 設定 | `config.json`（model, extra_flags） | 移除 `config.json`，model/flags 集中在 Workflow YAML |
+| 8 | Docker 映像 | 無 python3-yaml | 新增 `python3-yaml` 到 apt install |
+| 9 | Volume mount | 無 workflows | 新增 `./workflows:/app/workflows:ro` |
+| 10 | 階段轉換 state | 更新 state 為當前時間 | 轉換到下一階段時清除 state，使下次輪詢立即觸發 |
 
 ### 新增/修改的檔案
 
 | 檔案 | 變更類型 | 說明 |
 |------|---------|------|
-| `scripts/workflow_loader.py` | 新增 | Workflow YAML 解析、Phase/Workflow dataclass、階段查詢與轉換 |
+| `scripts/workflow_loader.py` | 新增 | Workflow YAML 解析、Phase/Workflow dataclass（含 extra_flags）、階段查詢與轉換 |
 | `scripts/role_resolver.py` | 重寫 | ResolvedLabels dataclass、解析 `role:`/`workflow:`/`phase:` label、agents_dir 驗證、enabled_agents 過濾 |
-| `scripts/agent_loop.py` | 重寫 | process_issue() 整合 workflow、model 優先順序、_advance_workflow() 自動轉換 |
+| `scripts/agent_loop.py` | 重寫 | process_issue() 整合 workflow、model 優先順序、_advance_workflow() 自動轉換、階段轉換時清除 state |
+| `scripts/state_manager.py` | 修改 | 新增 `clear_last_processed()` 方法 |
+| `scripts/agent_runner.py` | 修改 | 移除 config.json 讀取，改由參數傳入 model 和 extra_flags |
 | `scripts/github_client.py` | 新增函式 | `add_label()`, `remove_label()` |
 | `scripts/prompt_builder.py` | 修改 | 新增 `extra_context` 參數（插入 workflow phase 資訊） |
 | `scripts/config.py` | 修改 | 新增 `enabled_agents`, `workflow_file` 欄位 |
 | `docker-compose.yml` | 修改 | 新增 `ENABLED_AGENTS`, `WORKFLOW_FILE` 環境變數、`workflows` volume |
 | `Dockerfile` | 修改 | apt install 新增 `python3-yaml` |
-| `agents/manager/` | 新增 | Manager 角色（需求分析、任務分解） |
-| `agents/architect/` | 新增 | Architect 角色（系統設計、架構規劃） |
-| `agents/coder/` | 新增 | Coder 角色（程式實作） |
-| `agents/qa/` | 新增 | QA 角色（品質驗證、測試） |
+| `agents/manager/` | 新增 | Manager 角色（僅 instructions.md，無 config.json） |
+| `agents/architect/` | 新增 | Architect 角色（僅 instructions.md） |
+| `agents/coder/` | 新增 | Coder 角色（僅 instructions.md） |
+| `agents/qa/` | 新增 | QA 角色（僅 instructions.md） |
+| `agents/default/config.json` | 刪除 | config.json 已移除，設定集中在 Workflow YAML |
 | `workflows/default.yml` | 新增 | 預設 Workflow 定義（full-development, quick-fix） |
 
 ### Label 系統

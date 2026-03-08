@@ -55,35 +55,18 @@ Host                              Container                    用途
 ```
 agents/
 ├── default/                    # 預設角色
-│   ├── instructions.md         # 該角色的 system prompt / instructions
-│   └── config.json             # 該角色的特殊設定
+│   └── instructions.md         # 該角色的 system prompt / instructions
 ├── manager/                    # Manager 角色（需求分析、任務分解）
-│   ├── instructions.md
-│   └── config.json
+│   └── instructions.md
 ├── architect/                  # Architect 角色（系統設計、架構規劃）
-│   ├── instructions.md
-│   └── config.json
+│   └── instructions.md
 ├── coder/                      # Coder 角色（程式實作）
-│   ├── instructions.md
-│   └── config.json
+│   └── instructions.md
 └── qa/                         # QA 角色（品質驗證、測試）
-    ├── instructions.md
-    └── config.json
+    └── instructions.md
 ```
 
-### config.json 格式
-
-```json
-{
-  "model": "",
-  "extra_flags": "",
-  "allowed_tools": []
-}
-```
-
-- `model`：空字串表示使用環境變數 `COPILOT_MODEL` 或 gh copilot 預設
-- `extra_flags`：傳給 `gh copilot` 的額外旗標
-- `allowed_tools`：未來擴展用（限制角色可用工具）
+Agent 目錄只包含 `instructions.md`，model 和 extra flags 等啟動設定集中在 Workflow YAML 中管理。
 
 ### 角色分派邏輯
 
@@ -112,51 +95,54 @@ full-development:
     phasename: requirement-analysis
     phasetarget: "Analyze the issue, clarify requirements."
     llm-model: ""
+    extra-flags: ""
   - role: architect
     phasename: system-design
     phasetarget: "Design the system architecture."
     llm-model: ""
+    extra-flags: ""
   - role: coder
     phasename: implementation
     phasetarget: "Implement the design."
     llm-model: ""
+    extra-flags: ""
   - role: qa
     phasename: verification
     phasetarget: "Verify the implementation."
     llm-model: ""
+    extra-flags: ""
 ```
+
+- `llm-model`：指定該階段使用的 LLM 模型（空字串 = 使用 `COPILOT_MODEL` 環境變數）
+- `extra-flags`：傳給 `gh copilot` 的額外旗標（空字串 = 無額外旗標）
 
 #### Model 優先順序
 
 1. Workflow phase 的 `llm-model`（若非空）
-2. 角色 `config.json` 的 `model`（若非空）
-3. 環境變數 `COPILOT_MODEL`
+2. 環境變數 `COPILOT_MODEL`
 
 #### 自動階段轉換
 
 Agent 完成當前階段後：
 1. 移除當前的 `role:xxx` 和 `phase:xxx` label
 2. 根據 Workflow 定義，加上下一階段的 `role:xxx` 和 `phase:xxx` label
-3. 若已是最後階段，僅移除 label（Workflow 完成）
-4. 若 Issue 無 Workflow label，完成後僅移除 `role:xxx` label
+3. 清除該 Issue 的 state，使下次輪詢立即觸發下一階段
+4. 若已是最後階段，僅移除 label（Workflow 完成），更新 state
+5. 若 Issue 無 Workflow label，完成後僅移除 `role:xxx` label
 
 ## Agent 呼叫方式
 
 ```bash
-# 讀取角色設定
+# 讀取角色 instructions
 ROLE_DIR="/app/agents/${ROLE}"
 INSTRUCTIONS=$(cat "${ROLE_DIR}/instructions.md")
-CONFIG="${ROLE_DIR}/config.json"
 
-# 從 config.json 讀取 model（若有）
-MODEL=$(jq -r '.model // empty' "${CONFIG}")
-EXTRA_FLAGS=$(jq -r '.extra_flags // empty' "${CONFIG}")
-
+# Model 和 extra flags 從 Workflow YAML 取得（由 Python 程式處理）
 # 組合 prompt
 PROMPT="${INSTRUCTIONS}\n\n---\n\n以下是 Issue #${ISSUE_NUMBER} 的完整對話內容：\n${ISSUE_CONTENT}"
 
 # 組合指令
-CMD="gh copilot -p \"${PROMPT}\" --yolo -s --no-ask-user --add-dir /workspace"
+CMD="gh copilot -p \"${PROMPT}\" --yolo --no-ask-user --add-dir /workspace"
 [ -n "${MODEL}" ] && CMD="${CMD} --model ${MODEL}"
 [ -n "${EXTRA_FLAGS}" ] && CMD="${CMD} ${EXTRA_FLAGS}"
 
@@ -268,20 +254,15 @@ LearnGhAgent/
 │   └── entrypoint.sh            # Docker entrypoint（含 auto-clone）
 ├── agents/                      # 角色 Agent 定義
 │   ├── default/
-│   │   ├── instructions.md
-│   │   └── config.json
+│   │   └── instructions.md
 │   ├── manager/
-│   │   ├── instructions.md
-│   │   └── config.json
+│   │   └── instructions.md
 │   ├── architect/
-│   │   ├── instructions.md
-│   │   └── config.json
+│   │   └── instructions.md
 │   ├── coder/
-│   │   ├── instructions.md
-│   │   └── config.json
+│   │   └── instructions.md
 │   └── qa/
-│       ├── instructions.md
-│       └── config.json
+│       └── instructions.md
 ├── workflows/                   # Workflow 定義
 │   └── default.yml              # 預設 Workflow（full-development, quick-fix）
 ├── auth/                        # gh 認證情報（gitignore）
