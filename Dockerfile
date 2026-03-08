@@ -20,10 +20,11 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 
 # gh copilot CLI — build time 直接下載，跳過互動式安裝提示
 # 來源：github/copilot-cli repo（非 github/gh-copilot）
-# 自動偵測 CPU 架構（amd64 / arm64）
-RUN ARCH=$(dpkg --print-architecture) \
+# 自動偵測 CPU 架構（amd64 → x64 / arm64）
+RUN DPKG_ARCH=$(dpkg --print-architecture) \
+    && if [ "$DPKG_ARCH" = "amd64" ]; then COPILOT_ARCH="x64"; else COPILOT_ARCH="$DPKG_ARCH"; fi \
     && mkdir -p /root/.local/share/gh/copilot \
-    && curl -sL "https://github.com/github/copilot-cli/releases/latest/download/copilot-linux-${ARCH}.tar.gz" \
+    && curl -sL "https://github.com/github/copilot-cli/releases/latest/download/copilot-linux-${COPILOT_ARCH}.tar.gz" \
        -o /tmp/copilot.tar.gz \
     && tar xzf /tmp/copilot.tar.gz -C /root/.local/share/gh/copilot \
     && chmod +x /root/.local/share/gh/copilot/copilot \
