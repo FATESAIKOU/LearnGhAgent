@@ -4,19 +4,16 @@
 import logging
 import sys
 import time
-from datetime import datetime, timezone
 
 from config import Config, load_config
 from github_client import (
     add_label,
     get_issue,
     get_issue_comments,
-    get_latest_activity_time,
     list_open_issues,
     post_comment,
     remove_label,
 )
-from state_manager import StateManager
 from role_resolver import resolve_labels
 from prompt_builder import build_prompt
 from agent_runner import run_agent
@@ -49,7 +46,6 @@ def process_issue(
     number: int,
     labels: list[dict],
     config: Config,
-    state: StateManager,
     workflows: dict[str, Workflow],
 ) -> None:
     """Process a single issue: check labels, run agent, advance workflow."""
@@ -61,24 +57,11 @@ def process_issue(
         logger.debug("Issue #%d: no matching role label, skipping", number)
         return
 
-    # Step 2: Get latest activity time
-    try:
-        latest_time = get_latest_activity_time(config.owner, config.repo, number)
-    except Exception as e:
-        logger.error("Issue #%d: failed to get activity time: %s", number, e)
-        return
-
-    # Step 3: Compare with state
-    last_processed = state.get_last_processed(number)
-    if last_processed and last_processed >= latest_time:
-        logger.debug("Issue #%d: no new activity, skipping", number)
-        return
-
-    logger.info("Issue #%d: new activity detected (role=%s, workflow=%s, phase=%s)",
+    logger.info("Issue #%d: processing (role=%s, workflow=%s, phase=%s)",
                 number, resolved.role, resolved.workflow_name or "none",
                 resolved.phase_name or "none")
 
-    # Step 4: Determine model & flags — workflow phase > env default
+    # Step 2: Determine model & flags — workflow phase > env default
     phase_model = ""
     phase_extra_flags = ""
     current_workflow = None
@@ -112,7 +95,7 @@ def process_issue(
                         current_workflow.phases[current_phase_idx].phasename,
                         current_phase_idx)
 
-    # Step 5: Fetch issue data and build prompt (include phase target in prompt)
+    # Step 3: Fetch issue data and build prompt (include phase target in prompt)
     try:
         issue = get_issue(config.owner, config.repo, number)
         comments = get_issue_comments(config.owner, config.repo, number)
@@ -134,7 +117,7 @@ def process_issue(
         logger.error("Issue #%d: failed to build prompt: %s", number, e)
         return
 
-    # Step 6: Run agent (model priority: workflow phase > env default)
+    # Step 4: Run agent (model priority: workflow phase > env default)
     effective_model = phase_model or config.copilot_model
     result = run_agent(
         prompt=prompt,
@@ -153,7 +136,7 @@ def process_issue(
         logger.error("Issue #%d: agent failed with exit code %d", number, result.exit_code)
         return
 
-    # Step 7: Post comment
+    # Step 5: Post comment
     phase_info = ""
     if resolved.phase_name:
         phase_info = f" | phase: {resolved.phase_name}"
@@ -165,11 +148,10 @@ def process_issue(
             logger.error("Issue #%d: failed to post comment: %s", number, e)
             return
 
-    # Step 8: Workflow transition — remove current labels, add next phase labels
-    has_next_phase = False
+    # Step 6: Workflow transition — remove current labels, add next phase labels
     if current_workflow and current_phase_idx is not None:
         try:
-            has_next_phase = _advance_workflow(config, number, resolved, current_workflow, current_phase_idx)
+            _advance_workflow(config, number, resolved, current_workflow, current_phase_idx)
         except Exception as e:
             logger.error("Issue #%d: failed to advance workflow: %s", number, e)
 
@@ -180,21 +162,6 @@ def process_issue(
         except Exception as e:
             logger.warning("Issue #%d: failed to remove label '%s': %s",
                            number, resolved.role_label, e)
-
-    # Step 9: Update state
-    # If there's a next phase, reset state so the next poll picks it up immediately
-    if has_next_phase:
-        try:
-            state.clear_last_processed(number)
-            logger.info("Issue #%d: state cleared for next phase", number)
-        except Exception as e:
-            logger.error("Issue #%d: failed to clear state: %s", number, e)
-    else:
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        try:
-            state.update_last_processed(number, now)
-        except Exception as e:
-            logger.error("Issue #%d: failed to update state: %s", number, e)
 
 
 def _advance_workflow(
@@ -210,11 +177,8 @@ def _advance_workflow(
     """
     repo = config.target_repo
 
-    # Use the actual current phase name from the workflow (not just resolved.phase_name,
-    # which may be empty if the phase was auto-inferred from workflow's first phase)
-    current_phase = workflow.phases[current_phase_idx]
-
     # Remove current role + phase labels
+    current_phase = workflow.phases[current_phase_idx]
     if resolved.role_label:
         remove_label(repo, number, resolved.role_label)
     # Always remove the current phase label (whether it came from the issue or was auto-added)
@@ -244,7 +208,6 @@ def _advance_workflow(
 
 def main() -> None:
     config = load_config()
-    state = StateManager(config.state_file)
     workflows = load_workflows(config.workflow_file)
 
     logger.info("Agent loop started for %s", config.target_repo)
@@ -275,7 +238,7 @@ def main() -> None:
                 continue
 
             try:
-                process_issue(number, labels, config, state, workflows)
+                process_issue(number, labels, config, workflows)
             except Exception as e:
                 logger.error("Issue #%d: unexpected error: %s", number, e)
 

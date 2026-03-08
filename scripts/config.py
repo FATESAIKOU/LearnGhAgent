@@ -11,7 +11,6 @@ class Config:
     agent_timeout: int
     copilot_model: str
     default_role: str
-    state_file: str
     agents_dir: str
     enabled_agents: list[str] = field(default_factory=list)
     workflow_file: str = ""
@@ -40,7 +39,6 @@ def load_config() -> Config:
         agent_timeout=int(os.environ.get("AGENT_TIMEOUT", "900")),
         copilot_model=os.environ.get("COPILOT_MODEL", ""),
         default_role=os.environ.get("DEFAULT_ROLE", "default"),
-        state_file=os.environ.get("STATE_FILE", "/data/state.json"),
         agents_dir=os.environ.get("AGENTS_DIR", "/app/agents"),
         enabled_agents=enabled_agents,
         workflow_file=os.environ.get("WORKFLOW_FILE", "/app/workflows/default.yml"),

@@ -13,7 +13,6 @@ services:
       - WORKFLOW_FILE=${WORKFLOW_FILE:-/app/workflows/default.yml}
     volumes:
       - ./auth/hosts.yml:/auth-src/hosts.yml:ro   # gh 認證（ro，entrypoint copy 到可寫位置）
-      - ./data:/data                               # 狀態持久化
       - ./agents:/app/agents:ro                    # Agent 角色定義
       - ./workflows:/app/workflows:ro              # Workflow 定義
       - ./workspace:/workspace                     # Agent 工作區

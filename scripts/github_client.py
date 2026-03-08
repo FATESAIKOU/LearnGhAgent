@@ -56,20 +56,6 @@ def post_comment(repo: str, number: int, body: str) -> None:
     logger.info("Issue #%d: comment posted", number)
 
 
-def get_latest_activity_time(owner: str, repo: str, number: int) -> str:
-    """Return the latest activity time (issue created_at or latest comment created_at)."""
-    issue = get_issue(owner, repo, number)
-    issue_created = issue.get("created_at", "")
-
-    comments = get_issue_comments(owner, repo, number)
-    if comments:
-        comment_times = [c["created_at"] for c in comments if "created_at" in c]
-        if comment_times:
-            latest_comment = sorted(comment_times)[-1]
-            return max(issue_created, latest_comment)
-
-    return issue_created
-
 
 def add_label(repo: str, number: int, label: str) -> None:
     """Add a label to an issue. Creates the label if it doesn't exist."""
