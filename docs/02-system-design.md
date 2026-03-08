@@ -1,18 +1,65 @@
 # 02 - 系統要件設計
 
+## 架構概覽
+
+本系統採用 **Hexagonal Architecture（Ports & Adapters）** 設計，將程式碼分為四層：
+
+```
+┌─────────────────────────────────────────────────┐
+│  main.py (Composition Root + Inbound Adapter)    │
+│  組裝所有依賴、啟動 Polling Loop                   │
+├─────────────────────────────────────────────────┤
+│  services/         業務邏輯層                      │
+│  ├── pipeline      主流程編排（process_issue）      │
+│  ├── workflow       Workflow YAML 載入 + phase 導航│
+│  ├── role           Label 解析 → 角色分派          │
+│  └── prompt         Prompt 組裝                    │
+├─────────────────────────────────────────────────┤
+│  ports/            介面定義（typing.Protocol）      │
+│  ├── github_port   Issue/Comment/Label 操作        │
+│  ├── git_port      Workspace init/push/PR          │
+│  ├── agent_port    Agent 執行                      │
+│  └── hooks_port    Workspace hook scripts 執行     │
+├─────────────────────────────────────────────────┤
+│  domain/           純資料模型（零依賴）              │
+│  ├── models        AgentResult, ResolvedLabels     │
+│  └── workflow      Workflow, Phase, RepoConfig     │
+├─────────────────────────────────────────────────┤
+│  adapters/         Outbound Adapter（實作 Port）    │
+│  ├── github        gh CLI → GitHubPort             │
+│  ├── git           git CLI → GitPort               │
+│  ├── agent         gh copilot CLI → AgentPort      │
+│  └── hooks         subprocess → HooksPort          │
+└─────────────────────────────────────────────────┘
+```
+
+**依賴方向**：`main.py` → `services/` → `ports/` + `domain/` ← `adapters/`
+
+**核心規則**：`services/` 和 `domain/` 絕不 import `adapters/`，只透過 `ports/` 定義的 Protocol 介面互動。
+
 ## 系統組件一覽
 
-| 組件 | 說明 |
-|---|---|
-| Docker Container | 運行環境，包含所有工具和 Script |
-| 主控程式 (`agent_loop.py`) | 常駐 loop，定期輪詢 Issue、依角色分派 Agent |
-| 角色分派器 (`role_resolver.py`) | 根據 Issue label 決定用哪個 Agent 角色 |
-| Workflow 載入器 (`workflow_loader.py`) | 載入 Workflow YAML、解析階段、處理階段轉換 |
-| 認證設定工具 (`setup-auth.sh`) | host 端執行，協助 User 設定 gh 認證情報 |
-| gh copilot CLI | Agent 本體，以 `--yolo` 模式執行任務 |
-| 角色 Agent 設定 (`agents/`) | 每個角色一個目錄，包含 instructions |
-| Workflow 定義 (`workflows/`) | YAML 定義多階段工作流 |
-| Workspace hook scripts (`workspace-scripts/`) | Agent 執行前後的環境設定腳本（如 git write 攔截） |
+| 組件 | 層級 | 說明 |
+|---|---|---|
+| Docker Container | 基礎設施 | 運行環境，包含所有工具和 Script |
+| `main.py` | Inbound Adapter | Composition Root：組裝依賴 + 常駐 Polling Loop |
+| `services/pipeline.py` | Service | 主流程編排：process_issue()，依賴 Port 介面 |
+| `services/workflow_service.py` | Service | Workflow YAML 載入、phase 導航 |
+| `services/role_service.py` | Service | 根據 Issue label 決定 Agent 角色 |
+| `services/prompt_service.py` | Service | Prompt 組裝（含 workflow/repos context） |
+| `ports/` | Port | 介面定義（`typing.Protocol`），解耦 Service 與 Adapter |
+| `adapters/github_adapter.py` | Outbound Adapter | GitHub API 封裝（via `gh` CLI） |
+| `adapters/git_adapter.py` | Outbound Adapter | Git workspace 管理（clone/branch/push/PR） |
+| `adapters/agent_adapter.py` | Outbound Adapter | `gh copilot` CLI 執行器 |
+| `adapters/hooks_adapter.py` | Outbound Adapter | Workspace hook scripts 執行 |
+| `domain/models.py` | Domain Model | 純資料結構：AgentResult, ResolvedLabels |
+| `domain/workflow.py` | Domain Model | 純資料結構：Workflow, Phase, RepoConfig |
+| `config.py` | 設定 | 環境變數讀取、Config dataclass |
+| `entrypoint.sh` | 基礎設施 | Docker entrypoint（auth + 驗證 + 啟動） |
+| `setup-auth.sh` | 工具 | host 端執行，協助 User 設定 gh 認證情報 |
+| 角色 Agent 設定 (`agents/`) | 設定 | 每個角色一個目錄，包含 instructions |
+| Workflow 定義 (`workflows/`) | 設定 | YAML 定義多階段工作流 |
+| Workspace hook scripts (`workspace-scripts/`) | 設定 | Agent 執行前後的環境設定腳本（如 git write 攔截） |
 
 ## Docker 映像要件
 
@@ -152,29 +199,43 @@ CMD="gh copilot -p \"${PROMPT}\" --yolo --no-ask-user --add-dir /workspace"
 timeout ${AGENT_TIMEOUT} bash -c "${CMD}"
 ```
 
-## 主控 Script 流程
+## 主控流程（Hexagonal Architecture）
+
+### Composition Root（main.py）
 
 ```
-Loop:
-  1. gh issue list --repo $TARGET_REPO --state open --json number,labels
-  2. 對每個 Issue:
-     a. 解析 labels：取得 role:xxx / workflow:xxx / phase:xxx
-     b. 若無 role:xxx label → skip
-     c. 若 role 不在 ENABLED_AGENTS 中 → skip
-     d. 若有 workflow:xxx：
-        - 有 phase:xxx → 查找對應階段
-        - 無 phase:xxx → 自動採用第一階段，補上 phase label
-     e. 取 Issue body + 所有 comments → 組成對話內容
-     f. 讀取角色 instructions.md + workflow context → 組合 prompt
-     f2. 若當前 phase 有 workspace-init scripts → 依序執行（如 ban-git-write.sh）
-     g. timeout $AGENT_TIMEOUT gh copilot -p "<prompt>" --yolo --no-ask-user --output-format json
-     h. 若超時 → 不回寫
-     h2. 若當前 phase 有 workspace-cleanup scripts → 依序執行（如 unban-git-write.sh）
-     i. 若正常完成 → 取 stdout 作為總結，gh issue comment 回寫
-     j. Workflow 階段轉換：移除當前 role/phase label，加上下一階段 label
-     k. 若無 Workflow：僅移除 role label
-  3. sleep $POLL_INTERVAL
+main():
+  1. config = load_config()
+  2. 建立 Adapter 實例（github, git, agent, hooks）
+  3. 建立 Service 實例，注入 Port/Adapter
+  4. Loop:
+     a. issues = github_adapter.list_open_issues(config.target_issue_repo)
+     b. 對每個 issue:
+        pipeline_service.process_issue(issue, config)
+     c. sleep $POLL_INTERVAL
 ```
+
+### Pipeline Service（process_issue）
+
+```
+process_issue(issue, config):  # 透過 Port 介面存取外部資源
+  1. role_service.resolve_labels() → 解析 role/workflow/phase
+  2. 若無 role → skip
+  3. workflow_service.resolve_phase() → 決定 phase、model、flags
+  4. git_port.init_workspace() → clone + checkout branch
+  5. hooks_port.run_workspace_scripts("init") → 執行 workspace-init 腳本
+  6. prompt_service.build_prompt() → 組合完整 prompt
+  7. agent_port.run() → 執行 Agent
+  8. hooks_port.run_workspace_scripts("cleanup") → 執行 workspace-cleanup 腳本
+  9. git_port.push_workspace() → push + PR
+  10. github_port.post_comment() → 回寫結果
+  11. workflow_service.advance_phase() → 階段轉換（移除/加上 label）
+```
+
+### 依賴注入方式
+
+Service 透過建構式或函式參數接收 Port 介面（`typing.Protocol`），不直接 import Adapter 實作。
+`main.py` 負責建立 Adapter 實例並注入到 Service。
 
 ## 認證設定工具
 
@@ -229,16 +290,28 @@ LearnGhAgent/
 │   ├── 04-poc-validation.md     # PoC 驗證報告
 │   └── 05-design-adjustments.md # 設計調整報告
 ├── scripts/
-│   ├── agent_loop.py            # 主控程式 (Python)
-│   ├── config.py                # 環境變數讀取、設定管理
-│   ├── github_client.py         # GitHub API 封裝（含 label 操作）
-│   ├── role_resolver.py         # 角色分派邏輯（label 解析）
-│   ├── prompt_builder.py        # Prompt 組合（含 workflow context）
-│   ├── agent_runner.py          # gh copilot 子程序管理（JSONL streaming）
-│   ├── workflow_loader.py       # Workflow YAML 載入與階段轉換
-│   ├── workspace_manager.py     # Git workspace 管理（clone/branch/push/PR）+ hook 執行
-│   ├── setup-auth.sh            # 認證設定工具（host 端執行）
-│   └── entrypoint.sh            # Docker entrypoint（含 auto-clone）
+│   ├── main.py                  # Composition Root（組裝依賴 + Polling Loop）
+│   ├── config.py                # 環境變數讀取、Config dataclass
+│   ├── domain/                  # Domain Model（純資料結構，零依賴）
+│   │   ├── models.py            # AgentResult, ResolvedLabels
+│   │   └── workflow.py          # Workflow, Phase, RepoConfig dataclasses
+│   ├── ports/                   # Port 介面定義（typing.Protocol）
+│   │   ├── github_port.py       # GitHubPort: issue/comment/label 操作
+│   │   ├── git_port.py          # GitPort: workspace init/push/PR
+│   │   ├── agent_port.py        # AgentPort: 執行 agent
+│   │   └── hooks_port.py        # HooksPort: workspace-scripts 執行
+│   ├── services/                # 業務邏輯（依賴 Port + Domain）
+│   │   ├── pipeline.py          # process_issue()：主流程編排
+│   │   ├── workflow_service.py  # Workflow YAML 載入、phase 導航
+│   │   ├── role_service.py      # Label 解析 → ResolvedLabels
+│   │   └── prompt_service.py    # Prompt 組裝（含 workflow/repos context）
+│   ├── adapters/                # Outbound Adapter（實作 Port 介面）
+│   │   ├── github_adapter.py    # 實作 GitHubPort（gh CLI）
+│   │   ├── git_adapter.py       # 實作 GitPort（git CLI + PR）
+│   │   ├── agent_adapter.py     # 實作 AgentPort（gh copilot CLI）
+│   │   └── hooks_adapter.py     # 實作 HooksPort（subprocess）
+│   ├── entrypoint.sh            # Docker entrypoint（auth + 驗證 + 啟動）
+│   └── setup-auth.sh            # 認證設定工具（host 端執行）
 ├── workspace-scripts/           # Workspace hook scripts
 │   ├── ban-git-write.sh         # 攔截 Agent 的 git write 操作
 │   └── unban-git-write.sh       # 移除 git write 攔截
@@ -255,6 +328,8 @@ LearnGhAgent/
 │       └── instructions.md
 ├── workflows/                   # Workflow 定義
 │   └── default.yml              # 預設 Workflow（full-development, quick-fix）
+├── test/
+│   └── e2e-test.sh              # E2E 測試腳本
 ├── auth/                        # gh 認證情報（gitignore）
 └── workspace/                   # Agent 工作區
 ```
