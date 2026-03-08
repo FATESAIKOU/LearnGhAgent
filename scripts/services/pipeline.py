@@ -173,7 +173,7 @@ class PipelineService:
         # Step 11: Workflow transition
         try:
             self.workflow_service.advance_phase(
-                current_workflow, current_phase_idx, resolved,
+                current_workflow, current_phase_idx,
                 config.target_issue_repo, number,
             )
         except Exception as e:

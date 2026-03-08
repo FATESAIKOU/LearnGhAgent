@@ -6,7 +6,6 @@ import logging
 import os
 from typing import Any, Optional
 
-from domain.models import ResolvedLabels
 from domain.workflow import Phase, RepoConfig, Workflow
 from ports.github_port import GitHubPort
 
@@ -204,7 +203,6 @@ class WorkflowService:
         self,
         workflow: Workflow,
         phase_idx: int,
-        resolved: ResolvedLabels,
         repo: str,
         issue_number: int,
     ) -> bool:
@@ -214,8 +212,10 @@ class WorkflowService:
         """
         # Remove current role + phase labels
         current_phase = workflow.phases[phase_idx]
-        if resolved.role_label:
-            self.github.remove_label(repo, issue_number, resolved.role_label)
+        try:
+            self.github.remove_label(repo, issue_number, f"role:{current_phase.role}")
+        except Exception:
+            pass  # Label might not exist
         try:
             self.github.remove_label(repo, issue_number, f"phase:{current_phase.phasename}")
         except Exception:
