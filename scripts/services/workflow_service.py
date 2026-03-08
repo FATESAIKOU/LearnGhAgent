@@ -1,0 +1,238 @@
+"""Workflow service — YAML loading, phase navigation, and workflow transitions."""
+
+from __future__ import annotations
+
+import logging
+import os
+from typing import Any, Optional
+
+from domain.models import ResolvedLabels
+from domain.workflow import Phase, RepoConfig, Workflow
+from ports.github_port import GitHubPort
+
+logger = logging.getLogger(__name__)
+
+# PyYAML is not in stdlib; try import, fallback to json.
+try:
+    import yaml  # type: ignore[import-untyped]
+except ImportError:
+    yaml = None  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
+# YAML parsing helpers
+# ---------------------------------------------------------------------------
+
+def _parse_yaml(path: str) -> dict[str, Any]:
+    """Parse a YAML file. Uses PyYAML if available, otherwise json fallback."""
+    if yaml is not None:
+        with open(path, "r") as f:
+            return yaml.safe_load(f) or {}
+    else:
+        import json
+        with open(path, "r") as f:
+            return json.load(f)
+
+
+def _parse_repos(raw_list: list[dict[str, Any]]) -> list[RepoConfig]:
+    """Parse the ``config`` list into RepoConfig objects."""
+    repos: list[RepoConfig] = []
+    for item in raw_list:
+        if not isinstance(item, dict):
+            continue
+        repos.append(RepoConfig(
+            repo=item.get("repo", ""),
+            url=item.get("url", ""),
+            description=item.get("description", ""),
+        ))
+    return repos
+
+
+def _parse_phases(raw_list: list[dict[str, Any]]) -> list[Phase]:
+    """Parse a list of phase dicts into Phase objects."""
+    phases: list[Phase] = []
+    for item in raw_list:
+        if not isinstance(item, dict):
+            continue
+        phases.append(Phase(
+            role=item.get("role", ""),
+            phasename=item.get("phasename", ""),
+            phasetarget=item.get("phasetarget", ""),
+            llm_model=item.get("llm-model", ""),
+            extra_flags=item.get("extra-flags", ""),
+            workspace_init=item.get("workspace-init", []) or [],
+            workspace_cleanup=item.get("workspace-cleanup", []) or [],
+        ))
+    return phases
+
+
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
+
+class WorkflowService:
+    """Manages workflow loading, phase resolution, and phase transitions."""
+
+    def __init__(self, github_port: GitHubPort):
+        self.github = github_port
+
+    # --- Loading ---
+
+    def load_workflows(self, workflow_file: str) -> dict[str, Workflow]:
+        """Load all workflows from a YAML file.
+
+        Supports two formats:
+
+        **New format (config + steps):**
+
+            workflowA:
+              config:
+                - repo: owner/repo
+              steps:
+                - role: manager
+                  phasename: requirement-analysis
+                  ...
+
+        **Legacy format (flat list of phases):**
+
+            workflowA:
+              - role: manager
+                phasename: requirement-analysis
+                ...
+        """
+        if not workflow_file or not os.path.isfile(workflow_file):
+            logger.info(
+                "No workflow file found at '%s', workflow features disabled",
+                workflow_file,
+            )
+            return {}
+
+        try:
+            raw = _parse_yaml(workflow_file)
+        except Exception as e:
+            logger.error("Failed to parse workflow file '%s': %s", workflow_file, e)
+            return {}
+
+        workflows: dict[str, Workflow] = {}
+        for wf_name, wf_data in raw.items():
+            if isinstance(wf_data, list):
+                # Legacy format
+                phases = _parse_phases(wf_data)
+                repos: list[RepoConfig] = []
+            elif isinstance(wf_data, dict):
+                # New format
+                repos = _parse_repos(wf_data.get("config", []) or [])
+                phases = _parse_phases(wf_data.get("steps", []) or [])
+            else:
+                logger.warning("Workflow '%s' has unexpected type, skipping", wf_name)
+                continue
+
+            workflows[wf_name] = Workflow(name=wf_name, repos=repos, phases=phases)
+            logger.info(
+                "Loaded workflow '%s' with %d repos, %d phases",
+                wf_name, len(repos), len(phases),
+            )
+
+        return workflows
+
+    # --- Phase navigation ---
+
+    def find_phase_by_label(self, workflow: Workflow, phase_label: str) -> Optional[int]:
+        """Find phase index by phasename."""
+        for i, phase in enumerate(workflow.phases):
+            if phase.phasename == phase_label:
+                return i
+        return None
+
+    def get_next_phase(self, workflow: Workflow, current_index: int) -> Optional[Phase]:
+        """Return the next phase after current_index, or None if last."""
+        next_idx = current_index + 1
+        if next_idx < len(workflow.phases):
+            return workflow.phases[next_idx]
+        return None
+
+    # --- Phase resolution ---
+
+    def resolve_phase(
+        self,
+        workflow: Workflow,
+        phase_name: str | None,
+        repo: str,
+        issue_number: int,
+    ) -> tuple[int | None, Phase | None]:
+        """Resolve the current phase index and Phase object.
+
+        If phase_name is given, looks it up. Otherwise defaults to the first
+        phase and auto-adds the phase label.
+
+        Returns:
+            (phase_idx, phase) — both None if workflow has no phases.
+        """
+        phase_idx: int | None = None
+
+        if phase_name:
+            phase_idx = self.find_phase_by_label(workflow, phase_name)
+            if phase_idx is None:
+                logger.warning(
+                    "Issue #%d: phase '%s' not found in workflow '%s', "
+                    "falling back to first phase",
+                    issue_number, phase_name, workflow.name,
+                )
+
+        # Default to first phase if not found or not specified
+        if phase_idx is None and workflow.phases:
+            phase_idx = 0
+            first_phase = workflow.phases[0]
+            logger.info(
+                "Issue #%d: defaulting to first phase '%s' of workflow '%s'",
+                issue_number, first_phase.phasename, workflow.name,
+            )
+            # Auto-add the phase label for tracking
+            try:
+                self.github.add_label(repo, issue_number, f"phase:{first_phase.phasename}")
+            except Exception as e:
+                logger.warning("Issue #%d: failed to auto-add phase label: %s", issue_number, e)
+
+        if phase_idx is not None:
+            return phase_idx, workflow.phases[phase_idx]
+        return None, None
+
+    # --- Phase transition ---
+
+    def advance_phase(
+        self,
+        workflow: Workflow,
+        phase_idx: int,
+        resolved: ResolvedLabels,
+        repo: str,
+        issue_number: int,
+    ) -> bool:
+        """Remove current phase labels, add next phase labels.
+
+        Returns True if there is a next phase, False if workflow is complete.
+        """
+        # Remove current role + phase labels
+        current_phase = workflow.phases[phase_idx]
+        if resolved.role_label:
+            self.github.remove_label(repo, issue_number, resolved.role_label)
+        try:
+            self.github.remove_label(repo, issue_number, f"phase:{current_phase.phasename}")
+        except Exception:
+            pass  # Label might not exist if phase was auto-inferred
+
+        # Get next phase
+        next_phase = self.get_next_phase(workflow, phase_idx)
+        if next_phase:
+            self.github.add_label(repo, issue_number, f"role:{next_phase.role}")
+            self.github.add_label(repo, issue_number, f"phase:{next_phase.phasename}")
+            logger.info(
+                "Issue #%d: advanced to next phase -> role:%s phase:%s",
+                issue_number, next_phase.role, next_phase.phasename,
+            )
+            return True
+        else:
+            logger.info(
+                "Issue #%d: workflow '%s' completed (no more phases)",
+                issue_number, workflow.name,
+            )
+            return False

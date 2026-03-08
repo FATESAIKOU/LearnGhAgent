@@ -47,4 +47,4 @@ log INFO "Git identity configured"
 log INFO "Starting agent loop for ${TARGET_ISSUE_REPO}"
 log INFO "Poll interval: ${POLL_INTERVAL:-60}s, Timeout: ${AGENT_TIMEOUT:-900}s"
 
-exec python3 /app/agent_loop.py
+exec python3 /app/main.py
