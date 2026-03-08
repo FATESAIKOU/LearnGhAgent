@@ -4,7 +4,7 @@ services:
     container_name: learnghagent
     restart: unless-stopped
     environment:
-      - TARGET_REPO=${TARGET_REPO}
+      - TARGET_ISSUE_REPO=${TARGET_ISSUE_REPO}
       - POLL_INTERVAL=${POLL_INTERVAL:-60}
       - AGENT_TIMEOUT=${AGENT_TIMEOUT:-900}
       - COPILOT_MODEL=${COPILOT_MODEL:-}

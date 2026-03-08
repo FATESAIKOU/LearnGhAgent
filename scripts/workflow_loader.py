@@ -16,6 +16,14 @@ except ImportError:
 
 
 @dataclass
+class RepoConfig:
+    """A repo definition from the workflow ``config`` section."""
+    repo: str          # owner/repo format (e.g. "FATESAIKOU/SomeProject")
+    url: str = ""      # optional git URL override (if empty, uses ``gh repo clone``)
+    description: str = ""
+
+
+@dataclass
 class Phase:
     role: str
     phasename: str
@@ -27,6 +35,7 @@ class Phase:
 @dataclass
 class Workflow:
     name: str
+    repos: list[RepoConfig] = field(default_factory=list)
     phases: list[Phase] = field(default_factory=list)
 
 
@@ -42,21 +51,60 @@ def _parse_yaml(path: str) -> dict[str, Any]:
             return json.load(f)
 
 
+def _parse_repos(raw_list: list[dict[str, Any]]) -> list[RepoConfig]:
+    """Parse the ``config`` list into RepoConfig objects."""
+    repos: list[RepoConfig] = []
+    for item in raw_list:
+        if not isinstance(item, dict):
+            continue
+        repos.append(RepoConfig(
+            repo=item.get("repo", ""),
+            url=item.get("url", ""),
+            description=item.get("description", ""),
+        ))
+    return repos
+
+
+def _parse_phases(raw_list: list[dict[str, Any]]) -> list[Phase]:
+    """Parse a list of phase dicts into Phase objects."""
+    phases: list[Phase] = []
+    for item in raw_list:
+        if not isinstance(item, dict):
+            continue
+        phases.append(Phase(
+            role=item.get("role", ""),
+            phasename=item.get("phasename", ""),
+            phasetarget=item.get("phasetarget", ""),
+            llm_model=item.get("llm-model", ""),
+            extra_flags=item.get("extra-flags", ""),
+        ))
+    return phases
+
+
 def load_workflows(workflow_file: str) -> dict[str, Workflow]:
     """Load all workflows from a YAML file.
 
-    Expected format:
+    Supports two formats:
+
+    **New format (config + steps):**
+
+        workflowA:
+          config:
+            - repo: owner/repo
+              url: ""
+              description: "some project"
+          steps:
+            - role: manager
+              phasename: requirement-analysis
+              phasetarget: "produce requirements doc"
+              llm-model: ""
+              extra-flags: ""
+
+    **Legacy format (flat list of phases):**
+
         workflowA:
           - role: manager
-            phasename: requirement analysis
-            phasetarget: "produce requirements doc"
-            llm-model: claude-sonnet-4.6
-          - role: architect
-            phasename: system design
-            phasetarget: "produce design doc"
-            llm-model: ""
-        workflowB:
-          - role: coder
+            phasename: requirement-analysis
             ...
     """
     if not workflow_file or not os.path.isfile(workflow_file):
@@ -70,24 +118,24 @@ def load_workflows(workflow_file: str) -> dict[str, Workflow]:
         return {}
 
     workflows: dict[str, Workflow] = {}
-    for wf_name, phase_list in raw.items():
-        if not isinstance(phase_list, list):
-            logger.warning("Workflow '%s' is not a list, skipping", wf_name)
+    for wf_name, wf_data in raw.items():
+        if isinstance(wf_data, list):
+            # Legacy format: flat list of phases, no repos
+            phases = _parse_phases(wf_data)
+            repos: list[RepoConfig] = []
+        elif isinstance(wf_data, dict):
+            # New format: config (repos) + steps (phases)
+            repos = _parse_repos(wf_data.get("config", []) or [])
+            phases = _parse_phases(wf_data.get("steps", []) or [])
+        else:
+            logger.warning("Workflow '%s' has unexpected type, skipping", wf_name)
             continue
 
-        phases: list[Phase] = []
-        for item in phase_list:
-            if not isinstance(item, dict):
-                continue
-            phases.append(Phase(
-                role=item.get("role", ""),
-                phasename=item.get("phasename", ""),
-                phasetarget=item.get("phasetarget", ""),
-                llm_model=item.get("llm-model", ""),
-                extra_flags=item.get("extra-flags", ""),
-            ))
-        workflows[wf_name] = Workflow(name=wf_name, phases=phases)
-        logger.info("Loaded workflow '%s' with %d phases", wf_name, len(phases))
+        workflows[wf_name] = Workflow(name=wf_name, repos=repos, phases=phases)
+        logger.info(
+            "Loaded workflow '%s' with %d repos, %d phases",
+            wf_name, len(repos), len(phases),
+        )
 
     return workflows
 

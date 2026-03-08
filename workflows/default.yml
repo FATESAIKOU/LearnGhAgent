@@ -1,9 +1,13 @@
 # Default Workflow Definition
-# Each workflow defines a sequence of phases.
-# Issues are matched by labels: workflow:<name> + phase:<phasename>
-# After each phase completes, the agent auto-transitions to the next phase.
 #
-# Per-phase fields:
+# Each workflow has two sections:
+#   config  - list of repos to clone into /workspace (agent can work across all of them)
+#   steps   - sequence of phases (role + phasename + phasetarget + optional model/flags)
+#
+# Issues are matched by labels: workflow:<name> + phase:<phasename>
+# After each phase completes, the agent auto-transitions to the next step.
+#
+# Per-step fields:
 #   role         - agent role (must match agents/<role>/ directory)
 #   phasename    - unique phase identifier (used in phase:<phasename> label)
 #   phasetarget  - description of what this phase should accomplish
@@ -11,64 +15,76 @@
 #   extra-flags  - extra flags passed to gh copilot CLI (empty = none)
 
 full-development:
-  - role: manager
-    phasename: requirement-analysis
-    phasetarget: "Analyze the issue, clarify requirements, and produce a structured requirements document."
-    llm-model: ""
-    extra-flags: ""
+  config:
+    - repo: FATESAIKOU/LearnGhAgent
+      url: ""
+      description: "The agent system itself"
+  steps:
+    - role: manager
+      phasename: requirement-analysis
+      phasetarget: "Analyze the issue, clarify requirements, and produce a structured requirements document."
+      llm-model: ""
+      extra-flags: ""
 
-  - role: architect
-    phasename: system-design
-    phasetarget: "Design the system architecture based on the requirements document."
-    llm-model: ""
-    extra-flags: ""
+    - role: architect
+      phasename: system-design
+      phasetarget: "Design the system architecture based on the requirements document."
+      llm-model: ""
+      extra-flags: ""
 
-  - role: coder
-    phasename: implementation
-    phasetarget: "Implement the design, write code, and commit changes."
-    llm-model: ""
-    extra-flags: ""
+    - role: coder
+      phasename: implementation
+      phasetarget: "Implement the design, write code, and commit changes."
+      llm-model: ""
+      extra-flags: ""
 
-  - role: qa
-    phasename: verification
-    phasetarget: "Verify the implementation against requirements and design."
-    llm-model: ""
-    extra-flags: ""
+    - role: qa
+      phasename: verification
+      phasetarget: "Verify the implementation against requirements and design."
+      llm-model: ""
+      extra-flags: ""
 
 quick-fix:
-  - role: coder
-    phasename: fix
-    phasetarget: "Fix the bug or implement the small change described in the issue."
-    llm-model: ""
-    extra-flags: ""
+  config:
+    - repo: FATESAIKOU/LearnGhAgent
+      url: ""
+      description: "The agent system itself"
+  steps:
+    - role: coder
+      phasename: fix
+      phasetarget: "Fix the bug or implement the small change described in the issue."
+      llm-model: ""
+      extra-flags: ""
 
-  - role: qa
-    phasename: verify-fix
-    phasetarget: "Verify the fix is correct and does not introduce regressions."
-    llm-model: ""
-    extra-flags: ""
+    - role: qa
+      phasename: verify-fix
+      phasetarget: "Verify the fix is correct and does not introduce regressions."
+      llm-model: ""
+      extra-flags: ""
 
 technical-investigation:
-  - role: manager
-    phasename: investigation-scope
-    phasetarget: "Analyze all given topics, define investigation boundaries, extract the user-provided evaluation viewpoints, and structure the report in a way that is easy for the user to understand."
-    llm-model: "gpt-5-mini"
-    extra-flags: ""
+  config: []
+  steps:
+    - role: manager
+      phasename: investigation-scope
+      phasetarget: "Analyze all given topics, define investigation boundaries, extract the user-provided evaluation viewpoints, and structure the report in a way that is easy for the user to understand."
+      llm-model: "gpt-5-mini"
+      extra-flags: ""
 
-  - role: architect
-    phasename: evaluation-framework
-    phasetarget: "Build the investigation framework for all topics, including evaluation axes, comparison dimensions, assumptions, risks, trade-offs, and validation criteria based on the user's viewpoints."
-    llm-model: "gpt-5-mini"
-    extra-flags: ""
+    - role: architect
+      phasename: evaluation-framework
+      phasetarget: "Build the investigation framework for all topics, including evaluation axes, comparison dimensions, assumptions, risks, trade-offs, and validation criteria based on the user's viewpoints."
+      llm-model: "gpt-5-mini"
+      extra-flags: ""
 
-  - role: coder
-    phasename: evidence-validation
-    phasetarget: "Investigate and validate all given topics against the defined framework, examine supporting and opposing evidence, compare alternatives where relevant, and organize findings without implementing, committing, or pushing code."
-    llm-model: "gpt-5-mini"
-    extra-flags: ""
+    - role: coder
+      phasename: evidence-validation
+      phasetarget: "Investigate and validate all given topics against the defined framework, examine supporting and opposing evidence, compare alternatives where relevant, and organize findings without implementing, committing, or pushing code."
+      llm-model: "gpt-5-mini"
+      extra-flags: ""
 
-  - role: qa
-    phasename: report-consolidation
-    phasetarget: "Verify that every given topic has been examined from all required viewpoints, check logical consistency and coverage, and produce a structured final report in the user-specified format without pushing code changes."
-    llm-model: "gpt-5-mini"
-    extra-flags: ""
+    - role: qa
+      phasename: report-consolidation
+      phasetarget: "Verify that every given topic has been examined from all required viewpoints, check logical consistency and coverage, and produce a structured final report in the user-specified format without pushing code changes."
+      llm-model: "gpt-5-mini"
+      extra-flags: ""
