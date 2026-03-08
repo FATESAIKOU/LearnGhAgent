@@ -4,38 +4,27 @@
 
 ## 使用場景
 
-### 1. 單一角色任務
+### Workflow 自動串接
 
-在 Issue 上加上 `role:coder` label，Agent 會自動用 Coder 角色讀取 Issue 並執行任務，完成後回寫摘要並移除 label。
-
-**適合用在：**
-- 「幫我在 workspace 裡建立一個 hello world 的 Python script」
-- 「幫我把 workspace 裡的 README 翻譯成英文」
-- 讓 AI 自動處理簡單的檔案操作或程式碼生成
-
-### 2. 持續監控 + 對話式任務
-
-Agent 每隔固定秒數輪詢一次，以 `role:xxx` label 存在與否作為處理依據。你可以重新加上 `role:xxx` label 並追加指示，Agent 會接續執行。
-
-**適合用在：**
-- 對 Agent 的結果不滿意，追加修改指示
-- 多步驟任務，分次下達
-
-### 3. 多角色 Workflow 自動串接
-
-透過 Workflow YAML 定義多階段任務，Issue 加上 `role:xxx` + `workflow:xxx` 即可啟動（`phase:xxx` 可省略，會自動從第一階段開始）。Agent 完成每個階段後自動轉換到下一個角色/階段。
+透過 Workflow YAML 定義多階段任務，Issue 只需加上 `workflow:xxx` label 即可啟動。Agent 會自動從第一階段開始，完成每個階段後自動轉換到下一個角色/階段，最後標記 `phase:end` 表示完成。
 
 Workflow 可以指定多個工作 repo，Agent 會自動 clone 並建立 feature branch，每次執行後自動 push + 開 PR。
 
 **範例：** `full-development` workflow
-1. `role:manager` + `phase:requirement-analysis` → Manager 分析需求
+1. 自動開始 → `role:manager` + `phase:requirement-analysis` → Manager 分析需求
 2. 自動轉換 → `role:architect` + `phase:system-design` → Architect 設計架構
 3. 自動轉換 → `role:coder` + `phase:implementation` → Coder 寫程式
 4. 自動轉換 → `role:qa` + `phase:verification` → QA 驗證
+5. 完成 → 移除 `role:qa`，設定 `phase:end`
 
 **適合用在：**
 - 完整的功能開發流程（需求 → 設計 → 實作 → 驗證）
 - 快速修復流程（修復 → 驗證）
+- 技術調查、文件撰寫等多步驟任務
+
+### 重新觸發
+
+Workflow 完成後 Issue 會有 `workflow:xxx` + `phase:end`。若要重新執行，移除 `phase:end` label 即可，Agent 會從第一階段重新開始。
 
 ---
 
@@ -237,7 +226,7 @@ agents/
     └── instructions.md     # 角色的系統指示（唯一必要檔案）
 ```
 
-然後在 Issue 上加 label `role:my-role`，Agent 就會使用該角色的 instructions 執行。
+然後在 Workflow YAML 的 step 中指定 `role: my-role`，Agent 就會使用該角色的 instructions 執行。
 
 ### 內建角色
 
@@ -259,24 +248,19 @@ Issue 使用三種 label 控制 Agent 行為：
 
 | Label | 格式 | 說明 |
 |-------|------|------|
-| 角色 | `role:xxx` | **必須**。指定執行的 Agent 角色（對應 `agents/xxx/` 目錄） |
-| 工作流 | `workflow:xxx` | 選用。指定使用的 Workflow 定義（對應 YAML 中的 key） |
-| 階段 | `phase:xxx` | 選用。指定 Workflow 目前階段（省略則自動從第一階段開始） |
+| 工作流 | `workflow:xxx` | **必須**。指定使用的 Workflow 定義（對應 YAML 中的 key），作為觸發條件 |
+| 角色 | `role:xxx` | 自動管理。由 Workflow 根據當前 phase 自動設定，無需手動加 |
+| 階段 | `phase:xxx` | 自動管理。追蹤目前階段，`phase:end` 表示 Workflow 已完成 |
 
-### 單一角色（無 Workflow）
+### 啟動 Workflow
 
-只加 `role:xxx` label → Agent 執行後自動移除該 label。
+只加 `workflow:xxx` label → Agent 自動從第一階段開始，依序執行所有 phase，最後標記 `phase:end`。
 
-### 多階段 Workflow
-
-加上 `role:xxx` + `workflow:xxx` → Agent 完成後自動轉換到下一階段。
-
-> `phase:xxx` 可省略，Agent 會自動從 Workflow 第一階段開始並補上 label。
+> `role:xxx` 和 `phase:xxx` 由系統自動管理，不需手動設定。
 
 **範例：啟動 full-development workflow**
 
-在 Issue 加上以下 2 個 label：
-- `role:manager`
+在 Issue 加上 1 個 label：
 - `workflow:full-development`
 
 Agent 會依序自動執行：
@@ -284,6 +268,7 @@ Agent 會依序自動執行：
 2. Architect → 系統設計
 3. Coder → 程式實作
 4. QA → 品質驗證
+5. 完成 → `phase:end`
 
 ### Workflow YAML 格式
 
@@ -367,17 +352,18 @@ technical-investigation:
 ## 運作原理
 
 1. **輪詢**：每 `POLL_INTERVAL` 秒取得 `TARGET_ISSUE_REPO` 所有 open issues
-2. **Label 解析**：檢查每個 Issue 的 `role:xxx` label，對應 `agents/xxx/` 目錄，過濾 `ENABLED_AGENTS`
-3. **Workflow 解析**：若有 `workflow:xxx` label，載入對應 Workflow 定義；若無 `phase:xxx` 則自動採用第一階段
-4. **Workspace 初始化**：根據 Workflow `config` 中的 repo 清單，git clone + checkout feature branch (`agent/issue-N`)
-5. **Workspace-init hooks**：執行當前 phase 定義的 `workspace-init` 腳本（例如安裝 git write 攔截 wrapper）
-6. **執行**：組合 issue 內容 + 角色 instructions + workflow/repos context 為 prompt，呼叫 `gh copilot`
-7. **Workspace-cleanup hooks**：執行當前 phase 定義的 `workspace-cleanup` 腳本（例如移除 git wrapper）
-8. **Git push**：Agent 執行後自動 stage + commit + push 所有 repo 變更，並建立 draft PR
-9. **回寫**：將 Agent 輸出作為 comment 回寫到 Issue
-10. **階段轉換**：移除當前 label，加上下一階段 label（若有 Workflow）
+2. **觸發判定**：檢查 Issue 是否有 `workflow:xxx` label；若有 `phase:end` 則跳過（已完成）
+3. **Workflow 解析**：載入對應 Workflow 定義；若無 `phase:xxx` 則自動從第一階段開始，並補上 `role:xxx` + `phase:xxx` label
+4. **角色決定**：從 Workflow phase 定義取得角色（`phase.role`），對應 `agents/xxx/` 目錄
+5. **Workspace 初始化**：根據 Workflow `config` 中的 repo 清單，git clone + checkout feature branch (`agent/issue-N`)
+6. **Workspace-init hooks**：執行當前 phase 定義的 `workspace-init` 腳本（例如安裝 git write 攔截 wrapper）
+7. **執行**：組合 issue 內容 + 角色 instructions + workflow/repos context 為 prompt，呼叫 `gh copilot`
+8. **Workspace-cleanup hooks**：執行當前 phase 定義的 `workspace-cleanup` 腳本（例如移除 git wrapper）
+9. **Git push**：Agent 執行後自動 stage + commit + push 所有 repo 變更，並建立 draft PR
+10. **回寫**：將 Agent 輸出作為 comment 回寫到 Issue
+11. **階段轉換**：移除當前 `role:xxx` + `phase:xxx`，加上下一階段 label；最後一個階段完成後設定 `phase:end`
 
-> **觸發機制**：以 `role:xxx` label 存在與否作為處理依據，無需時間戳比對。Agent 完成後會移除 label，因此下次輪詢不會重複處理。
+> **觸發機制**：以 `workflow:xxx` label 存在且無 `phase:end` 作為處理依據，無需時間戳比對。Workflow 完成後設定 `phase:end`，因此下次輪詢不會重複處理。
 
 ---
 
@@ -402,8 +388,8 @@ bash test/e2e-test.sh FATESAIKOU/SelfImprovement 20 technical-investigation
 
 ### 測試流程
 
-1. 在目標 Issue 上設定 `role:xxx` + `workflow:xxx` label
+1. 在目標 Issue 上設定 `workflow:xxx` label（系統自動加 `role:xxx` + `phase:xxx`）
 2. 啟動 Docker container（`POLL_INTERVAL=10`）
-3. 等待所有 Workflow 階段完成（偵測 `role:` 和 `phase:` label 全部移除）
+3. 等待所有 Workflow 階段完成（偵測 `phase:end` label 設定）
 4. 驗證：comment 數量、push 次數、PR 建立、workspace-scripts 執行
-5. 清理：停止 container、移除測試用 label
+5. 清理：停止 container
