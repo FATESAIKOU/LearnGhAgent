@@ -6,7 +6,6 @@ import logging
 import os
 from typing import Any, Optional
 
-from domain.models import ResolvedLabels
 from domain.workflow import Phase, RepoConfig, Workflow
 from ports.github_port import GitHubPort
 
@@ -187,11 +186,12 @@ class WorkflowService:
                 "Issue #%d: defaulting to first phase '%s' of workflow '%s'",
                 issue_number, first_phase.phasename, workflow.name,
             )
-            # Auto-add the phase label for tracking
+            # Auto-add role + phase labels for tracking
             try:
+                self.github.add_label(repo, issue_number, f"role:{first_phase.role}")
                 self.github.add_label(repo, issue_number, f"phase:{first_phase.phasename}")
             except Exception as e:
-                logger.warning("Issue #%d: failed to auto-add phase label: %s", issue_number, e)
+                logger.warning("Issue #%d: failed to auto-add labels: %s", issue_number, e)
 
         if phase_idx is not None:
             return phase_idx, workflow.phases[phase_idx]
@@ -203,7 +203,6 @@ class WorkflowService:
         self,
         workflow: Workflow,
         phase_idx: int,
-        resolved: ResolvedLabels,
         repo: str,
         issue_number: int,
     ) -> bool:
@@ -213,8 +212,10 @@ class WorkflowService:
         """
         # Remove current role + phase labels
         current_phase = workflow.phases[phase_idx]
-        if resolved.role_label:
-            self.github.remove_label(repo, issue_number, resolved.role_label)
+        try:
+            self.github.remove_label(repo, issue_number, f"role:{current_phase.role}")
+        except Exception:
+            pass  # Label might not exist
         try:
             self.github.remove_label(repo, issue_number, f"phase:{current_phase.phasename}")
         except Exception:
@@ -231,8 +232,10 @@ class WorkflowService:
             )
             return True
         else:
+            # Workflow complete — set phase:end (workflow:xxx stays)
+            self.github.add_label(repo, issue_number, "phase:end")
             logger.info(
-                "Issue #%d: workflow '%s' completed (no more phases)",
+                "Issue #%d: workflow '%s' completed (no more phases), set phase:end",
                 issue_number, workflow.name,
             )
             return False

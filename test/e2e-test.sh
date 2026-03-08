@@ -128,14 +128,12 @@ print(len(data['$WORKFLOW_NAME']['steps']))
     fi
 
     # Ensure labels exist in repo, then add to issue
-    for lbl in "role:$FIRST_ROLE" "workflow:$WORKFLOW_NAME" "phase:$FIRST_PHASE"; do
+    for lbl in "workflow:$WORKFLOW_NAME"; do
         gh label create "$lbl" --repo "$TARGET_ISSUE_REPO" 2>/dev/null || true
     done
     gh issue edit "$ISSUE_NUMBER" --repo "$TARGET_ISSUE_REPO" \
-        --add-label "role:$FIRST_ROLE" \
-        --add-label "workflow:$WORKFLOW_NAME" \
-        --add-label "phase:$FIRST_PHASE" || abort "Failed to set labels"
-    pass "Labels set: role:$FIRST_ROLE, workflow:$WORKFLOW_NAME, phase:$FIRST_PHASE"
+        --add-label "workflow:$WORKFLOW_NAME" || abort "Failed to set labels"
+    pass "Labels set: workflow:$WORKFLOW_NAME"
 else
     log "No workflow specified — assuming labels are already set on issue #$ISSUE_NUMBER"
 fi
@@ -197,7 +195,7 @@ while true; do
     fi
 
     # Check for full workflow completion
-    if grep -q "workflow '.*' completed (no more phases)" "$LOG_FILE" 2>/dev/null; then
+    if grep -q "workflow '.*' completed (no more phases), set phase:end" "$LOG_FILE" 2>/dev/null; then
         RESULT="completed"
         break
     fi
@@ -239,7 +237,7 @@ else
 fi
 
 # 5b. Check workflow completed
-if grep -q "workflow '.*' completed (no more phases)" "$LOG_FILE" 2>/dev/null; then
+if grep -q "workflow '.*' completed (no more phases), set phase:end" "$LOG_FILE" 2>/dev/null; then
     pass "Workflow completed successfully"
 else
     fail "Workflow did NOT complete"
