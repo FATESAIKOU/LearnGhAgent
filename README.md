@@ -172,21 +172,35 @@ docker run -d --name gh-issue-agent \
 
 ## 專案結構
 
+本專案採用 **Hexagonal Architecture（Ports & Adapters）**，將程式碼分為 Domain Model、Port、Service、Adapter 四層。
+
 ```
 LearnGhAgent/
 ├── Dockerfile                   # Docker 映像定義
 ├── docker-compose.yml           # Docker Compose 設定
 ├── .gitignore
 ├── scripts/
-│   ├── entrypoint.sh            # 容器啟動腳本（auth + git config）
-│   ├── agent_loop.py            # 主控迴圈（含 workflow + workspace 管理）
-│   ├── config.py                # 環境變數讀取
-│   ├── github_client.py         # GitHub API 封裝（含 label 操作）
-│   ├── role_resolver.py         # 角色分派（label 解析）
-│   ├── prompt_builder.py        # Prompt 組合（含 workflow + repos context）
-│   ├── agent_runner.py          # gh copilot 執行器（JSONL streaming）
-│   ├── workflow_loader.py       # Workflow YAML 載入與階段轉換
-│   ├── workspace_manager.py     # Git workspace 管理（clone/branch/push/PR）
+│   ├── main.py                  # Composition Root（組裝依賴 + Polling Loop）
+│   ├── config.py                # 環境變數讀取、Config dataclass
+│   ├── domain/                  # Domain Model（純資料結構，零依賴）
+│   │   ├── models.py            # AgentResult, ResolvedLabels
+│   │   └── workflow.py          # Workflow, Phase, RepoConfig
+│   ├── ports/                   # Port 介面定義（typing.Protocol）
+│   │   ├── github_port.py       # GitHubPort: issue/comment/label
+│   │   ├── git_port.py          # GitPort: workspace init/push/PR
+│   │   ├── agent_port.py        # AgentPort: 執行 agent
+│   │   └── hooks_port.py        # HooksPort: workspace-scripts
+│   ├── services/                # 業務邏輯（依賴 Port + Domain）
+│   │   ├── pipeline.py          # process_issue()：主流程編排
+│   │   ├── workflow_service.py  # Workflow YAML 載入、phase 導航
+│   │   ├── role_service.py      # Label 解析 → 角色分派
+│   │   └── prompt_service.py    # Prompt 組裝
+│   ├── adapters/                # Outbound Adapter（實作 Port）
+│   │   ├── github_adapter.py    # gh CLI → GitHubPort
+│   │   ├── git_adapter.py       # git CLI → GitPort
+│   │   ├── agent_adapter.py     # gh copilot CLI → AgentPort
+│   │   └── hooks_adapter.py     # subprocess → HooksPort
+│   ├── entrypoint.sh            # Docker entrypoint（auth + 驗證 + 啟動）
 │   └── setup-auth.sh            # 認證設定工具（host 端）
 ├── workspace-scripts/           # Workspace hook scripts
 │   ├── ban-git-write.sh         # 攔截 Agent 的 git write 操作
@@ -199,6 +213,8 @@ LearnGhAgent/
 │   └── qa/                      # 品質驗證、測試
 ├── workflows/                   # Workflow 定義
 │   └── default.yml              # 預設 Workflow
+├── test/
+│   └── e2e-test.sh              # E2E 測試腳本
 ├── auth/                        # 認證檔案（gitignored）
 └── workspace/                   # Agent 工作區（各 repo clone 於此）
 ```
@@ -356,3 +372,32 @@ technical-investigation:
 10. **階段轉換**：移除當前 label，加上下一階段 label（若有 Workflow）
 
 > **觸發機制**：以 `role:xxx` label 存在與否作為處理依據，無需時間戳比對。Agent 完成後會移除 label，因此下次輪詢不會重複處理。
+
+---
+
+## E2E 測試
+
+提供 E2E 測試腳本，可驗證完整的多階段 Workflow 執行流程。
+
+### 前置需求
+
+- Docker 已啟動（已 build `learnghagent:latest`）
+- `gh` CLI 已登入
+- 目標 repo 已存在對應的 Issue
+
+### 執行方式
+
+```bash
+bash test/e2e-test.sh <REPO> <ISSUE_NUMBER> <WORKFLOW_NAME>
+
+# 範例：
+bash test/e2e-test.sh FATESAIKOU/SelfImprovement 20 technical-investigation
+```
+
+### 測試流程
+
+1. 在目標 Issue 上設定 `role:xxx` + `workflow:xxx` label
+2. 啟動 Docker container（`POLL_INTERVAL=10`）
+3. 等待所有 Workflow 階段完成（偵測 `role:` 和 `phase:` label 全部移除）
+4. 驗證：comment 數量、push 次數、PR 建立、workspace-scripts 執行
+5. 清理：停止 container、移除測試用 label

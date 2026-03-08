@@ -147,3 +147,78 @@ Issue labels: [role:manager, workflow:full-development, phase:requirement-analys
 - **docker-compose.yml**：移除 `version`、移除 data volume
 - **.gitignore**：移除 `data/state.json`
 - **README.md**：流程圖從 8 步簡化為 6 步
+
+---
+
+## 調整四：Hexagonal Architecture 重構
+
+### 調整背景
+
+原設計 `scripts/` 目錄下所有模組為扁平檔案結構，存在以下 SOLID 違規：
+
+- `agent_loop.py`（320 行）為 God Function，`process_issue()` 承擔 10+ 職責
+- `workspace_manager.py`（258 行）混合 Git 操作、PR 管理、hook 執行三種職責
+- Prompt context 建構散落在 `agent_loop.py` 和 `prompt_builder.py`
+- Cleanup hooks 在 timeout/error/normal 三條路徑重複出現（DRY 違規）
+- `workflow_loader.py` 包含 dead code（`find_current_phase()` 從未呼叫）
+- 各模組直接耦合（import 具體實作），無法獨立測試
+
+### 調整方案
+
+採用 **Hexagonal Architecture（Ports & Adapters）** 重組為四層：
+
+| 層級 | 目錄 | 職責 |
+|------|------|------|
+| Domain Model | `domain/` | 純資料結構（零依賴）：AgentResult, ResolvedLabels, Workflow, Phase, RepoConfig |
+| Port | `ports/` | 介面定義（`typing.Protocol`）：GitHubPort, GitPort, AgentPort, HooksPort |
+| Service | `services/` | 業務邏輯（依賴 Port + Domain）：pipeline, workflow, role, prompt |
+| Adapter | `adapters/` | 實作 Port 介面（外部 I/O）：gh CLI, git CLI, gh copilot CLI, subprocess |
+
+另設 `main.py` 作為 Composition Root（Inbound Adapter），負責組裝依賴並啟動 Polling Loop。
+
+### 依賴方向
+
+```
+main.py → services/ → ports/ + domain/ ← adapters/
+```
+
+核心規則：`services/` 和 `domain/` 絕不 import `adapters/`。
+
+### 調整一覽
+
+| # | 調整項目 | 原設計 | 修正內容 |
+|---|---------|--------|---------|
+| 1 | 主控程式 | `agent_loop.py`（God Function） | 拆分為 `main.py`（Composition Root）+ `services/pipeline.py`（流程編排）|
+| 2 | 角色解析 | `role_resolver.py` | 移至 `services/role_service.py` |
+| 3 | Workflow 管理 | `workflow_loader.py`（含 dead code） | 移至 `services/workflow_service.py`，移除 dead code |
+| 4 | Prompt 組裝 | `prompt_builder.py` + `agent_loop.py` 散落 context | 整合至 `services/prompt_service.py` |
+| 5 | GitHub API | `github_client.py` | 移至 `adapters/github_adapter.py`，實作 `ports/github_port.py` |
+| 6 | Git + PR + Hook | `workspace_manager.py`（三合一） | 拆分為 `adapters/git_adapter.py`（GitPort）+ `adapters/hooks_adapter.py`（HooksPort）|
+| 7 | Agent 執行 | `agent_runner.py` | 移至 `adapters/agent_adapter.py`，實作 `ports/agent_port.py` |
+| 8 | Domain Models | 散落在各檔案的 dataclass | 集中到 `domain/models.py` + `domain/workflow.py` |
+| 9 | 介面定義 | 無（直接 import 具體實作） | 新增 `ports/` 目錄，用 `typing.Protocol` 定義所有外部介面 |
+| 10 | Cleanup hooks | 在 3 條路徑重複呼叫 | `pipeline.py` 用 `try/finally` 統一處理 |
+
+### 新舊檔案對照
+
+| 舊檔案 | 新檔案 | 說明 |
+|--------|--------|------|
+| `agent_loop.py` | `main.py` + `services/pipeline.py` | 拆分 God Function |
+| `role_resolver.py` | `services/role_service.py` + `domain/models.py` | 分離邏輯/資料 |
+| `workflow_loader.py` | `services/workflow_service.py` + `domain/workflow.py` | 分離邏輯/資料 |
+| `prompt_builder.py` | `services/prompt_service.py` | 整合散落的 context 建構 |
+| `github_client.py` | `adapters/github_adapter.py` + `ports/github_port.py` | Port + Adapter |
+| `workspace_manager.py` | `adapters/git_adapter.py` + `adapters/hooks_adapter.py` + `ports/git_port.py` + `ports/hooks_port.py` | 拆分三合一 |
+| `agent_runner.py` | `adapters/agent_adapter.py` + `ports/agent_port.py` | Port + Adapter |
+| `config.py` | `config.py`（不變） | 無需調整 |
+| `entrypoint.sh` | `entrypoint.sh`（修改 exec 目標） | `exec python3 /app/agent_loop.py` → `exec python3 /app/main.py` |
+
+### 影響範圍
+
+- **scripts/**：全面重組為 `domain/`、`ports/`、`services/`、`adapters/` 四層 + `main.py`
+- **scripts/entrypoint.sh**：exec 目標從 `agent_loop.py` 改為 `main.py`
+- **Dockerfile**：`COPY scripts/ /app/` 不變，但目錄結構改變
+- **docker-compose.yml**：無變更
+- **docs/02-system-design.md**：更新系統組件表、主控流程、專案結構
+- **docs/03-basic-design.md**：Section 4 全面重寫為 Hexagonal Architecture 模組設計
+- **README.md**：更新專案結構、新增 E2E 測試使用說明
