@@ -195,13 +195,13 @@ while true; do
     fi
 
     # Check for full workflow completion
-    if grep -q "workflow '.*' completed (no more phases), set phase:end" "$LOG_FILE" 2>/dev/null; then
+    if grep -q "completed (branch target=end), set phase:end" "$LOG_FILE" 2>/dev/null; then
         RESULT="completed"
         break
     fi
 
     # Check for fatal errors
-    if grep -q "ERROR.*workspace init failed" "$LOG_FILE" 2>/dev/null; then
+    if grep -q "ERROR.*workspace-init failed" "$LOG_FILE" 2>/dev/null; then
         RESULT="init-failed"
         break
     fi
@@ -226,8 +226,8 @@ ERRORS=0
 # 5a. Check all phases ran
 PHASES_PROCESSED=$(grep -c "processing (role=" "$LOG_FILE" 2>/dev/null || true)
 PHASES_PROCESSED=${PHASES_PROCESSED:-0}
-if [ -n "${TOTAL_PHASES:-}" ] && [ "$PHASES_PROCESSED" -eq "$TOTAL_PHASES" ]; then
-    pass "All $TOTAL_PHASES phases processed"
+if [ -n "${TOTAL_PHASES:-}" ] && [ "$PHASES_PROCESSED" -ge "$TOTAL_PHASES" ]; then
+    pass "All $TOTAL_PHASES phases processed ($PHASES_PROCESSED executions)"
 elif [ "$PHASES_PROCESSED" -gt 0 ]; then
     fail "Only $PHASES_PROCESSED/${TOTAL_PHASES:-?} phases processed"
     ERRORS=$((ERRORS + 1))
@@ -237,7 +237,7 @@ else
 fi
 
 # 5b. Check workflow completed
-if grep -q "workflow '.*' completed (no more phases), set phase:end" "$LOG_FILE" 2>/dev/null; then
+if grep -q "completed (branch target=end), set phase:end" "$LOG_FILE" 2>/dev/null; then
     pass "Workflow completed successfully"
 else
     fail "Workflow did NOT complete"

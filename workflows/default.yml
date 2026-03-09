@@ -2,19 +2,24 @@
 #
 # Each workflow has two sections:
 #   config  - list of repos to clone into /workspace (agent can work across all of them)
-#   steps   - sequence of phases (role + phasename + phasetarget + optional model/flags)
+#   steps   - sequence of phases (role + phasename + phase-prompt + branchs + optional model)
 #
 # Issues are matched by labels: workflow:<name> + phase:<phasename>
-# After each phase completes, the agent auto-transitions to the next step.
+# After each phase completes, branch rules determine the next phase.
 #
 # Per-step fields:
 #   role              - agent role (must match agents/<role>/ directory)
 #   phasename         - unique phase identifier (used in phase:<phasename> label)
-#   phasetarget       - description of what this phase should accomplish
+#   phase-prompt      - text injected into the agent prompt for this phase
+#                       (supports {BRANCH_NAME}, {ISSUE_NUMBER} placeholders)
 #   llm-model         - LLM model override (empty = use COPILOT_MODEL env var)
-#   extra-flags       - extra flags passed to gh copilot CLI (empty = none)
 #   workspace-init    - scripts to run BEFORE agent execution (from workspace-scripts/)
 #   workspace-cleanup - scripts to run AFTER agent execution (from workspace-scripts/)
+#   phase-env         - extra environment variables passed to all hook scripts in this phase
+#   branchs           - REQUIRED list of branch rules evaluated in order after cleanup.
+#                       Each rule has a 'target' (phasename or "end") and optional
+#                       KEY: VALUE conditions matched against /workspace/.branch-vars.
+#                       First matching rule wins.  A rule with only 'target' is the default.
 
 full-development:
   config:
@@ -24,43 +29,59 @@ full-development:
   steps:
     - role: manager
       phasename: requirement-analysis
-      phasetarget: "Analyze the issue, clarify requirements, and produce a structured requirements document."
+      phase-prompt: "Analyze the issue, clarify requirements, and produce a structured requirements document."
       llm-model: ""
-      extra-flags: ""
+      phase-env: {}
       workspace-init:
+        - clone-and-branch.sh
         - ban-git-write.sh
       workspace-cleanup:
         - unban-git-write.sh
+        - push-and-pr.sh
+      branchs:
+        - target: system-design
 
     - role: architect
       phasename: system-design
-      phasetarget: "Design the system architecture based on the requirements document."
+      phase-prompt: "Design the system architecture based on the requirements document."
       llm-model: ""
-      extra-flags: ""
+      phase-env: {}
       workspace-init:
+        - clone-and-branch.sh
         - ban-git-write.sh
       workspace-cleanup:
         - unban-git-write.sh
+        - push-and-pr.sh
+      branchs:
+        - target: implementation
 
     - role: coder
       phasename: implementation
-      phasetarget: "Implement the design, write code, and commit changes."
+      phase-prompt: "Implement the design, write code, and commit changes."
       llm-model: ""
-      extra-flags: ""
+      phase-env: {}
       workspace-init:
+        - clone-and-branch.sh
         - ban-git-write.sh
       workspace-cleanup:
         - unban-git-write.sh
+        - push-and-pr.sh
+      branchs:
+        - target: verification
 
     - role: qa
       phasename: verification
-      phasetarget: "Verify the implementation against requirements and design."
+      phase-prompt: "Verify the implementation against requirements and design."
       llm-model: ""
-      extra-flags: ""
+      phase-env: {}
       workspace-init:
+        - clone-and-branch.sh
         - ban-git-write.sh
       workspace-cleanup:
         - unban-git-write.sh
+        - push-and-pr.sh
+      branchs:
+        - target: end
 
 quick-fix:
   config:
@@ -70,23 +91,31 @@ quick-fix:
   steps:
     - role: coder
       phasename: fix
-      phasetarget: "Fix the bug or implement the small change described in the issue."
+      phase-prompt: "Fix the bug or implement the small change described in the issue."
       llm-model: ""
-      extra-flags: ""
+      phase-env: {}
       workspace-init:
+        - clone-and-branch.sh
         - ban-git-write.sh
       workspace-cleanup:
         - unban-git-write.sh
+        - push-and-pr.sh
+      branchs:
+        - target: verify-fix
 
     - role: qa
       phasename: verify-fix
-      phasetarget: "Verify the fix is correct and does not introduce regressions."
+      phase-prompt: "Verify the fix is correct and does not introduce regressions."
       llm-model: ""
-      extra-flags: ""
+      phase-env: {}
       workspace-init:
+        - clone-and-branch.sh
         - ban-git-write.sh
       workspace-cleanup:
         - unban-git-write.sh
+        - push-and-pr.sh
+      branchs:
+        - target: end
 
 technical-investigation:
   config:
@@ -96,40 +125,127 @@ technical-investigation:
   steps:
     - role: manager
       phasename: investigation-scope
-      phasetarget: "Analyze all given topics, define investigation boundaries, extract the user-provided evaluation viewpoints, and structure the report in a way that is easy for the user to understand."
+      phase-prompt: >-
+        Analyze all given topics, define investigation boundaries, extract the
+        user-provided evaluation viewpoints, and structure the report in a way
+        that is easy for the user to understand.
+
+        You MUST produce TWO deliverable files under the cloned repo in /workspace
+        (create the directory if it does not exist):
+          1. learning-log/issue-{ISSUE_NUMBER}/requirements.md — structured requirements
+          2. learning-log/issue-{ISSUE_NUMBER}/task-breakdown.md — task breakdown / work plan
+
+        If any of these files already exist, overwrite or update them.
+        IMPORTANT: Only create or modify files under learning-log/issue-{ISSUE_NUMBER}/.
       llm-model: "gpt-5-mini"
-      extra-flags: ""
+      phase-env:
+        DELIVERABLES: "*/learning-log/issue-{ISSUE_NUMBER}/requirements.md,*/learning-log/issue-{ISSUE_NUMBER}/task-breakdown.md"
+        COMMIT_SCOPE: "learning-log/issue-{ISSUE_NUMBER}"
       workspace-init:
+        - clone-and-branch.sh
         - ban-git-write.sh
       workspace-cleanup:
         - unban-git-write.sh
+        - push-and-pr.sh
+        - check-deliverables.sh
+      branchs:
+        - PHASE_STATUS: OK
+          target: evaluation-framework
+        - target: investigation-scope
 
     - role: architect
       phasename: evaluation-framework
-      phasetarget: "Build the investigation framework for all topics, including evaluation axes, comparison dimensions, assumptions, risks, trade-offs, and validation criteria based on the user's viewpoints."
+      phase-prompt: >-
+        Build the investigation framework for all topics, including evaluation
+        axes, comparison dimensions, assumptions, risks, trade-offs, and
+        validation criteria based on the user's viewpoints.
+
+        You MUST produce the following deliverables under the cloned repo in
+        /workspace (create directories if they do not exist):
+          1. learning-log/issue-{ISSUE_NUMBER}/architecture.md — evaluation framework document
+          2. Files under learning-log/issue-{ISSUE_NUMBER}/src/ — skeleton code or
+             pseudocode that demonstrates the key technical components, interfaces,
+             and data flow described in the architecture.  At least one source file
+             is required.
+
+        If any of these files already exist, overwrite or update them.
+        IMPORTANT: Only create or modify files under learning-log/issue-{ISSUE_NUMBER}/.
       llm-model: "gpt-5-mini"
-      extra-flags: ""
+      phase-env:
+        DELIVERABLES: "*/learning-log/issue-{ISSUE_NUMBER}/architecture.md,*/learning-log/issue-{ISSUE_NUMBER}/src/*"
+        COMMIT_SCOPE: "learning-log/issue-{ISSUE_NUMBER}"
       workspace-init:
+        - clone-and-branch.sh
         - ban-git-write.sh
       workspace-cleanup:
         - unban-git-write.sh
+        - push-and-pr.sh
+        - check-deliverables.sh
+      branchs:
+        - PHASE_STATUS: OK
+          target: evidence-validation
+        - target: evaluation-framework
 
     - role: coder
       phasename: evidence-validation
-      phasetarget: "Investigate and validate all given topics against the defined framework, examine supporting and opposing evidence, compare alternatives where relevant, and organize findings without implementing, committing, or pushing code."
+      phase-prompt: >-
+        Investigate and validate all given topics against the defined framework.
+        You MUST write actual code (working code, PoC, or detailed pseudocode)
+        that demonstrates and verifies the technical claims — do NOT only write
+        prose reports.
+
+        Required deliverables under the cloned repo in /workspace:
+          1. learning-log/issue-{ISSUE_NUMBER}/evidence-report.md — evidence and
+             validation report referencing the code you wrote
+          2. New or modified files under learning-log/issue-{ISSUE_NUMBER}/src/ —
+             validation code, PoC implementations, runnable examples, or detailed
+             pseudocode that substantiates the evidence report.  At least one
+             source file must be new or modified in this phase.
+
+        If any of these files already exist, overwrite or update them.
+        IMPORTANT: Only create or modify files under learning-log/issue-{ISSUE_NUMBER}/.
       llm-model: "gpt-5-mini"
-      extra-flags: ""
+      phase-env:
+        DELIVERABLES: "*/learning-log/issue-{ISSUE_NUMBER}/evidence-report.md,*/learning-log/issue-{ISSUE_NUMBER}/src/*"
+        COMMIT_SCOPE: "learning-log/issue-{ISSUE_NUMBER}"
       workspace-init:
+        - clone-and-branch.sh
         - ban-git-write.sh
       workspace-cleanup:
         - unban-git-write.sh
+        - push-and-pr.sh
+        - check-deliverables.sh
+      branchs:
+        - PHASE_STATUS: OK
+          target: report-consolidation
+        - target: evidence-validation
 
     - role: qa
       phasename: report-consolidation
-      phasetarget: "Verify that every given topic has been examined from all required viewpoints, check logical consistency and coverage, and produce a structured final report in the user-specified format without pushing code changes."
+      phase-prompt: >-
+        Verify that every given topic has been examined from all required
+        viewpoints, check logical consistency and coverage.  Review the code
+        under learning-log/issue-{ISSUE_NUMBER}/src/ and verify it supports the
+        claims in the evidence report.
+
+        You MUST produce ONE deliverable file:
+          1. learning-log/issue-{ISSUE_NUMBER}/final-report.md — consolidated final
+             report that references the source files as supporting evidence
+
+        If this file already exists, overwrite or update it.
+        IMPORTANT: Only create or modify files under learning-log/issue-{ISSUE_NUMBER}/.
       llm-model: "gpt-5-mini"
-      extra-flags: ""
+      phase-env:
+        DELIVERABLES: "*/learning-log/issue-{ISSUE_NUMBER}/final-report.md"
+        COMMIT_SCOPE: "learning-log/issue-{ISSUE_NUMBER}"
       workspace-init:
+        - clone-and-branch.sh
         - ban-git-write.sh
       workspace-cleanup:
         - unban-git-write.sh
+        - push-and-pr.sh
+        - check-deliverables.sh
+      branchs:
+        - PHASE_STATUS: OK
+          target: end
+        - target: report-consolidation

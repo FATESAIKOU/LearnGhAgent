@@ -18,7 +18,6 @@ class AgentPort(Protocol):
         agents_dir: str,
         timeout: int,
         model: str,
-        extra_flags: str,
     ) -> AgentResult:
         """Run the agent and return its result."""
         ...

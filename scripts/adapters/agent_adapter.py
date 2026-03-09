@@ -19,7 +19,6 @@ class CopilotCliAgentAdapter:
         agents_dir: str,
         timeout: int,
         model: str = "",
-        extra_flags: str = "",
     ) -> AgentResult:
         """Run gh copilot with the given prompt and return the result."""
 
@@ -35,10 +34,6 @@ class CopilotCliAgentAdapter:
         # Model selection
         if model:
             cmd.extend(["--model", model])
-
-        # Extra flags
-        if extra_flags:
-            cmd.extend(extra_flags.split())
 
         logger.info("Running agent with role '%s' (timeout=%ds)", role, timeout)
         logger.debug("Command: %s", " ".join(cmd[:6]) + " ...")

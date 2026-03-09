@@ -6,16 +6,21 @@
 
 ### Workflow 自動串接
 
-透過 Workflow YAML 定義多階段任務，Issue 只需加上 `workflow:xxx` label 即可啟動。Agent 會自動從第一階段開始，完成每個階段後自動轉換到下一個角色/階段，最後標記 `phase:end` 表示完成。
+透過 Workflow YAML 定義多階段任務，Issue 只需加上 `workflow:xxx` label 即可啟動。Agent 會自動從第一階段開始，每個階段完成後根據 **branch rules** 決定下一階段（條件分歧或無條件前進），最後標記 `phase:end` 表示完成。
 
 Workflow 可以指定多個工作 repo，Agent 會自動 clone 並建立 feature branch，每次執行後自動 push + 開 PR。
 
-**範例：** `full-development` workflow
+**範例：** `full-development` workflow（無條件線性前進）
 1. 自動開始 → `role:manager` + `phase:requirement-analysis` → Manager 分析需求
-2. 自動轉換 → `role:architect` + `phase:system-design` → Architect 設計架構
-3. 自動轉換 → `role:coder` + `phase:implementation` → Coder 寫程式
-4. 自動轉換 → `role:qa` + `phase:verification` → QA 驗證
-5. 完成 → 移除 `role:qa`，設定 `phase:end`
+2. Branch → `role:architect` + `phase:system-design` → Architect 設計架構
+3. Branch → `role:coder` + `phase:implementation` → Coder 寫程式
+4. Branch → `role:qa` + `phase:verification` → QA 驗證
+5. Branch → `target: end` → 設定 `phase:end`
+
+**範例：** `technical-investigation` workflow（條件分歧 + 重試）
+- 每階段完成後由 `check-deliverables.sh` 驗證成果物
+- 驗證通過（`PHASE_STATUS=OK`）→ 前進到下一階段
+- 驗證失敗 → 重試同一階段（label 不變，下次 poll 再執行）
 
 **適合用在：**
 - 完整的功能開發流程（需求 → 設計 → 實作 → 驗證）
@@ -179,10 +184,9 @@ LearnGhAgent/
 │   ├── config.py                # 環境變數讀取、Config dataclass
 │   ├── domain/                  # Domain Model（純資料結構，零依賴）
 │   │   ├── models.py            # AgentResult, ResolvedLabels
-│   │   └── workflow.py          # Workflow, Phase, RepoConfig
+│   │   └── workflow.py          # Workflow, Phase, RepoConfig, BranchRule
 │   ├── ports/                   # Port 介面定義（typing.Protocol）
 │   │   ├── github_port.py       # GitHubPort: issue/comment/label
-│   │   ├── git_port.py          # GitPort: workspace init/push/PR
 │   │   ├── agent_port.py        # AgentPort: 執行 agent
 │   │   └── hooks_port.py        # HooksPort: workspace-scripts
 │   ├── services/                # 業務邏輯（依賴 Port + Domain）
@@ -192,12 +196,14 @@ LearnGhAgent/
 │   │   └── prompt_service.py    # Prompt 組裝
 │   ├── adapters/                # Outbound Adapter（實作 Port）
 │   │   ├── github_adapter.py    # gh CLI → GitHubPort
-│   │   ├── git_adapter.py       # git CLI → GitPort
 │   │   ├── agent_adapter.py     # gh copilot CLI → AgentPort
 │   │   └── hooks_adapter.py     # subprocess → HooksPort
 │   ├── entrypoint.sh            # Docker entrypoint（auth + 驗證 + 啟動）
 │   └── setup-auth.sh            # 認證設定工具（host 端）
 ├── workspace-scripts/           # Workspace hook scripts
+│   ├── clone-and-branch.sh      # Clone repos + checkout feature branch
+│   ├── push-and-pr.sh           # Stage/commit/push + create draft PR
+│   ├── check-deliverables.sh    # 驗證成果物，寫入 PHASE_STATUS 到 .branch-vars
 │   ├── ban-git-write.sh         # 攔截 Agent 的 git write 操作
 │   └── unban-git-write.sh       # 移除 git write 攔截
 ├── agents/                      # Agent 角色定義
@@ -254,7 +260,7 @@ Issue 使用三種 label 控制 Agent 行為：
 
 ### 啟動 Workflow
 
-只加 `workflow:xxx` label → Agent 自動從第一階段開始，依序執行所有 phase，最後標記 `phase:end`。
+只加 `workflow:xxx` label → Agent 自動從第一階段開始，每個 phase 完成後根據 `branchs` 規則決定下一步，最後標記 `phase:end`。
 
 > `role:xxx` 和 `phase:xxx` 由系統自動管理，不需手動設定。
 
@@ -263,11 +269,11 @@ Issue 使用三種 label 控制 Agent 行為：
 在 Issue 加上 1 個 label：
 - `workflow:full-development`
 
-Agent 會依序自動執行：
-1. Manager → 需求分析
-2. Architect → 系統設計
-3. Coder → 程式實作
-4. QA → 品質驗證
+Agent 會根據 branch rules 自動執行：
+1. Manager → 需求分析 → branch → system-design
+2. Architect → 系統設計 → branch → implementation
+3. Coder → 程式實作 → branch → verification
+4. QA → 品質驗證 → branch → end
 5. 完成 → `phase:end`
 
 ### Workflow YAML 格式
@@ -280,45 +286,56 @@ full-development:
     - repo: owner/some-project
       url: ""                   # 可省略（用 gh repo clone）
       description: "專案說明"
-    - repo: owner/another-repo
-      url: "https://github.com/owner/another-repo.git"
-      description: "另一個專案"
   steps:
     - role: manager
       phasename: requirement-analysis
-      phasetarget: "Analyze the issue, clarify requirements."
+      phase-prompt: "Analyze the issue, clarify requirements."
       llm-model: ""          # 空字串 = 使用預設 model
-      extra-flags: ""         # 額外 gh copilot CLI flags
-      workspace-init: []      # Agent 執行前跑的腳本（從 workspace-scripts/ 載入）
-      workspace-cleanup: []   # Agent 執行後跑的腳本
+      phase-env: {}           # 額外環境變數（傳給 hook scripts）
+      workspace-init:         # Agent 執行前跑的腳本（從 workspace-scripts/ 載入）
+        - clone-and-branch.sh
+        - ban-git-write.sh
+      workspace-cleanup:      # Agent 執行後跑的腳本
+        - unban-git-write.sh
+        - push-and-pr.sh
+      branchs:                # 必填：分歧規則（依序評估，第一個匹配生效）
+        - target: system-design
     - role: architect
       phasename: system-design
-      phasetarget: "Design the system architecture."
+      phase-prompt: "Design the system architecture."
       llm-model: ""
-      extra-flags: ""
-    - role: coder
-      phasename: implementation
-      phasetarget: "Implement the design, write code."
-      llm-model: ""
-      extra-flags: ""
       workspace-init:
-        - ban-git-write.sh    # 攔截 Agent 的 git write 操作
+        - clone-and-branch.sh
+        - ban-git-write.sh
       workspace-cleanup:
-        - unban-git-write.sh  # 移除攔截，讓 push 正常運作
-    - role: qa
-      phasename: verification
-      phasetarget: "Verify the implementation."
-      llm-model: ""
-      extra-flags: ""
+        - unban-git-write.sh
+        - push-and-pr.sh
+      branchs:
+        - target: implementation
+    # ... (coder → verification → end)
 
 technical-investigation:
-  config: []    # 無需 clone repo（純調查任務）
+  config:
+    - repo: owner/target-repo
+      description: "Investigation output repo"
   steps:
     - role: manager
       phasename: investigation-scope
-      phasetarget: "Define investigation boundaries."
+      phase-prompt: "Define investigation boundaries."
       llm-model: "gpt-5-mini"
-      extra-flags: ""
+      phase-env:
+        DELIVERABLES: "*/docs/issue-{ISSUE_NUMBER}/requirements.md"  # 驗證用 glob 模式
+      workspace-init:
+        - clone-and-branch.sh
+        - ban-git-write.sh
+      workspace-cleanup:
+        - unban-git-write.sh
+        - push-and-pr.sh
+        - check-deliverables.sh   # 驗證成果物，寫入 PHASE_STATUS
+      branchs:                    # 條件分歧：驗證通過才前進
+        - PHASE_STATUS: OK
+          target: evaluation-framework
+        - target: investigation-scope   # 預設：重試當前階段
     # ...
 ```
 
@@ -336,11 +353,33 @@ technical-investigation:
 |------|------|
 | `role` | Agent 角色（對應 `agents/xxx/` 目錄） |
 | `phasename` | 階段識別名（用於 `phase:xxx` label） |
-| `phasetarget` | 該階段的目標說明（帶入 prompt） |
+| `phase-prompt` | 該階段的提示文字（帶入 agent prompt，支援 `{BRANCH_NAME}` / `{ISSUE_NUMBER}` 佔位符） |
 | `llm-model` | LLM 模型 override（空 = 用環境變數） |
-| `extra-flags` | 額外 gh copilot CLI flags |
+| `phase-env` | 額外環境變數 map（傳給該 phase 的所有 hook scripts） |
 | `workspace-init` | Agent 執行前跑的腳本列表（從 `workspace-scripts/` 載入） |
 | `workspace-cleanup` | Agent 執行後跑的腳本列表 |
+| `branchs` | **必填**。分歧規則列表，每個規則含 `target`（phasename 或 `end`）及可選條件。詳見下方 |
+
+### Branch Rules（分歧規則）
+
+每個 step 必須有 `branchs` 欄位，定義階段完成後的流向。規則依序評估，第一個匹配規則生效：
+
+| 欄位 | 說明 |
+|------|------|
+| `target` | **必填**。目標 phasename 或 `end`（結束 Workflow） |
+| 其他 KEY: VALUE | 可選條件。與 `/workspace/.branch-vars` 中的值比對 |
+
+**無條件規則**（只有 `target`）= 預設 fallback，總是匹配。
+**條件規則** = 所有 KEY=VALUE 都必須匹配才生效。
+
+```yaml
+branchs:
+  - PHASE_STATUS: OK          # 條件：PHASE_STATUS 等於 OK
+    target: next-phase         # 匹配 → 前進到 next-phase
+  - target: current-phase      # 無條件 → 重試（label 不變）
+```
+
+**Branch-vars 機制**：workspace-cleanup 腳本（如 `check-deliverables.sh`）將結果寫入 `/workspace/.branch-vars`（`KEY=VALUE` 格式），Pipeline 在 cleanup 後讀取此檔案評估分歧規則。
 
 ### Model 優先順序
 
@@ -355,15 +394,14 @@ technical-investigation:
 2. **觸發判定**：檢查 Issue 是否有 `workflow:xxx` label；若有 `phase:end` 則跳過（已完成）
 3. **Workflow 解析**：載入對應 Workflow 定義；若無 `phase:xxx` 則自動從第一階段開始，並補上 `role:xxx` + `phase:xxx` label
 4. **角色決定**：從 Workflow phase 定義取得角色（`phase.role`），對應 `agents/xxx/` 目錄
-5. **Workspace 初始化**：根據 Workflow `config` 中的 repo 清單，git clone + checkout feature branch (`agent/issue-N`)
-6. **Workspace-init hooks**：執行當前 phase 定義的 `workspace-init` 腳本（例如安裝 git write 攔截 wrapper）
-7. **執行**：組合 issue 內容 + 角色 instructions + workflow/repos context 為 prompt，呼叫 `gh copilot`
-8. **Workspace-cleanup hooks**：執行當前 phase 定義的 `workspace-cleanup` 腳本（例如移除 git wrapper）
-9. **Git push**：Agent 執行後自動 stage + commit + push 所有 repo 變更，並建立 draft PR
-10. **回寫**：將 Agent 輸出作為 comment 回寫到 Issue
-11. **階段轉換**：移除當前 `role:xxx` + `phase:xxx`，加上下一階段 label；最後一個階段完成後設定 `phase:end`
+5. **Phase 環境建構**：從 Workflow config + phase-env 建構環境變數（含 `REPOS`、`ISSUE_NUMBER`、`BRANCH_NAME` 等）
+6. **Workspace-init hooks**：執行當前 phase 定義的 `workspace-init` 腳本（例如 `clone-and-branch.sh` clone repo + checkout branch、`ban-git-write.sh` 安裝 git write 攔截）
+7. **執行**：組合 issue 內容 + 角色 instructions + workflow/repos/phase-prompt context 為 prompt，呼叫 `gh copilot`
+8. **Workspace-cleanup hooks**：執行當前 phase 定義的 `workspace-cleanup` 腳本（例如 `unban-git-write.sh` 移除攔截、`push-and-pr.sh` 自動 commit + push + 建立 draft PR、`check-deliverables.sh` 驗證成果物）
+9. **回寫**：將 Agent 輸出作為 comment 回寫到 Issue
+10. **Branch 評估與階段轉換**：讀取 `/workspace/.branch-vars`，依序評估 `branchs` 規則決定目標。目標為同一階段時保持 label 不變（重試），目標為 `end` 時設定 `phase:end`，否則轉換到目標階段的 `role:xxx` + `phase:xxx`
 
-> **觸發機制**：以 `workflow:xxx` label 存在且無 `phase:end` 作為處理依據，無需時間戳比對。Workflow 完成後設定 `phase:end`，因此下次輪詢不會重複處理。
+> **觸發機制**：以 `workflow:xxx` label 存在且無 `phase:end` 作為處理依據，無需時間戳比對。Workflow 完成後設定 `phase:end`，因此下次輪詢不會重複處理。Git clone / push / PR 操作已移至 `workspace-scripts/` 中的 shell scripts，透過 `workspace-init` 和 `workspace-cleanup` hooks 執行。Agent 超時或失敗時不進行 branch 評估，label 維持不變，下次輪詢自動重試。
 
 ---
 

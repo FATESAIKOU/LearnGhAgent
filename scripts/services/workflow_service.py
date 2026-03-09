@@ -6,7 +6,9 @@ import logging
 import os
 from typing import Any, Optional
 
-from domain.workflow import Phase, RepoConfig, Workflow
+import json
+
+from domain.workflow import BranchRule, Phase, RepoConfig, Workflow
 from ports.github_port import GitHubPort
 
 logger = logging.getLogger(__name__)
@@ -47,20 +49,43 @@ def _parse_repos(raw_list: list[dict[str, Any]]) -> list[RepoConfig]:
     return repos
 
 
+def _parse_branchs(raw_list: list[dict[str, Any]]) -> list[BranchRule]:
+    """Parse a list of branch-rule dicts into BranchRule objects.
+
+    Each dict MUST have a ``target`` key.  Every other key-value pair in the
+    dict is treated as a condition that must match a branch-var.
+    """
+    rules: list[BranchRule] = []
+    for item in raw_list:
+        if not isinstance(item, dict) or "target" not in item:
+            continue
+        target = str(item["target"])
+        conditions = {str(k): str(v) for k, v in item.items() if k != "target"}
+        rules.append(BranchRule(target=target, conditions=conditions))
+    return rules
+
+
 def _parse_phases(raw_list: list[dict[str, Any]]) -> list[Phase]:
     """Parse a list of phase dicts into Phase objects."""
     phases: list[Phase] = []
     for item in raw_list:
         if not isinstance(item, dict):
             continue
+        # phase-env: dict of extra env vars for hook scripts
+        raw_env = item.get("phase-env", {}) or {}
+        phase_env = {str(k): str(v) for k, v in raw_env.items()} if isinstance(raw_env, dict) else {}
+        # branchs: required list of branch rules
+        raw_branchs = item.get("branchs", []) or []
+        branchs = _parse_branchs(raw_branchs) if isinstance(raw_branchs, list) else []
         phases.append(Phase(
             role=item.get("role", ""),
             phasename=item.get("phasename", ""),
-            phasetarget=item.get("phasetarget", ""),
+            phase_prompt=item.get("phase-prompt", "") or "",
             llm_model=item.get("llm-model", ""),
-            extra_flags=item.get("extra-flags", ""),
             workspace_init=item.get("workspace-init", []) or [],
             workspace_cleanup=item.get("workspace-cleanup", []) or [],
+            phase_env=phase_env,
+            branchs=branchs,
         ))
     return phases
 
@@ -134,6 +159,38 @@ class WorkflowService:
 
         return workflows
 
+    # --- Phase env builder ---
+
+    @staticmethod
+    def build_phase_env(
+        workflow: Workflow,
+        phase: Phase,
+        issue_number: int,
+        issue_repo: str,
+    ) -> dict[str, str]:
+        """Build the environment variables dict for hook scripts.
+
+        Combines computed values (REPOS, ISSUE_NUMBER, BRANCH_NAME, etc.)
+        with user-defined phase-env from the workflow YAML.
+        YAML phase-env values take precedence over computed defaults.
+        """
+        branch = f"agent/issue-{issue_number}"
+        repos_json = json.dumps(
+            [{"repo": rc.repo, "url": rc.url, "description": rc.description}
+             for rc in workflow.repos]
+        )
+
+        computed: dict[str, str] = {
+            "REPOS": repos_json,
+            "ISSUE_NUMBER": str(issue_number),
+            "BRANCH_NAME": branch,
+            "ISSUE_REPO": issue_repo,
+            "PHASE_NAME": phase.phasename,
+        }
+        # YAML phase-env overrides computed defaults
+        computed.update(phase.phase_env)
+        return computed
+
     # --- Phase navigation ---
 
     def find_phase_by_label(self, workflow: Workflow, phase_label: str) -> Optional[int]:
@@ -197,45 +254,106 @@ class WorkflowService:
             return phase_idx, workflow.phases[phase_idx]
         return None, None
 
+    # --- Branch evaluation ---
+
+    @staticmethod
+    def read_branch_vars(vars_file: str = "/workspace/.branch-vars") -> dict[str, str]:
+        """Read branch variables from the well-known file.
+
+        The file uses ``KEY=VALUE`` lines (``#`` comments and blanks ignored).
+        """
+        result: dict[str, str] = {}
+        try:
+            with open(vars_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        key, _, value = line.partition("=")
+                        result[key.strip()] = value.strip()
+        except FileNotFoundError:
+            pass
+        return result
+
+    @staticmethod
+    def evaluate_branches(
+        branchs: list["BranchRule"],
+        branch_vars: dict[str, str],
+    ) -> str:
+        """Evaluate branch rules against branch variables.
+
+        Rules are checked in order; the first rule whose *all* conditions
+        match wins.  A rule with no conditions is an unconditional default.
+
+        Returns the ``target`` phasename (or ``"end"``).
+        """
+        for rule in branchs:
+            if not rule.conditions:
+                return rule.target          # unconditional default
+            if all(branch_vars.get(k) == v for k, v in rule.conditions.items()):
+                return rule.target
+        # Shouldn't reach here if YAML always has a default, but be safe
+        return "end"
+
     # --- Phase transition ---
 
-    def advance_phase(
+    def transition_to_phase(
         self,
         workflow: Workflow,
-        phase_idx: int,
+        current_phase: Phase,
+        target_name: str,
         repo: str,
         issue_number: int,
-    ) -> bool:
-        """Remove current phase labels, add next phase labels.
+    ) -> None:
+        """Transition from *current_phase* to the phase identified by *target_name*.
 
-        Returns True if there is a next phase, False if workflow is complete.
+        ``target_name`` may be a phasename or the special value ``"end"``.
+        If the target equals the current phase (retry), labels are left unchanged.
         """
+        # Retry — no label change needed; next poll will re-process
+        if target_name == current_phase.phasename:
+            logger.info(
+                "Issue #%d: branch target is current phase '%s' (retry)",
+                issue_number, target_name,
+            )
+            return
+
         # Remove current role + phase labels
-        current_phase = workflow.phases[phase_idx]
         try:
             self.github.remove_label(repo, issue_number, f"role:{current_phase.role}")
         except Exception:
-            pass  # Label might not exist
+            pass
         try:
             self.github.remove_label(repo, issue_number, f"phase:{current_phase.phasename}")
         except Exception:
-            pass  # Label might not exist if phase was auto-inferred
+            pass
 
-        # Get next phase
-        next_phase = self.get_next_phase(workflow, phase_idx)
-        if next_phase:
-            self.github.add_label(repo, issue_number, f"role:{next_phase.role}")
-            self.github.add_label(repo, issue_number, f"phase:{next_phase.phasename}")
-            logger.info(
-                "Issue #%d: advanced to next phase -> role:%s phase:%s",
-                issue_number, next_phase.role, next_phase.phasename,
-            )
-            return True
-        else:
-            # Workflow complete — set phase:end (workflow:xxx stays)
+        # target: end
+        if target_name == "end":
             self.github.add_label(repo, issue_number, "phase:end")
             logger.info(
-                "Issue #%d: workflow '%s' completed (no more phases), set phase:end",
+                "Issue #%d: workflow '%s' completed (branch target=end), set phase:end",
                 issue_number, workflow.name,
             )
-            return False
+            return
+
+        # Find target phase in workflow
+        target_phase = next(
+            (p for p in workflow.phases if p.phasename == target_name), None,
+        )
+        if target_phase is None:
+            logger.error(
+                "Issue #%d: branch target '%s' not found in workflow '%s', "
+                "setting phase:end as safety fallback",
+                issue_number, target_name, workflow.name,
+            )
+            self.github.add_label(repo, issue_number, "phase:end")
+            return
+
+        self.github.add_label(repo, issue_number, f"role:{target_phase.role}")
+        self.github.add_label(repo, issue_number, f"phase:{target_name}")
+        logger.info(
+            "Issue #%d: branching to phase '%s' (role:%s)",
+            issue_number, target_name, target_phase.role,
+        )

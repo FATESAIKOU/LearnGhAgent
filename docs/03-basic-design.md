@@ -176,22 +176,20 @@ scripts/
 ├── config.py                   # Config dataclass + load_config()
 ├── domain/                     # Domain Model — 純資料結構，零依賴
 │   ├── models.py               # AgentResult, ResolvedLabels
-│   └── workflow.py             # Workflow, Phase, RepoConfig dataclasses
+│   └── workflow.py          # Workflow, Phase, RepoConfig, BranchRule dataclasses
 ├── ports/                      # Port — 介面定義（typing.Protocol）
 │   ├── github_port.py          # GitHubPort
-│   ├── git_port.py             # GitPort
 │   ├── agent_port.py           # AgentPort
 │   └── hooks_port.py           # HooksPort
 ├── services/                   # Service — 業務邏輯（依賴 Port + Domain）
 │   ├── pipeline.py             # process_issue()：主流程編排
-│   ├── workflow_service.py     # YAML 載入、phase 導航、階段轉換
+│   ├── workflow_service.py     # YAML 載入、phase 導航、branch 評估、階段轉換
 │   ├── role_service.py         # label 解析 → ResolvedLabels
-│   └── prompt_service.py       # prompt 組裝（含 workflow/repos context）
+│   └── prompt_service.py       # prompt 組裝（含 workflow/repos/phase-prompt context）
 └── adapters/                   # Outbound Adapter — 實作 Port 介面
     ├── github_adapter.py       # 實作 GitHubPort（gh CLI）
-    ├── git_adapter.py          # 實作 GitPort（git CLI + PR）
     ├── agent_adapter.py        # 實作 AgentPort（gh copilot CLI）
-    └── hooks_adapter.py        # 實作 HooksPort（subprocess）
+    └── hooks_adapter.py        # 實作 HooksPort（subprocess，支援 phase_env）
 ```
 
 依賴方向：`main.py` → `services/` → `ports/` + `domain/` ← `adapters/`
@@ -225,14 +223,23 @@ class RepoConfig:
     description: str = ""
 
 @dataclass
+class BranchRule:
+    """分岐規則。conditions 為 KEY=VALUE 條件 dict，
+    與 /workspace/.branch-vars 中的值比對。
+    空 conditions = 無條件 default（總是匹配）。"""
+    target: str                                        # phasename 或 "end"
+    conditions: dict[str, str] = field(default_factory=dict)
+
+@dataclass
 class Phase:
     role: str
     phasename: str
-    phasetarget: str = ""
+    phase_prompt: str = ""
     llm_model: str = ""
-    extra_flags: str = ""
     workspace_init: list[str] = field(default_factory=list)
     workspace_cleanup: list[str] = field(default_factory=list)
+    phase_env: dict[str, str] = field(default_factory=dict)
+    branchs: list[BranchRule] = field(default_factory=list)  # 必填
 
 @dataclass
 class Workflow:
@@ -259,25 +266,6 @@ class GitHubPort(Protocol):
 
 > 所有 `repo` 參數使用 `owner/repo` 格式。
 
-#### ports/git_port.py
-
-```python
-class GitPort(Protocol):
-    def init_workspace(self, repos: list[RepoConfig], issue_number: int) -> None:
-        """Clone repos and create/checkout feature branches."""
-        ...
-
-    def push_workspace(
-        self,
-        repos: list[RepoConfig],
-        issue_number: int,
-        issue_repo: str,
-        phase_name: str,
-    ) -> None:
-        """Stage, commit, push changes and create draft PRs."""
-        ...
-```
-
 #### ports/agent_port.py
 
 ```python
@@ -289,7 +277,6 @@ class AgentPort(Protocol):
         agents_dir: str,
         timeout: int,
         model: str,
-        extra_flags: str,
     ) -> AgentResult: ...
 ```
 
@@ -297,8 +284,17 @@ class AgentPort(Protocol):
 
 ```python
 class HooksPort(Protocol):
-    def run_workspace_scripts(self, script_names: list[str]) -> bool:
+    def run_workspace_scripts(
+        self,
+        script_names: list[str],
+        phase_env: dict[str, str] | None = None,
+    ) -> bool:
         """Execute a list of workspace scripts sequentially.
+
+        Args:
+            script_names: List of script filenames to run.
+            phase_env: Extra environment variables passed to each script.
+
         Returns True if all scripts succeeded, False if any failed."""
         ...
 ```
@@ -327,7 +323,7 @@ class WorkflowService:
         self.github = github_port
 
     def load_workflows(self, workflow_file: str) -> dict[str, Workflow]:
-        # 載入 YAML，解析為 Workflow/Phase/RepoConfig 資料結構
+        # 載入 YAML，解析為 Workflow/Phase/RepoConfig/BranchRule 資料結構
         # 支援新格式（config + steps）和舊格式（flat list）
         ...
 
@@ -338,11 +334,22 @@ class WorkflowService:
         # 回傳 (phase_idx, phase)
         ...
 
-    def advance_phase(self, workflow: Workflow, phase_idx: int,
-                      resolved: ResolvedLabels, repo: str, issue_number: int) -> bool:
-        # 移除當前 role/phase label
-        # 若有下一階段 → 加上下一階段 role/phase label，回傳 True
-        # 若已完成 → 回傳 False
+    @staticmethod
+    def read_branch_vars(vars_file: str = "/workspace/.branch-vars") -> dict[str, str]:
+        # 讀取 KEY=VALUE 格式的 branch-vars 檔案
+        ...
+
+    @staticmethod
+    def evaluate_branches(branchs: list[BranchRule], branch_vars: dict[str, str]) -> str:
+        # 依序評估 branchs 規則，回傳第一個匹配的 target
+        # 無條件規則（空 conditions）= 預設 fallback
+        ...
+
+    def transition_to_phase(self, workflow: Workflow, current_phase: Phase,
+                            target_name: str, repo: str, issue_number: int) -> None:
+        # target == 當前 phase → 重試（label 不變）
+        # target == "end" → 移除 label，設 phase:end
+        # target == 其他 → 移除當前 label，加上目標 role/phase label
         ...
 ```
 
@@ -358,7 +365,7 @@ class PromptService:
                      workflow_repos: list[RepoConfig]) -> str:
         # 1. 從 github_port 取得 issue body + comments
         # 2. 讀取 agents/{role}/instructions.md
-        # 3. 加入 phase context（phasetarget）
+        # 3. 加入 phase context（phase_prompt，支援 {BRANCH_NAME}/{ISSUE_NUMBER} 佔位符）
         # 4. 加入 repos context（clone 位置、repo 說明）
         # 5. 組合完整 prompt
         ...
@@ -368,7 +375,7 @@ class PromptService:
 
 ```python
 class PipelineService:
-    def __init__(self, github_port: GitHubPort, git_port: GitPort,
+    def __init__(self, github_port: GitHubPort,
                  agent_port: AgentPort, hooks_port: HooksPort,
                  role_service: RoleService, workflow_service: WorkflowService,
                  prompt_service: PromptService):
@@ -378,54 +385,49 @@ class PipelineService:
                       config: Config, workflows: dict[str, Workflow]):
         # Step 1: 解析 labels
         resolved = self.role_service.resolve_labels(labels, ...)
-        if not resolved.role:
+        if not resolved.workflow_name:
             return
 
         # Step 2: 解析 workflow/phase
         if resolved.workflow_name in workflows:
             workflow_service.resolve_phase(...) → (idx, phase)
 
-        # Step 3: 初始化 Workspace
-        repos = workflow.repos if workflow else []
-        if repos:
-            self.git.init_workspace(repos, number)
+        # Step 3: 建構 phase_env（REPOS, ISSUE_NUMBER, BRANCH_NAME 等環境變數）
+        phase_env = workflow_service.build_phase_env(workflow, phase, number, repo)
 
-        # Step 4: 組 prompt
+        # Step 4: 清除 branch-vars + 執行 workspace-init hooks
+        清除 /workspace/.branch-vars
+        if phase and phase.workspace_init:
+            init_ok = self.hooks.run_workspace_scripts(phase.workspace_init, phase_env)
+            if not init_ok:
+                return  # workspace-init 失敗則跳過
+
+        # Step 5: 組 prompt
         prompt = self.prompt_service.build_prompt(
             repo, number, resolved.role, agents_dir, phase, repos)
 
-        # Step 5: 執行 workspace-init hooks
-        if phase and phase.workspace_init:
-            self.hooks.run_workspace_scripts(phase.workspace_init)
-
         # Step 6: 執行 Agent
         effective_model = (phase.llm_model if phase else "") or config.copilot_model
-        extra_flags = phase.extra_flags if phase else ""
         result = self.agent.run(
             prompt, resolved.role, config.agents_dir,
-            config.agent_timeout, effective_model, extra_flags)
+            config.agent_timeout, effective_model)
 
-        # Step 7: 執行 workspace-cleanup hooks
+        # Step 7: 執行 workspace-cleanup hooks（unban-git-write.sh + push-and-pr.sh + check-deliverables.sh）
         if phase and phase.workspace_cleanup:
-            self.hooks.run_workspace_scripts(phase.workspace_cleanup)
+            self.hooks.run_workspace_scripts(phase.workspace_cleanup, phase_env)
 
-        # Step 8: Push + PR（即使失敗也 push partial work）
-        if repos:
-            self.git.push_workspace(repos, number, config.target_issue_repo, phase_name)
-
-        # Step 9: 檢查結果（timeout/failure → return）
+        # Step 8: 檢查結果（timeout/failure → return，label 不變，自然重試）
         if result.timed_out or result.exit_code != 0:
             return
 
-        # Step 10: 回寫 Comment
+        # Step 9: 回寫 Comment
         if result.output:
             self.github.post_comment(config.target_issue_repo, number, body)
 
-        # Step 11: 階段轉換
-        if workflow:
-            self.workflow_service.advance_phase(workflow, idx, resolved, ...)
-        elif resolved.role_label:
-            self.github.remove_label(repo, number, resolved.role_label)
+        # Step 10: Branch 評估與階段轉換
+        branch_vars = workflow_service.read_branch_vars()
+        target = workflow_service.evaluate_branches(phase.branchs, branch_vars)
+        workflow_service.transition_to_phase(workflow, phase, target, repo, number)
 ```
 
 ### 4.4 Outbound Adapter（adapters/）
@@ -457,42 +459,16 @@ class GhCliGitHubAdapter:
         ...
 ```
 
-#### adapters/git_adapter.py
-
-```python
-class GitCliAdapter:
-    """透過 git CLI + gh CLI 實作 GitPort"""
-    WORKSPACE_ROOT = "/workspace"
-
-    def init_workspace(self, repos: list[RepoConfig], issue_number: int) -> None:
-        # 對每個 repo:
-        #   1. clone 到 /workspace/{repo_name}（若尚未 clone，否則 fetch）
-        #   2. checkout/create branch agent/issue-{issue_number}
-        #      - 本地存在 → checkout
-        #      - remote 存在 → checkout -b ... origin/...
-        #      - 都不存在 → 從 default branch 建立新 branch
-        ...
-
-    def push_workspace(self, repos: list[RepoConfig], issue_number: int,
-                       issue_repo: str, phase_name: str) -> None:
-        # 對每個 repo:
-        #   1. git add -A + commit（含 phase_name 在 commit message 中）
-        #   2. 檢查是否有新 commit（git rev-list 比較）
-        #   3. git push -u origin {branch}
-        #   4. 若 PR 不存在 → gh pr create --draft
-        ...
-```
-
 #### adapters/agent_adapter.py
 
 ```python
 class CopilotCliAgentAdapter:
     """透過 gh copilot CLI 實作 AgentPort"""
     def run(self, prompt: str, role: str, agents_dir: str,
-            timeout: int, model: str, extra_flags: str) -> AgentResult:
+            timeout: int, model: str) -> AgentResult:
         # 1. 組合 cmd:
         #    gh copilot -p "..." --yolo --no-ask-user --add-dir /workspace
-        #    [--model MODEL] [EXTRA_FLAGS]
+        #    [--model MODEL]
         # 2. subprocess.Popen + threading.Timer watchdog（timeout kill）
         # 3. streaming 逐行讀取 stdout
         # 4. 回傳 AgentResult(exit_code, output, timed_out)
@@ -509,10 +485,14 @@ class SubprocessHooksAdapter:
     def __init__(self, scripts_dir: str = WORKSPACE_SCRIPTS_DIR):
         self.scripts_dir = scripts_dir
 
-    def run_workspace_scripts(self, script_names: list[str]) -> bool:
+    def run_workspace_scripts(self, script_names: list[str],
+                              phase_env: dict[str, str] | None = None) -> bool:
         # 依序執行 script_names 中的每個腳本
         # 腳本路徑：{scripts_dir}/{script_name}
+        # phase_env 合併到 os.environ 傳給 subprocess
+        # stdout 以 INFO 等級 log 輸出
         # 失敗時 log error 但繼續執行剩餘腳本
+        # timeout: 300s
         # 回傳 all_ok: bool
         ...
 ```
@@ -525,7 +505,6 @@ def main():
 
     # 建立 Adapter 實例
     github_adapter = GhCliGitHubAdapter()
-    git_adapter = GitCliAdapter()
     agent_adapter = CopilotCliAgentAdapter()
     hooks_adapter = SubprocessHooksAdapter()
 
@@ -535,7 +514,6 @@ def main():
     prompt_service = PromptService(github_port=github_adapter)
     pipeline = PipelineService(
         github_port=github_adapter,
-        git_port=git_adapter,
         agent_port=agent_adapter,
         hooks_port=hooks_adapter,
         role_service=role_service,
@@ -559,7 +537,7 @@ main()
 
 ### 觸發機制
 
-以 `role:xxx` label 存在與否作為處理依據，無需時間戳比對。Agent 完成後會移除 label，因此下次輪詢不會重複處理。
+以 `workflow:xxx` label 存在與否作為處理依據，無需時間戳比對。Workflow 完成後設定 `phase:end`，因此下次輪詢不會重複處理。
 
 ---
 
@@ -637,7 +615,7 @@ agents/
     └── instructions.md
 ```
 
-每個角色目錄只需 `instructions.md` 一個檔案。model 和 extra flags 等啟動設定集中在 Workflow YAML 中管理。
+每個角色目錄只需 `instructions.md` 一個檔案。model 等啟動設定集中在 Workflow YAML 中管理。
 
 ---
 
@@ -661,7 +639,7 @@ workspace/
 | Agent 異常退出 (非 0) | log ERROR，不回寫 Comment，push partial work 後繼續下一個 Issue |
 | Agent 輸出為空 | 不回寫 Comment，僅移除 label / 推進 workflow |
 | 角色目錄不存在 | fallback 到內建預設 instructions |
-| Workspace-init hooks 失敗 | log error 但繼續執行 Agent |
+| Workspace-init hooks 失敗 | log error，跳過該 Issue（不執行 Agent） |
 
 ---
 
@@ -704,7 +682,6 @@ participant "entrypoint.sh" as EP
 participant "main.py\n(Composition Root)" as MAIN
 participant "PipelineService" as PS
 participant "GitHub\n(via gh CLI)" as GH
-participant "GitCliAdapter" as GIT
 participant "gh copilot CLI" as Agent
 participant "HooksAdapter" as HOOKS
 
@@ -732,28 +709,29 @@ loop 每 POLL_INTERVAL 秒
 
         PS -> PS : resolve_labels() → ResolvedLabels
 
-        alt 無 role → skip
-        else 有 role
+        alt 無 workflow → skip
+        else 有 workflow
             PS -> PS : resolve_phase() → (idx, phase)
-            PS -> GIT : init_workspace(repos, issue_number)
-            GIT --> PS : ok
+            PS -> PS : build_phase_env() → phase_env
+            PS -> HOOKS : run_workspace_scripts(workspace_init, phase_env)
+            note right: clone-and-branch.sh + ban-git-write.sh
+            HOOKS --> PS : ok
             PS -> GH : get_issue + get_issue_comments（組 prompt）
             GH --> PS : issue data
-            PS -> HOOKS : run_workspace_scripts(workspace_init)
-            HOOKS --> PS : ok
             PS -> Agent : run(prompt, role, ...)
             Agent --> PS : AgentResult
 
-            PS -> HOOKS : run_workspace_scripts(workspace_cleanup)
+            PS -> HOOKS : run_workspace_scripts(workspace_cleanup, phase_env)
+            note right: unban-git-write.sh + push-and-pr.sh\n+ check-deliverables.sh（optional）
             HOOKS --> PS : ok
-            PS -> GIT : push_workspace(repos, number, ...)
-            GIT --> PS : ok
 
             alt timeout 或失敗
-                PS -> PS : return（不回寫）
+                PS -> PS : return（label 不變，自然重試）
             else 正常完成
                 PS -> GH : post_comment(...)
-                PS -> GH : remove_label / add_label（階段轉換）
+                PS -> PS : read_branch_vars()
+                PS -> PS : evaluate_branches() → target
+                PS -> GH : remove_label / add_label（branch 轉換）
             end
         end
     end

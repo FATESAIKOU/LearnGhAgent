@@ -11,7 +11,6 @@ import time
 from config import load_config
 
 from adapters.github_adapter import GhCliGitHubAdapter
-from adapters.git_adapter import GitCliAdapter
 from adapters.agent_adapter import CopilotCliAgentAdapter
 from adapters.hooks_adapter import SubprocessHooksAdapter
 
@@ -44,7 +43,6 @@ def main() -> None:
 
     # --- Build Adapters (Outbound) ---
     github_adapter = GhCliGitHubAdapter()
-    git_adapter = GitCliAdapter()
     agent_adapter = CopilotCliAgentAdapter()
     hooks_adapter = SubprocessHooksAdapter()
 
@@ -54,7 +52,6 @@ def main() -> None:
     prompt_service = PromptService(github_port=github_adapter)
     pipeline = PipelineService(
         github_port=github_adapter,
-        git_port=git_adapter,
         agent_port=agent_adapter,
         hooks_port=hooks_adapter,
         role_service=role_service,

@@ -9,13 +9,28 @@ logger = logging.getLogger(__name__)
 WORKSPACE_SCRIPTS_DIR = "/app/workspace-scripts"
 
 
-def _run_cmd(cmd: list[str], cwd: str | None = None, timeout: int = 120) -> str:
-    """Run a command and return stdout."""
+def _run_cmd(
+    cmd: list[str],
+    cwd: str | None = None,
+    timeout: int = 120,
+    extra_env: dict[str, str] | None = None,
+) -> str:
+    """Run a command and return stdout. Script output is logged at INFO level."""
     logger.debug("Running: %s (cwd=%s)", " ".join(cmd), cwd)
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, timeout=timeout)
+    env = None
+    if extra_env:
+        env = {**os.environ, **extra_env}
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, cwd=cwd, timeout=timeout, env=env,
+    )
+    # Log script output so it appears in Docker logs
+    if result.stdout and result.stdout.strip():
+        for line in result.stdout.strip().splitlines():
+            logger.info("%s", line)
     if result.returncode != 0:
+        stderr_msg = result.stderr.strip() if result.stderr else "(no stderr)"
         raise RuntimeError(
-            f"Command failed (exit {result.returncode}): {result.stderr.strip()}"
+            f"Command failed (exit {result.returncode}): {stderr_msg}"
         )
     return result.stdout.strip()
 
@@ -26,8 +41,16 @@ class SubprocessHooksAdapter:
     def __init__(self, scripts_dir: str = WORKSPACE_SCRIPTS_DIR):
         self.scripts_dir = scripts_dir
 
-    def run_workspace_scripts(self, script_names: list[str]) -> bool:
+    def run_workspace_scripts(
+        self,
+        script_names: list[str],
+        phase_env: dict[str, str] | None = None,
+    ) -> bool:
         """Execute a list of workspace scripts sequentially.
+
+        Args:
+            script_names: List of script filenames to run.
+            phase_env: Extra environment variables passed to each script.
 
         Returns True if all scripts succeeded, False if any failed.
         On failure, logs the error but continues with remaining scripts.
@@ -45,7 +68,7 @@ class SubprocessHooksAdapter:
 
             logger.info("Running workspace script: %s", name)
             try:
-                _run_cmd(["bash", script_path], timeout=60)
+                _run_cmd(["bash", script_path], timeout=300, extra_env=phase_env)
             except Exception as e:
                 logger.error("Workspace script '%s' failed: %s", name, e)
                 all_ok = False
