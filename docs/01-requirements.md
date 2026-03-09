@@ -37,7 +37,6 @@ gh copilot -p "<prompt>" --yolo --no-ask-user --add-dir /workspace
 
 可選旗標：
 - `--model <model>`：指定 LLM 模型（由 Workflow YAML 或環境變數決定）
-- 其他 `extra-flags`：由 Workflow YAML 定義
 
 ## 系統流程
 
@@ -65,16 +64,15 @@ repeat :每隔 POLL_INTERVAL 秒;
         :解析當前 phase（若無 phase label 則自動採用第一階段）;
       endif
 
-      :初始化 Workspace（clone + checkout branch）;
-      :執行 workspace-init hooks;
-      :組合 prompt（instructions + issue 內容 + context）;
+      :建構 phase_env（REPOS, ISSUE_NUMBER, BRANCH_NAME 等）;
+      :執行 workspace-init hooks（clone + branch + ban-git-write）;
+      :組合 prompt（instructions + issue 內容 + phase-prompt + repos context）;
 
       |Agent (gh copilot CLI)|
       :執行任務;
       |Composition Root (main.py)|
 
-      :執行 workspace-cleanup hooks;
-      :Push 變更 + 建立 PR;
+      :執行 workspace-cleanup hooks（unban-git-write + push + PR）;
 
       if (超時或失敗?) then (Yes)
         :記錄日誌，不回寫;

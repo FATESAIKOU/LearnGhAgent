@@ -16,11 +16,11 @@ class Phase:
     """A single phase in a workflow."""
     role: str
     phasename: str
-    phasetarget: str = ""
+    phase_prompt: str = ""
     llm_model: str = ""
-    extra_flags: str = ""
     workspace_init: list[str] = field(default_factory=list)
     workspace_cleanup: list[str] = field(default_factory=list)
+    phase_env: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass

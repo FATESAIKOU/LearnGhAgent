@@ -17,7 +17,6 @@
 ├─────────────────────────────────────────────────┤
 │  ports/            介面定義（typing.Protocol）      │
 │  ├── github_port   Issue/Comment/Label 操作        │
-│  ├── git_port      Workspace init/push/PR          │
 │  ├── agent_port    Agent 執行                      │
 │  └── hooks_port    Workspace hook scripts 執行     │
 ├─────────────────────────────────────────────────┤
@@ -27,7 +26,6 @@
 ├─────────────────────────────────────────────────┤
 │  adapters/         Outbound Adapter（實作 Port）    │
 │  ├── github        gh CLI → GitHubPort             │
-│  ├── git           git CLI → GitPort               │
 │  ├── agent         gh copilot CLI → AgentPort      │
 │  └── hooks         subprocess → HooksPort          │
 └─────────────────────────────────────────────────┘
@@ -46,12 +44,11 @@
 | `services/pipeline.py` | Service | 主流程編排：process_issue()，依賴 Port 介面 |
 | `services/workflow_service.py` | Service | Workflow YAML 載入、phase 導航 |
 | `services/role_service.py` | Service | 根據 Issue label 決定 Agent 角色 |
-| `services/prompt_service.py` | Service | Prompt 組裝（含 workflow/repos context） |
+| `services/prompt_service.py` | Service | Prompt 組裝（含 workflow/repos/phase-prompt context） |
 | `ports/` | Port | 介面定義（`typing.Protocol`），解耦 Service 與 Adapter |
 | `adapters/github_adapter.py` | Outbound Adapter | GitHub API 封裝（via `gh` CLI） |
-| `adapters/git_adapter.py` | Outbound Adapter | Git workspace 管理（clone/branch/push/PR） |
 | `adapters/agent_adapter.py` | Outbound Adapter | `gh copilot` CLI 執行器 |
-| `adapters/hooks_adapter.py` | Outbound Adapter | Workspace hook scripts 執行 |
+| `adapters/hooks_adapter.py` | Outbound Adapter | Workspace hook scripts 執行（支援 phase_env 環境變數） |
 | `domain/models.py` | Domain Model | 純資料結構：AgentResult, ResolvedLabels |
 | `domain/workflow.py` | Domain Model | 純資料結構：Workflow, Phase, RepoConfig |
 | `config.py` | 設定 | 環境變數讀取、Config dataclass |
@@ -59,7 +56,7 @@
 | `setup-auth.sh` | 工具 | host 端執行，協助 User 設定 gh 認證情報 |
 | 角色 Agent 設定 (`agents/`) | 設定 | 每個角色一個目錄，包含 instructions |
 | Workflow 定義 (`workflows/`) | 設定 | YAML 定義多階段工作流 |
-| Workspace hook scripts (`workspace-scripts/`) | 設定 | Agent 執行前後的環境設定腳本（如 git write 攔截） |
+| Workspace hook scripts (`workspace-scripts/`) | 設定 | Agent 執行前後的環境設定腳本（如 git clone/push、git write 攔截） |
 
 ## Docker 映像要件
 
@@ -112,7 +109,7 @@ agents/
     └── instructions.md
 ```
 
-Agent 目錄只包含 `instructions.md`，model 和 extra flags 等啟動設定集中在 Workflow YAML 中管理。
+Agent 目錄只包含 `instructions.md`，model 等啟動設定集中在 Workflow YAML 中管理。
 
 ### 角色分派邏輯
 
@@ -144,35 +141,51 @@ full-development:
   steps:
     - role: manager
       phasename: requirement-analysis
-      phasetarget: "Analyze the issue, clarify requirements."
+      phase-prompt: "Analyze the issue, clarify requirements."
       llm-model: ""
-      extra-flags: ""
-      workspace-init: []
-      workspace-cleanup: []
-    - role: architect
-      phasename: system-design
-      phasetarget: "Design the system architecture."
-      llm-model: ""
-      extra-flags: ""
-    - role: coder
-      phasename: implementation
-      phasetarget: "Implement the design."
-      llm-model: ""
-      extra-flags: ""
+      phase-env: {}
       workspace-init:
+        - clone-and-branch.sh
         - ban-git-write.sh
       workspace-cleanup:
         - unban-git-write.sh
+        - push-and-pr.sh
+    - role: architect
+      phasename: system-design
+      phase-prompt: "Design the system architecture."
+      llm-model: ""
+      workspace-init:
+        - clone-and-branch.sh
+        - ban-git-write.sh
+      workspace-cleanup:
+        - unban-git-write.sh
+        - push-and-pr.sh
+    - role: coder
+      phasename: implementation
+      phase-prompt: "Implement the design."
+      llm-model: ""
+      workspace-init:
+        - clone-and-branch.sh
+        - ban-git-write.sh
+      workspace-cleanup:
+        - unban-git-write.sh
+        - push-and-pr.sh
     - role: qa
       phasename: verification
-      phasetarget: "Verify the implementation."
+      phase-prompt: "Verify the implementation."
       llm-model: ""
-      extra-flags: ""
+      workspace-init:
+        - clone-and-branch.sh
+        - ban-git-write.sh
+      workspace-cleanup:
+        - unban-git-write.sh
+        - push-and-pr.sh
 ```
 
 - `config`：工作 repo 清單。`repo` 為 `owner/repo` 格式，`url` 可選（空 = 用 `gh repo clone`），`description` 會帶入 prompt。
-- `steps`：階段設定。`llm-model` 指定該階段使用的 LLM 模型（空字串 = 使用 `COPILOT_MODEL` 環境變數）。`extra-flags` 傳給 `gh copilot` 的額外旗標。
-- `workspace-init` / `workspace-cleanup`：Agent 執行前/後跑的腳本（從 `workspace-scripts/` 載入）。
+- `steps`：階段設定。`phase-prompt` 為該階段的提示文字（帶入 agent prompt，支援 `{BRANCH_NAME}` / `{ISSUE_NUMBER}` 佔位符）。`llm-model` 指定該階段使用的 LLM 模型（空字串 = 使用 `COPILOT_MODEL` 環境變數）。
+- `phase-env`：額外環境變數 map，傳給該 phase 的所有 hook scripts。
+- `workspace-init` / `workspace-cleanup`：Agent 執行前/後跑的腳本（從 `workspace-scripts/` 載入）。典型配置：`clone-and-branch.sh`（clone + checkout）+ `ban-git-write.sh`（攔截）在 init，`unban-git-write.sh`（移除攔截）+ `push-and-pr.sh`（push + PR）在 cleanup。
 
 #### Model 優先順序
 
@@ -189,16 +202,16 @@ Agent 完成當前階段後：
 5. 若 Issue 無 Workflow label，完成後僅移除 `role:xxx` label
 6. 若有 `workflow:xxx` 但無 `phase:xxx`，自動採用 Workflow 第一階段
 
-> **觸發機制**：以 `role:xxx` label 存在與否作為處理依據，無需時間戳比對。Agent 完成後會移除 label，因此下次輪詢不會重複處理。
+> **觸發機制**：以 `workflow:xxx` label 存在與否作為處理依據，無需時間戳比對。Workflow 完成後設定 `phase:end`，因此下次輪詢不會重複處理。
 
 ## Agent 呼叫方式
 
 ```bash
-gh copilot -p "<prompt>" --yolo --no-ask-user --add-dir /workspace [--model MODEL] [EXTRA_FLAGS]
+gh copilot -p "<prompt>" --yolo --no-ask-user --add-dir /workspace [--model MODEL]
 ```
 
-- prompt 由 PromptService 組裝：role instructions + issue 內容 + workflow/repos context
-- Model 與 extra flags 由 Workflow YAML 或環境變數決定
+- prompt 由 PromptService 組裝：role instructions + issue 內容 + workflow/repos/phase-prompt context
+- Model 由 Workflow YAML 或環境變數決定
 
 ## 主控流程（Hexagonal Architecture）
 
@@ -207,7 +220,7 @@ gh copilot -p "<prompt>" --yolo --no-ask-user --add-dir /workspace [--model MODE
 ```
 main():
   1. config = load_config()
-  2. 建立 Adapter 實例（github, git, agent, hooks）
+  2. 建立 Adapter 實例（github, agent, hooks）
   3. 建立 Service 實例，注入 Port/Adapter
   4. workflows = workflow_service.load_workflows(config.workflow_file)
   5. Loop:
@@ -222,16 +235,15 @@ main():
 ```
 process_issue(number, labels, config, workflows):
   1. role_service.resolve_labels(labels) → ResolvedLabels（role, workflow, phase）
-  2. 若無 role → skip
+  2. 若無 workflow → skip；若 phase:end → skip
   3. workflow_service.resolve_phase(workflow, phase_name, repo, number) → (idx, phase)
-  4. git_port.init_workspace(repos, number) → clone + checkout branch
-  5. prompt_service.build_prompt(repo, number, role, agents_dir, phase, workflow_repos)
-  6. hooks_port.run_workspace_scripts(phase.workspace_init)
-  7. agent_port.run(prompt, role, agents_dir, timeout, model, extra_flags) → AgentResult
-  8. hooks_port.run_workspace_scripts(phase.workspace_cleanup)
-  9. git_port.push_workspace(repos, number, issue_repo, phase_name) → push + PR
-  10. github_port.post_comment(repo, number, body)
-  11. workflow_service.advance_phase(workflow, idx, resolved, repo, number) → 階段轉換
+  4. workflow_service.build_phase_env(workflow, phase, number, repo) → phase_env
+  5. hooks_port.run_workspace_scripts(phase.workspace_init, phase_env) → clone + branch + ban-git-write
+  6. prompt_service.build_prompt(repo, number, role, agents_dir, phase, workflow_repos)
+  7. agent_port.run(prompt, role, agents_dir, timeout, model) → AgentResult
+  8. hooks_port.run_workspace_scripts(phase.workspace_cleanup, phase_env) → unban-git-write + push + PR
+  9. github_port.post_comment(repo, number, body)
+  10. workflow_service.advance_phase(workflow, idx, repo, number) → 階段轉換
 ```
 
 ### 依賴注入方式
@@ -297,7 +309,6 @@ LearnGhAgent/
 │   │   └── workflow.py          # Workflow, Phase, RepoConfig dataclasses
 │   ├── ports/                   # Port 介面定義（typing.Protocol）
 │   │   ├── github_port.py       # GitHubPort: issue/comment/label 操作
-│   │   ├── git_port.py          # GitPort: workspace init/push/PR
 │   │   ├── agent_port.py        # AgentPort: 執行 agent
 │   │   └── hooks_port.py        # HooksPort: workspace-scripts 執行
 │   ├── services/                # 業務邏輯（依賴 Port + Domain）
@@ -307,12 +318,13 @@ LearnGhAgent/
 │   │   └── prompt_service.py    # Prompt 組裝（含 workflow/repos context）
 │   ├── adapters/                # Outbound Adapter（實作 Port 介面）
 │   │   ├── github_adapter.py    # 實作 GitHubPort（gh CLI）
-│   │   ├── git_adapter.py       # 實作 GitPort（git CLI + PR）
 │   │   ├── agent_adapter.py     # 實作 AgentPort（gh copilot CLI）
 │   │   └── hooks_adapter.py     # 實作 HooksPort（subprocess）
 │   ├── entrypoint.sh            # Docker entrypoint（auth + 驗證 + 啟動）
 │   └── setup-auth.sh            # 認證設定工具（host 端執行）
 ├── workspace-scripts/           # Workspace hook scripts
+│   ├── clone-and-branch.sh      # Clone repos + checkout feature branch
+│   ├── push-and-pr.sh           # Stage/commit/push + create draft PR
 │   ├── ban-git-write.sh         # 攔截 Agent 的 git write 操作
 │   └── unban-git-write.sh       # 移除 git write 攔截
 ├── agents/                      # 角色 Agent 定義

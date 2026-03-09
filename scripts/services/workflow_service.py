@@ -6,6 +6,8 @@ import logging
 import os
 from typing import Any, Optional
 
+import json
+
 from domain.workflow import Phase, RepoConfig, Workflow
 from ports.github_port import GitHubPort
 
@@ -53,14 +55,17 @@ def _parse_phases(raw_list: list[dict[str, Any]]) -> list[Phase]:
     for item in raw_list:
         if not isinstance(item, dict):
             continue
+        # phase-env: dict of extra env vars for hook scripts
+        raw_env = item.get("phase-env", {}) or {}
+        phase_env = {str(k): str(v) for k, v in raw_env.items()} if isinstance(raw_env, dict) else {}
         phases.append(Phase(
             role=item.get("role", ""),
             phasename=item.get("phasename", ""),
-            phasetarget=item.get("phasetarget", ""),
+            phase_prompt=item.get("phase-prompt", "") or "",
             llm_model=item.get("llm-model", ""),
-            extra_flags=item.get("extra-flags", ""),
             workspace_init=item.get("workspace-init", []) or [],
             workspace_cleanup=item.get("workspace-cleanup", []) or [],
+            phase_env=phase_env,
         ))
     return phases
 
@@ -133,6 +138,38 @@ class WorkflowService:
             )
 
         return workflows
+
+    # --- Phase env builder ---
+
+    @staticmethod
+    def build_phase_env(
+        workflow: Workflow,
+        phase: Phase,
+        issue_number: int,
+        issue_repo: str,
+    ) -> dict[str, str]:
+        """Build the environment variables dict for hook scripts.
+
+        Combines computed values (REPOS, ISSUE_NUMBER, BRANCH_NAME, etc.)
+        with user-defined phase-env from the workflow YAML.
+        YAML phase-env values take precedence over computed defaults.
+        """
+        branch = f"agent/issue-{issue_number}"
+        repos_json = json.dumps(
+            [{"repo": rc.repo, "url": rc.url, "description": rc.description}
+             for rc in workflow.repos]
+        )
+
+        computed: dict[str, str] = {
+            "REPOS": repos_json,
+            "ISSUE_NUMBER": str(issue_number),
+            "BRANCH_NAME": branch,
+            "ISSUE_REPO": issue_repo,
+            "PHASE_NAME": phase.phasename,
+        }
+        # YAML phase-env overrides computed defaults
+        computed.update(phase.phase_env)
+        return computed
 
     # --- Phase navigation ---
 

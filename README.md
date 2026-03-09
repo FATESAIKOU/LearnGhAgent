@@ -182,7 +182,6 @@ LearnGhAgent/
 │   │   └── workflow.py          # Workflow, Phase, RepoConfig
 │   ├── ports/                   # Port 介面定義（typing.Protocol）
 │   │   ├── github_port.py       # GitHubPort: issue/comment/label
-│   │   ├── git_port.py          # GitPort: workspace init/push/PR
 │   │   ├── agent_port.py        # AgentPort: 執行 agent
 │   │   └── hooks_port.py        # HooksPort: workspace-scripts
 │   ├── services/                # 業務邏輯（依賴 Port + Domain）
@@ -192,12 +191,13 @@ LearnGhAgent/
 │   │   └── prompt_service.py    # Prompt 組裝
 │   ├── adapters/                # Outbound Adapter（實作 Port）
 │   │   ├── github_adapter.py    # gh CLI → GitHubPort
-│   │   ├── git_adapter.py       # git CLI → GitPort
 │   │   ├── agent_adapter.py     # gh copilot CLI → AgentPort
 │   │   └── hooks_adapter.py     # subprocess → HooksPort
 │   ├── entrypoint.sh            # Docker entrypoint（auth + 驗證 + 啟動）
 │   └── setup-auth.sh            # 認證設定工具（host 端）
 ├── workspace-scripts/           # Workspace hook scripts
+│   ├── clone-and-branch.sh      # Clone repos + checkout feature branch
+│   ├── push-and-pr.sh           # Stage/commit/push + create draft PR
 │   ├── ban-git-write.sh         # 攔截 Agent 的 git write 操作
 │   └── unban-git-write.sh       # 移除 git write 攔截
 ├── agents/                      # Agent 角色定義
@@ -286,39 +286,61 @@ full-development:
   steps:
     - role: manager
       phasename: requirement-analysis
-      phasetarget: "Analyze the issue, clarify requirements."
+      phase-prompt: "Analyze the issue, clarify requirements."
       llm-model: ""          # 空字串 = 使用預設 model
-      extra-flags: ""         # 額外 gh copilot CLI flags
-      workspace-init: []      # Agent 執行前跑的腳本（從 workspace-scripts/ 載入）
-      workspace-cleanup: []   # Agent 執行後跑的腳本
+      phase-env: {}           # 額外環境變數（傳給 hook scripts）
+      workspace-init:         # Agent 執行前跑的腳本（從 workspace-scripts/ 載入）
+        - clone-and-branch.sh
+        - ban-git-write.sh
+      workspace-cleanup:      # Agent 執行後跑的腳本
+        - unban-git-write.sh
+        - push-and-pr.sh
     - role: architect
       phasename: system-design
-      phasetarget: "Design the system architecture."
+      phase-prompt: "Design the system architecture."
       llm-model: ""
-      extra-flags: ""
+      workspace-init:
+        - clone-and-branch.sh
+        - ban-git-write.sh
+      workspace-cleanup:
+        - unban-git-write.sh
+        - push-and-pr.sh
     - role: coder
       phasename: implementation
-      phasetarget: "Implement the design, write code."
+      phase-prompt: "Implement the design, write code."
       llm-model: ""
-      extra-flags: ""
       workspace-init:
-        - ban-git-write.sh    # 攔截 Agent 的 git write 操作
+        - clone-and-branch.sh
+        - ban-git-write.sh
       workspace-cleanup:
-        - unban-git-write.sh  # 移除攔截，讓 push 正常運作
+        - unban-git-write.sh
+        - push-and-pr.sh
     - role: qa
       phasename: verification
-      phasetarget: "Verify the implementation."
+      phase-prompt: "Verify the implementation."
       llm-model: ""
-      extra-flags: ""
+      workspace-init:
+        - clone-and-branch.sh
+        - ban-git-write.sh
+      workspace-cleanup:
+        - unban-git-write.sh
+        - push-and-pr.sh
 
 technical-investigation:
-  config: []    # 無需 clone repo（純調查任務）
+  config:
+    - repo: owner/target-repo
+      description: "Investigation output repo"
   steps:
     - role: manager
       phasename: investigation-scope
-      phasetarget: "Define investigation boundaries."
+      phase-prompt: "Define investigation boundaries."
       llm-model: "gpt-5-mini"
-      extra-flags: ""
+      workspace-init:
+        - clone-and-branch.sh
+        - ban-git-write.sh
+      workspace-cleanup:
+        - unban-git-write.sh
+        - push-and-pr.sh
     # ...
 ```
 
@@ -336,9 +358,9 @@ technical-investigation:
 |------|------|
 | `role` | Agent 角色（對應 `agents/xxx/` 目錄） |
 | `phasename` | 階段識別名（用於 `phase:xxx` label） |
-| `phasetarget` | 該階段的目標說明（帶入 prompt） |
+| `phase-prompt` | 該階段的提示文字（帶入 agent prompt，支援 `{BRANCH_NAME}` / `{ISSUE_NUMBER}` 佔位符） |
 | `llm-model` | LLM 模型 override（空 = 用環境變數） |
-| `extra-flags` | 額外 gh copilot CLI flags |
+| `phase-env` | 額外環境變數 map（傳給該 phase 的所有 hook scripts） |
 | `workspace-init` | Agent 執行前跑的腳本列表（從 `workspace-scripts/` 載入） |
 | `workspace-cleanup` | Agent 執行後跑的腳本列表 |
 
@@ -355,15 +377,14 @@ technical-investigation:
 2. **觸發判定**：檢查 Issue 是否有 `workflow:xxx` label；若有 `phase:end` 則跳過（已完成）
 3. **Workflow 解析**：載入對應 Workflow 定義；若無 `phase:xxx` 則自動從第一階段開始，並補上 `role:xxx` + `phase:xxx` label
 4. **角色決定**：從 Workflow phase 定義取得角色（`phase.role`），對應 `agents/xxx/` 目錄
-5. **Workspace 初始化**：根據 Workflow `config` 中的 repo 清單，git clone + checkout feature branch (`agent/issue-N`)
-6. **Workspace-init hooks**：執行當前 phase 定義的 `workspace-init` 腳本（例如安裝 git write 攔截 wrapper）
-7. **執行**：組合 issue 內容 + 角色 instructions + workflow/repos context 為 prompt，呼叫 `gh copilot`
-8. **Workspace-cleanup hooks**：執行當前 phase 定義的 `workspace-cleanup` 腳本（例如移除 git wrapper）
-9. **Git push**：Agent 執行後自動 stage + commit + push 所有 repo 變更，並建立 draft PR
-10. **回寫**：將 Agent 輸出作為 comment 回寫到 Issue
-11. **階段轉換**：移除當前 `role:xxx` + `phase:xxx`，加上下一階段 label；最後一個階段完成後設定 `phase:end`
+5. **Phase 環境建構**：從 Workflow config + phase-env 建構環境變數（含 `REPOS`、`ISSUE_NUMBER`、`BRANCH_NAME` 等）
+6. **Workspace-init hooks**：執行當前 phase 定義的 `workspace-init` 腳本（例如 `clone-and-branch.sh` clone repo + checkout branch、`ban-git-write.sh` 安裝 git write 攔截）
+7. **執行**：組合 issue 內容 + 角色 instructions + workflow/repos/phase-prompt context 為 prompt，呼叫 `gh copilot`
+8. **Workspace-cleanup hooks**：執行當前 phase 定義的 `workspace-cleanup` 腳本（例如 `unban-git-write.sh` 移除攔截、`push-and-pr.sh` 自動 commit + push + 建立 draft PR）
+9. **回寫**：將 Agent 輸出作為 comment 回寫到 Issue
+10. **階段轉換**：移除當前 `role:xxx` + `phase:xxx`，加上下一階段 label；最後一個階段完成後設定 `phase:end`
 
-> **觸發機制**：以 `workflow:xxx` label 存在且無 `phase:end` 作為處理依據，無需時間戳比對。Workflow 完成後設定 `phase:end`，因此下次輪詢不會重複處理。
+> **觸發機制**：以 `workflow:xxx` label 存在且無 `phase:end` 作為處理依據，無需時間戳比對。Workflow 完成後設定 `phase:end`，因此下次輪詢不會重複處理。Git clone / push / PR 操作已移至 `workspace-scripts/` 中的 shell scripts，透過 `workspace-init` 和 `workspace-cleanup` hooks 執行。
 
 ---
 

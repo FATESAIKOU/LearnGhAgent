@@ -201,7 +201,7 @@ while true; do
     fi
 
     # Check for fatal errors
-    if grep -q "ERROR.*workspace init failed" "$LOG_FILE" 2>/dev/null; then
+    if grep -q "ERROR.*workspace-init failed" "$LOG_FILE" 2>/dev/null; then
         RESULT="init-failed"
         break
     fi

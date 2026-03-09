@@ -67,11 +67,13 @@ class PromptService:
 
         # Phase context
         if phase:
-            context += (
-                f"\n\n## Current Workflow Phase\n"
-                f"- **Phase:** {phase.phasename}\n"
-                f"- **Target:** {phase.phasetarget}\n"
-            )
+            context += f"\n\n## Current Workflow Phase\n- **Phase:** {phase.phasename}\n"
+            if phase.phase_prompt:
+                branch = f"agent/issue-{issue_number}"
+                rendered = phase.phase_prompt
+                rendered = rendered.replace("{BRANCH_NAME}", branch)
+                rendered = rendered.replace("{ISSUE_NUMBER}", str(issue_number))
+                context += f"\n{rendered}\n"
 
         # Repos context
         if repos:

@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 from domain.workflow import Workflow
 from ports.agent_port import AgentPort
-from ports.git_port import GitPort
 from ports.github_port import GitHubPort
 from ports.hooks_port import HooksPort
 from services.role_service import RoleService
@@ -26,7 +25,6 @@ class PipelineService:
     def __init__(
         self,
         github_port: GitHubPort,
-        git_port: GitPort,
         agent_port: AgentPort,
         hooks_port: HooksPort,
         role_service: RoleService,
@@ -34,7 +32,6 @@ class PipelineService:
         prompt_service: PromptService,
     ):
         self.github = github_port
-        self.git = git_port
         self.agent = agent_port
         self.hooks = hooks_port
         self.role_service = role_service
@@ -91,44 +88,41 @@ class PipelineService:
             phase.phasename,
         )
 
-        # Step 3: Init workspace — clone repos & create branches
-        repos = current_workflow.repos
-        if repos:
-            try:
-                self.git.init_workspace(repos, number)
-            except Exception as e:
-                logger.error("Issue #%d: workspace init failed: %s", number, e)
-                return
+        # Step 3: Build phase_env for hook scripts
+        phase_env = self.workflow_service.build_phase_env(
+            current_workflow, phase, number, config.target_issue_repo,
+        )
 
-        # Step 4: Build prompt
-        try:
-            prompt = self.prompt_service.build_prompt(
-                config.target_issue_repo, number, effective_role,
-                config.agents_dir, phase, repos,
-            )
-        except Exception as e:
-            logger.error("Issue #%d: failed to build prompt: %s", number, e)
-            return
-
-        # Step 5: Run workspace-init hooks (e.g. ban-git-write)
+        # Step 4: Run workspace-init hooks (e.g. clone-and-branch, ban-git-write)
         ws_init_scripts = phase.workspace_init
         if ws_init_scripts:
             logger.info(
                 "Issue #%d: running workspace-init scripts: %s",
                 number, ws_init_scripts,
             )
-            self.hooks.run_workspace_scripts(ws_init_scripts)
+            init_ok = self.hooks.run_workspace_scripts(ws_init_scripts, phase_env)
+            if not init_ok:
+                logger.error("Issue #%d: workspace-init failed, skipping", number)
+                return
+
+        # Step 5: Build prompt
+        try:
+            prompt = self.prompt_service.build_prompt(
+                config.target_issue_repo, number, effective_role,
+                config.agents_dir, phase, current_workflow.repos,
+            )
+        except Exception as e:
+            logger.error("Issue #%d: failed to build prompt: %s", number, e)
+            return
 
         # Step 6: Run agent (model priority: workflow phase > env default)
         effective_model = phase.llm_model or config.copilot_model
-        extra_flags = phase.extra_flags
         result = self.agent.run(
             prompt=prompt,
             role=effective_role,
             agents_dir=config.agents_dir,
             timeout=config.agent_timeout,
             model=effective_model,
-            extra_flags=extra_flags,
         )
 
         # Step 7: Run workspace-cleanup hooks (always after ws-init)
@@ -139,13 +133,9 @@ class PipelineService:
                     "Issue #%d: running workspace-cleanup scripts: %s",
                     number, ws_cleanup_scripts,
                 )
-                self.hooks.run_workspace_scripts(ws_cleanup_scripts)
+                self.hooks.run_workspace_scripts(ws_cleanup_scripts, phase_env)
 
-        # Step 8: Push workspace changes (even on timeout/failure for partial work)
-        if repos:
-            self._try_push(repos, number, config.target_issue_repo, resolved.phase_name)
-
-        # Step 9: Check result — stop on timeout or failure
+        # Step 8: Check result — stop on timeout or failure
         if result.timed_out:
             logger.warning(
                 "Issue #%d: agent timed out after %ds", number, config.agent_timeout,
@@ -158,7 +148,7 @@ class PipelineService:
             )
             return
 
-        # Step 10: Post comment
+        # Step 9: Post comment
         phase_info = f" | phase: {phase.phasename}"
         if result.output:
             comment_body = (
@@ -170,7 +160,7 @@ class PipelineService:
                 logger.error("Issue #%d: failed to post comment: %s", number, e)
                 return
 
-        # Step 11: Workflow transition
+        # Step 10: Workflow transition
         try:
             self.workflow_service.advance_phase(
                 current_workflow, current_phase_idx,
@@ -178,16 +168,3 @@ class PipelineService:
             )
         except Exception as e:
             logger.error("Issue #%d: failed to advance workflow: %s", number, e)
-
-    def _try_push(
-        self,
-        repos: list,
-        number: int,
-        issue_repo: str,
-        phase_name: str = "",
-    ) -> None:
-        """Push workspace changes, logging but not raising on failure."""
-        try:
-            self.git.push_workspace(repos, number, issue_repo, phase_name)
-        except Exception as e:
-            logger.error("Issue #%d: push_workspace failed: %s", number, e)
