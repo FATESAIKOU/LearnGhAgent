@@ -61,22 +61,25 @@ for (( i=0; i<repo_count; i++ )); do
     fi
 
     # --- Check if there are commits to push ---
+    need_push=true
     if $GIT -C "$repo_dir" rev-parse --verify "origin/${BRANCH}" >/dev/null 2>&1; then
         ahead=$($GIT -C "$repo_dir" rev-list "origin/${BRANCH}..${BRANCH}" --count 2>/dev/null || echo "0")
         if [ "$ahead" = "0" ]; then
             echo "[push-and-pr] ${name}: no changes to push"
-            continue
+            need_push=false
         fi
     fi
 
-    # --- Push ---
-    if ! $GIT -C "$repo_dir" push -u origin "$BRANCH" 2>&1; then
-        echo "[push-and-pr] WARNING: push failed for ${name}"
-        continue
+    # --- Push if needed ---
+    if [ "$need_push" = true ]; then
+        if ! $GIT -C "$repo_dir" push -u origin "$BRANCH" 2>&1; then
+            echo "[push-and-pr] WARNING: push failed for ${name}"
+            continue
+        fi
+        echo "[push-and-pr] ${name}: pushed changes for issue #${ISSUE_NUMBER}"
     fi
-    echo "[push-and-pr] ${name}: pushed changes for issue #${ISSUE_NUMBER}"
 
-    # --- Create draft PR if none exists ---
+    # --- Create draft PR if none exists (always check, even without new push) ---
     existing_prs=$(gh pr list --repo "$repo" --head "$BRANCH" --json number --limit 1 2>/dev/null || echo "[]")
     if [ "$(echo "$existing_prs" | jq '. | length')" -gt 0 ]; then
         echo "[push-and-pr] ${name}: PR already exists"

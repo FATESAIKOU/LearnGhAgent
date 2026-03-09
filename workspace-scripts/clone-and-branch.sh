@@ -25,6 +25,10 @@ fi
 
 BRANCH="${BRANCH_NAME:-agent/issue-${ISSUE_NUMBER}}"
 
+# Clear pre-agent HEAD file (used by check-deliverables.sh)
+PRE_HEAD_FILE="${WORKSPACE_ROOT}/.pre-agent-head"
+rm -f "$PRE_HEAD_FILE"
+
 # Iterate over each repo in the JSON array
 repo_count=$(echo "$REPOS" | jq '. | length')
 for (( i=0; i<repo_count; i++ )); do
@@ -78,6 +82,8 @@ for (( i=0; i<repo_count; i++ )); do
         git -C "$repo_dir" checkout -b "$BRANCH"
         echo "[clone-and-branch] ${name}: created branch '${BRANCH}' from '${default_br}'"
     fi
+    # Save HEAD hash for deliverable validation
+    echo "${name}=$(git -C "$repo_dir" rev-parse HEAD)" >> "$PRE_HEAD_FILE"
 done
 
 echo "[clone-and-branch] Done — ${repo_count} repo(s) ready"
