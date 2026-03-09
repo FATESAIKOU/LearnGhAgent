@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING
 
 from domain.workflow import Workflow
@@ -17,6 +18,8 @@ if TYPE_CHECKING:
     from config import Config
 
 logger = logging.getLogger(__name__)
+
+BRANCH_VARS_FILE = "/workspace/.branch-vars"
 
 
 class PipelineService:
@@ -93,7 +96,12 @@ class PipelineService:
             current_workflow, phase, number, config.target_issue_repo,
         )
 
-        # Step 4: Run workspace-init hooks (e.g. clone-and-branch, ban-git-write)
+        # Step 4: Clear branch-vars + Run workspace-init hooks
+        try:
+            os.remove(BRANCH_VARS_FILE)
+        except FileNotFoundError:
+            pass
+
         ws_init_scripts = phase.workspace_init
         if ws_init_scripts:
             logger.info(
@@ -160,11 +168,20 @@ class PipelineService:
                 logger.error("Issue #%d: failed to post comment: %s", number, e)
                 return
 
-        # Step 10: Workflow transition
+        # Step 10: Evaluate branches and transition
         try:
-            self.workflow_service.advance_phase(
-                current_workflow, current_phase_idx,
+            branch_vars = self.workflow_service.read_branch_vars(BRANCH_VARS_FILE)
+            if branch_vars:
+                logger.info("Issue #%d: branch vars: %s", number, branch_vars)
+
+            target = self.workflow_service.evaluate_branches(
+                phase.branchs, branch_vars,
+            )
+            logger.info("Issue #%d: branch target resolved to '%s'", number, target)
+
+            self.workflow_service.transition_to_phase(
+                current_workflow, phase, target,
                 config.target_issue_repo, number,
             )
         except Exception as e:
-            logger.error("Issue #%d: failed to advance workflow: %s", number, e)
+            logger.error("Issue #%d: failed to evaluate branches / transition: %s", number, e)

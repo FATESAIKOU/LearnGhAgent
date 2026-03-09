@@ -176,14 +176,14 @@ scripts/
 ├── config.py                   # Config dataclass + load_config()
 ├── domain/                     # Domain Model — 純資料結構，零依賴
 │   ├── models.py               # AgentResult, ResolvedLabels
-│   └── workflow.py             # Workflow, Phase, RepoConfig dataclasses
+│   └── workflow.py          # Workflow, Phase, RepoConfig, BranchRule dataclasses
 ├── ports/                      # Port — 介面定義（typing.Protocol）
 │   ├── github_port.py          # GitHubPort
 │   ├── agent_port.py           # AgentPort
 │   └── hooks_port.py           # HooksPort
 ├── services/                   # Service — 業務邏輯（依賴 Port + Domain）
 │   ├── pipeline.py             # process_issue()：主流程編排
-│   ├── workflow_service.py     # YAML 載入、phase 導航、階段轉換
+│   ├── workflow_service.py     # YAML 載入、phase 導航、branch 評估、階段轉換
 │   ├── role_service.py         # label 解析 → ResolvedLabels
 │   └── prompt_service.py       # prompt 組裝（含 workflow/repos/phase-prompt context）
 └── adapters/                   # Outbound Adapter — 實作 Port 介面
@@ -223,6 +223,14 @@ class RepoConfig:
     description: str = ""
 
 @dataclass
+class BranchRule:
+    """分岐規則。conditions 為 KEY=VALUE 條件 dict，
+    與 /workspace/.branch-vars 中的值比對。
+    空 conditions = 無條件 default（總是匹配）。"""
+    target: str                                        # phasename 或 "end"
+    conditions: dict[str, str] = field(default_factory=dict)
+
+@dataclass
 class Phase:
     role: str
     phasename: str
@@ -231,6 +239,7 @@ class Phase:
     workspace_init: list[str] = field(default_factory=list)
     workspace_cleanup: list[str] = field(default_factory=list)
     phase_env: dict[str, str] = field(default_factory=dict)
+    branchs: list[BranchRule] = field(default_factory=list)  # 必填
 
 @dataclass
 class Workflow:
@@ -314,7 +323,7 @@ class WorkflowService:
         self.github = github_port
 
     def load_workflows(self, workflow_file: str) -> dict[str, Workflow]:
-        # 載入 YAML，解析為 Workflow/Phase/RepoConfig 資料結構
+        # 載入 YAML，解析為 Workflow/Phase/RepoConfig/BranchRule 資料結構
         # 支援新格式（config + steps）和舊格式（flat list）
         ...
 
@@ -325,11 +334,22 @@ class WorkflowService:
         # 回傳 (phase_idx, phase)
         ...
 
-    def advance_phase(self, workflow: Workflow, phase_idx: int,
-                      resolved: ResolvedLabels, repo: str, issue_number: int) -> bool:
-        # 移除當前 role/phase label
-        # 若有下一階段 → 加上下一階段 role/phase label，回傳 True
-        # 若已完成 → 回傳 False
+    @staticmethod
+    def read_branch_vars(vars_file: str = "/workspace/.branch-vars") -> dict[str, str]:
+        # 讀取 KEY=VALUE 格式的 branch-vars 檔案
+        ...
+
+    @staticmethod
+    def evaluate_branches(branchs: list[BranchRule], branch_vars: dict[str, str]) -> str:
+        # 依序評估 branchs 規則，回傳第一個匹配的 target
+        # 無條件規則（空 conditions）= 預設 fallback
+        ...
+
+    def transition_to_phase(self, workflow: Workflow, current_phase: Phase,
+                            target_name: str, repo: str, issue_number: int) -> None:
+        # target == 當前 phase → 重試（label 不變）
+        # target == "end" → 移除 label，設 phase:end
+        # target == 其他 → 移除當前 label，加上目標 role/phase label
         ...
 ```
 
@@ -375,7 +395,8 @@ class PipelineService:
         # Step 3: 建構 phase_env（REPOS, ISSUE_NUMBER, BRANCH_NAME 等環境變數）
         phase_env = workflow_service.build_phase_env(workflow, phase, number, repo)
 
-        # Step 4: 執行 workspace-init hooks（clone-and-branch.sh + ban-git-write.sh）
+        # Step 4: 清除 branch-vars + 執行 workspace-init hooks
+        清除 /workspace/.branch-vars
         if phase and phase.workspace_init:
             init_ok = self.hooks.run_workspace_scripts(phase.workspace_init, phase_env)
             if not init_ok:
@@ -391,11 +412,11 @@ class PipelineService:
             prompt, resolved.role, config.agents_dir,
             config.agent_timeout, effective_model)
 
-        # Step 7: 執行 workspace-cleanup hooks（unban-git-write.sh + push-and-pr.sh）
+        # Step 7: 執行 workspace-cleanup hooks（unban-git-write.sh + push-and-pr.sh + check-deliverables.sh）
         if phase and phase.workspace_cleanup:
             self.hooks.run_workspace_scripts(phase.workspace_cleanup, phase_env)
 
-        # Step 8: 檢查結果（timeout/failure → return）
+        # Step 8: 檢查結果（timeout/failure → return，label 不變，自然重試）
         if result.timed_out or result.exit_code != 0:
             return
 
@@ -403,9 +424,10 @@ class PipelineService:
         if result.output:
             self.github.post_comment(config.target_issue_repo, number, body)
 
-        # Step 10: 階段轉換
-        if workflow:
-            self.workflow_service.advance_phase(workflow, idx, ...)
+        # Step 10: Branch 評估與階段轉換
+        branch_vars = workflow_service.read_branch_vars()
+        target = workflow_service.evaluate_branches(phase.branchs, branch_vars)
+        workflow_service.transition_to_phase(workflow, phase, target, repo, number)
 ```
 
 ### 4.4 Outbound Adapter（adapters/）
@@ -700,14 +722,16 @@ loop 每 POLL_INTERVAL 秒
             Agent --> PS : AgentResult
 
             PS -> HOOKS : run_workspace_scripts(workspace_cleanup, phase_env)
-            note right: unban-git-write.sh + push-and-pr.sh
+            note right: unban-git-write.sh + push-and-pr.sh\n+ check-deliverables.sh（optional）
             HOOKS --> PS : ok
 
             alt timeout 或失敗
-                PS -> PS : return（不回寫）
+                PS -> PS : return（label 不變，自然重試）
             else 正常完成
                 PS -> GH : post_comment(...)
-                PS -> GH : remove_label / add_label（階段轉換）
+                PS -> PS : read_branch_vars()
+                PS -> PS : evaluate_branches() → target
+                PS -> GH : remove_label / add_label（branch 轉換）
             end
         end
     end

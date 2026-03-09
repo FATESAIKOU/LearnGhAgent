@@ -2,10 +2,10 @@
 #
 # Each workflow has two sections:
 #   config  - list of repos to clone into /workspace (agent can work across all of them)
-#   steps   - sequence of phases (role + phasename + phase-prompt + optional model)
+#   steps   - sequence of phases (role + phasename + phase-prompt + branchs + optional model)
 #
 # Issues are matched by labels: workflow:<name> + phase:<phasename>
-# After each phase completes, the agent auto-transitions to the next step.
+# After each phase completes, branch rules determine the next phase.
 #
 # Per-step fields:
 #   role              - agent role (must match agents/<role>/ directory)
@@ -16,6 +16,10 @@
 #   workspace-init    - scripts to run BEFORE agent execution (from workspace-scripts/)
 #   workspace-cleanup - scripts to run AFTER agent execution (from workspace-scripts/)
 #   phase-env         - extra environment variables passed to all hook scripts in this phase
+#   branchs           - REQUIRED list of branch rules evaluated in order after cleanup.
+#                       Each rule has a 'target' (phasename or "end") and optional
+#                       KEY: VALUE conditions matched against /workspace/.branch-vars.
+#                       First matching rule wins.  A rule with only 'target' is the default.
 
 full-development:
   config:
@@ -34,6 +38,8 @@ full-development:
       workspace-cleanup:
         - unban-git-write.sh
         - push-and-pr.sh
+      branchs:
+        - target: system-design
 
     - role: architect
       phasename: system-design
@@ -46,6 +52,8 @@ full-development:
       workspace-cleanup:
         - unban-git-write.sh
         - push-and-pr.sh
+      branchs:
+        - target: implementation
 
     - role: coder
       phasename: implementation
@@ -58,6 +66,8 @@ full-development:
       workspace-cleanup:
         - unban-git-write.sh
         - push-and-pr.sh
+      branchs:
+        - target: verification
 
     - role: qa
       phasename: verification
@@ -70,6 +80,8 @@ full-development:
       workspace-cleanup:
         - unban-git-write.sh
         - push-and-pr.sh
+      branchs:
+        - target: end
 
 quick-fix:
   config:
@@ -88,6 +100,8 @@ quick-fix:
       workspace-cleanup:
         - unban-git-write.sh
         - push-and-pr.sh
+      branchs:
+        - target: verify-fix
 
     - role: qa
       phasename: verify-fix
@@ -100,6 +114,8 @@ quick-fix:
       workspace-cleanup:
         - unban-git-write.sh
         - push-and-pr.sh
+      branchs:
+        - target: end
 
 technical-investigation:
   config:
@@ -109,48 +125,105 @@ technical-investigation:
   steps:
     - role: manager
       phasename: investigation-scope
-      phase-prompt: "Analyze all given topics, define investigation boundaries, extract the user-provided evaluation viewpoints, and structure the report in a way that is easy for the user to understand."
+      phase-prompt: >-
+        Analyze all given topics, define investigation boundaries, extract the
+        user-provided evaluation viewpoints, and structure the report in a way
+        that is easy for the user to understand.
+
+        You MUST produce TWO deliverable files (create the directory if needed):
+          1. docs/issue-{ISSUE_NUMBER}/requirements.md — structured requirements document
+          2. docs/issue-{ISSUE_NUMBER}/task-breakdown.md — task breakdown and work plan
+
+        Write them inside the cloned repo directory under /workspace.
       llm-model: "gpt-5-mini"
-      phase-env: {}
+      phase-env:
+        DELIVERABLES: "*/docs/issue-{ISSUE_NUMBER}/requirements.md,*/docs/issue-{ISSUE_NUMBER}/task-breakdown.md"
       workspace-init:
         - clone-and-branch.sh
         - ban-git-write.sh
       workspace-cleanup:
         - unban-git-write.sh
         - push-and-pr.sh
+        - check-deliverables.sh
+      branchs:
+        - PHASE_STATUS: OK
+          target: evaluation-framework
+        - target: investigation-scope
 
     - role: architect
       phasename: evaluation-framework
-      phase-prompt: "Build the investigation framework for all topics, including evaluation axes, comparison dimensions, assumptions, risks, trade-offs, and validation criteria based on the user's viewpoints."
+      phase-prompt: >-
+        Build the investigation framework for all topics, including evaluation
+        axes, comparison dimensions, assumptions, risks, trade-offs, and
+        validation criteria based on the user's viewpoints.
+
+        You MUST produce ONE deliverable file (create the directory if needed):
+          1. docs/issue-{ISSUE_NUMBER}/architecture.md — evaluation framework document
+
+        Write it inside the cloned repo directory under /workspace.
       llm-model: "gpt-5-mini"
-      phase-env: {}
+      phase-env:
+        DELIVERABLES: "*/docs/issue-{ISSUE_NUMBER}/architecture.md"
       workspace-init:
         - clone-and-branch.sh
         - ban-git-write.sh
       workspace-cleanup:
         - unban-git-write.sh
         - push-and-pr.sh
+        - check-deliverables.sh
+      branchs:
+        - PHASE_STATUS: OK
+          target: evidence-validation
+        - target: evaluation-framework
 
     - role: coder
       phasename: evidence-validation
-      phase-prompt: "Investigate and validate all given topics against the defined framework, examine supporting and opposing evidence, compare alternatives where relevant, and organize findings without implementing, committing, or pushing code."
+      phase-prompt: >-
+        Investigate and validate all given topics against the defined framework,
+        examine supporting and opposing evidence, compare alternatives where
+        relevant, and organize findings.
+
+        You MUST produce ONE deliverable file (create the directory if needed):
+          1. docs/issue-{ISSUE_NUMBER}/evidence-report.md — evidence and validation report
+
+        Write it inside the cloned repo directory under /workspace.
       llm-model: "gpt-5-mini"
-      phase-env: {}
+      phase-env:
+        DELIVERABLES: "*/docs/issue-{ISSUE_NUMBER}/evidence-report.md"
       workspace-init:
         - clone-and-branch.sh
         - ban-git-write.sh
       workspace-cleanup:
         - unban-git-write.sh
         - push-and-pr.sh
+        - check-deliverables.sh
+      branchs:
+        - PHASE_STATUS: OK
+          target: report-consolidation
+        - target: evidence-validation
 
     - role: qa
       phasename: report-consolidation
-      phase-prompt: "Verify that every given topic has been examined from all required viewpoints, check logical consistency and coverage, and produce a structured final report in the user-specified format without pushing code changes."
+      phase-prompt: >-
+        Verify that every given topic has been examined from all required
+        viewpoints, check logical consistency and coverage, and produce a
+        structured final report in the user-specified format.
+
+        You MUST produce ONE deliverable file (create the directory if needed):
+          1. docs/issue-{ISSUE_NUMBER}/final-report.md — consolidated final report
+
+        Write it inside the cloned repo directory under /workspace.
       llm-model: "gpt-5-mini"
-      phase-env: {}
+      phase-env:
+        DELIVERABLES: "*/docs/issue-{ISSUE_NUMBER}/final-report.md"
       workspace-init:
         - clone-and-branch.sh
         - ban-git-write.sh
       workspace-cleanup:
         - unban-git-write.sh
         - push-and-pr.sh
+        - check-deliverables.sh
+      branchs:
+        - PHASE_STATUS: OK
+          target: end
+        - target: report-consolidation

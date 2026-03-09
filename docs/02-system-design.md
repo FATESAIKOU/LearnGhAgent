@@ -50,7 +50,7 @@
 | `adapters/agent_adapter.py` | Outbound Adapter | `gh copilot` CLI 執行器 |
 | `adapters/hooks_adapter.py` | Outbound Adapter | Workspace hook scripts 執行（支援 phase_env 環境變數） |
 | `domain/models.py` | Domain Model | 純資料結構：AgentResult, ResolvedLabels |
-| `domain/workflow.py` | Domain Model | 純資料結構：Workflow, Phase, RepoConfig |
+| `domain/workflow.py` | Domain Model | 純資料結構：Workflow, Phase, RepoConfig, BranchRule |
 | `config.py` | 設定 | 環境變數讀取、Config dataclass |
 | `entrypoint.sh` | 基礎設施 | Docker entrypoint（auth + 驗證 + 啟動） |
 | `setup-auth.sh` | 工具 | host 端執行，協助 User 設定 gh 認證情報 |
@@ -150,6 +150,8 @@ full-development:
       workspace-cleanup:
         - unban-git-write.sh
         - push-and-pr.sh
+      branchs:
+        - target: system-design
     - role: architect
       phasename: system-design
       phase-prompt: "Design the system architecture."
@@ -160,6 +162,8 @@ full-development:
       workspace-cleanup:
         - unban-git-write.sh
         - push-and-pr.sh
+      branchs:
+        - target: implementation
     - role: coder
       phasename: implementation
       phase-prompt: "Implement the design."
@@ -170,6 +174,8 @@ full-development:
       workspace-cleanup:
         - unban-git-write.sh
         - push-and-pr.sh
+      branchs:
+        - target: verification
     - role: qa
       phasename: verification
       phase-prompt: "Verify the implementation."
@@ -180,27 +186,34 @@ full-development:
       workspace-cleanup:
         - unban-git-write.sh
         - push-and-pr.sh
+      branchs:
+        - target: end
 ```
 
 - `config`：工作 repo 清單。`repo` 為 `owner/repo` 格式，`url` 可選（空 = 用 `gh repo clone`），`description` 會帶入 prompt。
 - `steps`：階段設定。`phase-prompt` 為該階段的提示文字（帶入 agent prompt，支援 `{BRANCH_NAME}` / `{ISSUE_NUMBER}` 佔位符）。`llm-model` 指定該階段使用的 LLM 模型（空字串 = 使用 `COPILOT_MODEL` 環境變數）。
 - `phase-env`：額外環境變數 map，傳給該 phase 的所有 hook scripts。
-- `workspace-init` / `workspace-cleanup`：Agent 執行前/後跑的腳本（從 `workspace-scripts/` 載入）。典型配置：`clone-and-branch.sh`（clone + checkout）+ `ban-git-write.sh`（攔截）在 init，`unban-git-write.sh`（移除攔截）+ `push-and-pr.sh`（push + PR）在 cleanup。
+- `workspace-init` / `workspace-cleanup`：Agent 執行前/後跑的腳本（從 `workspace-scripts/` 載入）。典型配置：`clone-and-branch.sh`（clone + checkout）+ `ban-git-write.sh`（攔截）在 init，`unban-git-write.sh`（移除攔截）+ `push-and-pr.sh`（push + PR）+ 可選 `check-deliverables.sh`（驗證成果物）在 cleanup。
+- `branchs`：**必填**。分岐規則列表，每個規則含 `target`（目標 phasename 或 `end`）及可選 KEY: VALUE 條件。規則依序評估，第一個匹配的生效。無條件規則（只有 `target`）= 預設 fallback。
 
 #### Model 優先順序
 
 1. Workflow phase 的 `llm-model`（若非空）
 2. 環境變數 `COPILOT_MODEL`
 
-#### 自動階段轉換
+#### 自動階段轉換（Branch 評估）
 
 Agent 完成當前階段後：
-1. 移除當前的 `role:xxx` 和 `phase:xxx` label
-2. 根據 Workflow 定義，加上下一階段的 `role:xxx` 和 `phase:xxx` label
-3. 下次輪詢時自動偵測到新的 `role:xxx` label 並執行
-4. 若已是最後階段，僅移除 label（Workflow 完成）
-5. 若 Issue 無 Workflow label，完成後僅移除 `role:xxx` label
-6. 若有 `workflow:xxx` 但無 `phase:xxx`，自動採用 Workflow 第一階段
+1. 讀取 `/workspace/.branch-vars`（cleanup 腳本寫入的 KEY=VALUE 變數）
+2. 依序評估 `branchs` 規則，第一個所有條件匹配的規則生效
+3. 根據 `target` 決定下一步：
+   - `target` = 當前 phasename → 重試（label 不變，下次 poll 再執行）
+   - `target` = `end` → 移除 role/phase label，設定 `phase:end`
+   - `target` = 其他 phasename → 移除當前 label，加上目標階段的 `role:xxx` + `phase:xxx`
+4. 下次輪詢時自動偵測到新 label 並執行
+5. 若 Agent 超時或失敗，不進行 branch 評估（label 不變，自然重試）
+6. 若 Issue 無 Workflow label，完成後僅移除 `role:xxx` label
+7. 若有 `workflow:xxx` 但無 `phase:xxx`，自動採用 Workflow 第一階段
 
 > **觸發機制**：以 `workflow:xxx` label 存在與否作為處理依據，無需時間戳比對。Workflow 完成後設定 `phase:end`，因此下次輪詢不會重複處理。
 
@@ -238,12 +251,16 @@ process_issue(number, labels, config, workflows):
   2. 若無 workflow → skip；若 phase:end → skip
   3. workflow_service.resolve_phase(workflow, phase_name, repo, number) → (idx, phase)
   4. workflow_service.build_phase_env(workflow, phase, number, repo) → phase_env
-  5. hooks_port.run_workspace_scripts(phase.workspace_init, phase_env) → clone + branch + ban-git-write
-  6. prompt_service.build_prompt(repo, number, role, agents_dir, phase, workflow_repos)
-  7. agent_port.run(prompt, role, agents_dir, timeout, model) → AgentResult
-  8. hooks_port.run_workspace_scripts(phase.workspace_cleanup, phase_env) → unban-git-write + push + PR
-  9. github_port.post_comment(repo, number, body)
-  10. workflow_service.advance_phase(workflow, idx, repo, number) → 階段轉換
+  5. 清除 /workspace/.branch-vars
+  6. hooks_port.run_workspace_scripts(phase.workspace_init, phase_env) → clone + branch + ban-git-write
+  7. prompt_service.build_prompt(repo, number, role, agents_dir, phase, workflow_repos)
+  8. agent_port.run(prompt, role, agents_dir, timeout, model) → AgentResult
+  9. hooks_port.run_workspace_scripts(phase.workspace_cleanup, phase_env) → unban-git-write + push + PR + check-deliverables
+  10. 若超時或失敗 → return（label 不變，自然重試）
+  11. github_port.post_comment(repo, number, body)
+  12. workflow_service.read_branch_vars() → branch_vars dict
+  13. workflow_service.evaluate_branches(phase.branchs, branch_vars) → target
+  14. workflow_service.transition_to_phase(workflow, phase, target, repo, number)
 ```
 
 ### 依賴注入方式
@@ -306,7 +323,7 @@ LearnGhAgent/
 │   ├── config.py                # 環境變數讀取、Config dataclass
 │   ├── domain/                  # Domain Model（純資料結構，零依賴）
 │   │   ├── models.py            # AgentResult, ResolvedLabels
-│   │   └── workflow.py          # Workflow, Phase, RepoConfig dataclasses
+│   │   └── workflow.py          # Workflow, Phase, RepoConfig, BranchRule dataclasses
 │   ├── ports/                   # Port 介面定義（typing.Protocol）
 │   │   ├── github_port.py       # GitHubPort: issue/comment/label 操作
 │   │   ├── agent_port.py        # AgentPort: 執行 agent
@@ -325,6 +342,7 @@ LearnGhAgent/
 ├── workspace-scripts/           # Workspace hook scripts
 │   ├── clone-and-branch.sh      # Clone repos + checkout feature branch
 │   ├── push-and-pr.sh           # Stage/commit/push + create draft PR
+│   ├── check-deliverables.sh    # 驗證成果物，寫入 PHASE_STATUS 到 .branch-vars
 │   ├── ban-git-write.sh         # 攔截 Agent 的 git write 操作
 │   └── unban-git-write.sh       # 移除 git write 攔截
 ├── agents/                      # 角色 Agent 定義

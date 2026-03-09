@@ -12,6 +12,18 @@ class RepoConfig:
 
 
 @dataclass
+class BranchRule:
+    """A single branching rule evaluated after phase completion.
+
+    ``conditions`` is a dict of KEY=VALUE pairs matched against the branch-vars
+    file written by workspace-cleanup scripts.  A rule with an empty
+    ``conditions`` dict is an unconditional default (always matches).
+    """
+    target: str                                        # phasename or "end"
+    conditions: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class Phase:
     """A single phase in a workflow."""
     role: str
@@ -21,6 +33,7 @@ class Phase:
     workspace_init: list[str] = field(default_factory=list)
     workspace_cleanup: list[str] = field(default_factory=list)
     phase_env: dict[str, str] = field(default_factory=dict)
+    branchs: list[BranchRule] = field(default_factory=list)
 
 
 @dataclass

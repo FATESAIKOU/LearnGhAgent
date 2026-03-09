@@ -9,7 +9,8 @@
 - 定期掃描指定 GitHub Repo 的所有 Open 狀態 Issue
 - 以 `role:xxx` label 存在與否作為觸發依據（無需時間戳比對）
 - 根據 Issue label 分派對應角色的 Agent 執行任務
-- 支援多階段 Workflow：Agent 完成後自動轉換到下一角色/階段
+- 支援多階段 Workflow：Agent 完成後根據 branch rules 決定下一階段（條件分歧或無條件前進）
+- 支援成果物驗證：cleanup 腳本可驗證 agent 輸出，驗證失敗時分歧可重試同一階段
 - Agent 執行完畢後，將結果總結回寫為 Issue Comment
 - 超時（預設 15 分鐘）強制終止 Agent，不回寫
 - 支援多 repo workspace：自動 clone、建立 feature branch、push 變更、開 PR
@@ -65,6 +66,7 @@ repeat :每隔 POLL_INTERVAL 秒;
       endif
 
       :建構 phase_env（REPOS, ISSUE_NUMBER, BRANCH_NAME 等）;
+      :清除 /workspace/.branch-vars;
       :執行 workspace-init hooks（clone + branch + ban-git-write）;
       :組合 prompt（instructions + issue 內容 + phase-prompt + repos context）;
 
@@ -72,15 +74,21 @@ repeat :每隔 POLL_INTERVAL 秒;
       :執行任務;
       |Composition Root (main.py)|
 
-      :執行 workspace-cleanup hooks（unban-git-write + push + PR）;
+      :執行 workspace-cleanup hooks（unban-git-write + push + PR + check-deliverables）;
 
       if (超時或失敗?) then (Yes)
-        :記錄日誌，不回寫;
+        :記錄日誌，不回寫（label 不變，下次 poll 自動重試）;
       else (No)
         :回寫結果至 Issue Comment;
-        :移除當前 role/phase label;
-        if (有下一階段?) then (Yes)
-          :加上下一階段的 role/phase label;
+        :讀取 /workspace/.branch-vars;
+        :評估 branchs 規則 → target;
+        if (target == 當前 phase?) then (Yes — 重試)
+          :label 不變;
+        elseif (target == end?) then (Yes)
+          :設定 phase:end;
+        else (其他 phase)
+          :移除當前 role/phase label;
+          :加上目標階段的 role/phase label;
         endif
       endif
     endif
@@ -129,5 +137,6 @@ stop
 
 - 透過 Workflow YAML 定義多階段任務的執行順序
 - Issue 加上 `role:xxx` + `workflow:xxx` label 即可啟動
-- Agent 完成每個階段後自動轉換到下一角色/階段
+- 每個 step 必須定義 `branchs`（分歧規則），用於決定階段完成後的流向
+- Branch rules 支援條件分歧（根據 `.branch-vars` 中的變數）和無條件前進
 - 支援指定多個工作 repo，自動 clone 並建立 feature branch
