@@ -82,6 +82,8 @@ for (( i=0; i<repo_count; i++ )); do
         git -C "$repo_dir" checkout -b "$BRANCH"
         echo "[clone-and-branch] ${name}: created branch '${BRANCH}' from '${default_br}'"
     fi
+    # Ensure clean working directory (remove untracked files from previous runs)
+    git -C "$repo_dir" clean -fdx 2>/dev/null || true
     # Save HEAD hash for deliverable validation
     echo "${name}=$(git -C "$repo_dir" rev-parse HEAD)" >> "$PRE_HEAD_FILE"
 done

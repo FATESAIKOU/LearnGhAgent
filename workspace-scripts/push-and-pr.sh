@@ -33,6 +33,11 @@ BRANCH="${BRANCH_NAME:-agent/issue-${ISSUE_NUMBER}}"
 PHASE="${PHASE_NAME:-}"
 TRACKING_REPO="${ISSUE_REPO:-}"
 
+# Expand COMMIT_SCOPE placeholders (limits git-add to a subdirectory)
+COMMIT_SCOPE="${COMMIT_SCOPE:-}"
+COMMIT_SCOPE="${COMMIT_SCOPE//\{ISSUE_NUMBER\}/${ISSUE_NUMBER}}"
+COMMIT_SCOPE="${COMMIT_SCOPE//\{BRANCH_NAME\}/${BRANCH}}"
+
 repo_count=$(echo "$REPOS" | jq '. | length')
 for (( i=0; i<repo_count; i++ )); do
     repo=$(echo "$REPOS" | jq -r ".[$i].repo")
@@ -46,10 +51,19 @@ for (( i=0; i<repo_count; i++ )); do
 
     echo "[push-and-pr] Processing repo: ${repo}"
 
-    # --- Stage & commit if there are changes ---
-    status=$($GIT -C "$repo_dir" status --porcelain 2>/dev/null || true)
-    if [ -n "$status" ]; then
-        $GIT -C "$repo_dir" add -A
+    # --- Stage changes (scoped or full) ---
+    if [ -n "$COMMIT_SCOPE" ]; then
+        $GIT -C "$repo_dir" add -- "$COMMIT_SCOPE" 2>/dev/null || true
+    else
+        status=$($GIT -C "$repo_dir" status --porcelain 2>/dev/null || true)
+        if [ -n "$status" ]; then
+            $GIT -C "$repo_dir" add -A
+        fi
+    fi
+
+    # --- Commit if there are staged changes ---
+    staged=$($GIT -C "$repo_dir" diff --cached --name-only 2>/dev/null || true)
+    if [ -n "$staged" ]; then
         msg="[Agent] Issue #${ISSUE_NUMBER}"
         if [ -n "$PHASE" ]; then
             msg="${msg} - ${PHASE}"

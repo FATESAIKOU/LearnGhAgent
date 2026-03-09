@@ -130,14 +130,17 @@ technical-investigation:
         user-provided evaluation viewpoints, and structure the report in a way
         that is easy for the user to understand.
 
-        You MUST produce TWO deliverable files (create the directory if needed):
-          1. docs/issue-{ISSUE_NUMBER}/requirements.md — structured requirements document
-          2. docs/issue-{ISSUE_NUMBER}/task-breakdown.md — task breakdown and work plan
+        You MUST produce TWO deliverable files under the cloned repo in /workspace
+        (create the directory if it does not exist):
+          1. learning-log/issue-{ISSUE_NUMBER}/requirements.md — structured requirements
+          2. learning-log/issue-{ISSUE_NUMBER}/task-breakdown.md — task breakdown / work plan
 
-        Write them inside the cloned repo directory under /workspace.
+        If any of these files already exist, overwrite or update them.
+        IMPORTANT: Only create or modify files under learning-log/issue-{ISSUE_NUMBER}/.
       llm-model: "gpt-5-mini"
       phase-env:
-        DELIVERABLES: "*/docs/issue-{ISSUE_NUMBER}/requirements.md,*/docs/issue-{ISSUE_NUMBER}/task-breakdown.md"
+        DELIVERABLES: "*/learning-log/issue-{ISSUE_NUMBER}/requirements.md,*/learning-log/issue-{ISSUE_NUMBER}/task-breakdown.md"
+        COMMIT_SCOPE: "learning-log/issue-{ISSUE_NUMBER}"
       workspace-init:
         - clone-and-branch.sh
         - ban-git-write.sh
@@ -157,13 +160,20 @@ technical-investigation:
         axes, comparison dimensions, assumptions, risks, trade-offs, and
         validation criteria based on the user's viewpoints.
 
-        You MUST produce ONE deliverable file (create the directory if needed):
-          1. docs/issue-{ISSUE_NUMBER}/architecture.md — evaluation framework document
+        You MUST produce the following deliverables under the cloned repo in
+        /workspace (create directories if they do not exist):
+          1. learning-log/issue-{ISSUE_NUMBER}/architecture.md — evaluation framework document
+          2. Files under learning-log/issue-{ISSUE_NUMBER}/src/ — skeleton code or
+             pseudocode that demonstrates the key technical components, interfaces,
+             and data flow described in the architecture.  At least one source file
+             is required.
 
-        Write it inside the cloned repo directory under /workspace.
+        If any of these files already exist, overwrite or update them.
+        IMPORTANT: Only create or modify files under learning-log/issue-{ISSUE_NUMBER}/.
       llm-model: "gpt-5-mini"
       phase-env:
-        DELIVERABLES: "*/docs/issue-{ISSUE_NUMBER}/architecture.md"
+        DELIVERABLES: "*/learning-log/issue-{ISSUE_NUMBER}/architecture.md,*/learning-log/issue-{ISSUE_NUMBER}/src/*"
+        COMMIT_SCOPE: "learning-log/issue-{ISSUE_NUMBER}"
       workspace-init:
         - clone-and-branch.sh
         - ban-git-write.sh
@@ -179,17 +189,25 @@ technical-investigation:
     - role: coder
       phasename: evidence-validation
       phase-prompt: >-
-        Investigate and validate all given topics against the defined framework,
-        examine supporting and opposing evidence, compare alternatives where
-        relevant, and organize findings.
+        Investigate and validate all given topics against the defined framework.
+        You MUST write actual code (working code, PoC, or detailed pseudocode)
+        that demonstrates and verifies the technical claims — do NOT only write
+        prose reports.
 
-        You MUST produce ONE deliverable file (create the directory if needed):
-          1. docs/issue-{ISSUE_NUMBER}/evidence-report.md — evidence and validation report
+        Required deliverables under the cloned repo in /workspace:
+          1. learning-log/issue-{ISSUE_NUMBER}/evidence-report.md — evidence and
+             validation report referencing the code you wrote
+          2. New or modified files under learning-log/issue-{ISSUE_NUMBER}/src/ —
+             validation code, PoC implementations, runnable examples, or detailed
+             pseudocode that substantiates the evidence report.  At least one
+             source file must be new or modified in this phase.
 
-        Write it inside the cloned repo directory under /workspace.
+        If any of these files already exist, overwrite or update them.
+        IMPORTANT: Only create or modify files under learning-log/issue-{ISSUE_NUMBER}/.
       llm-model: "gpt-5-mini"
       phase-env:
-        DELIVERABLES: "*/docs/issue-{ISSUE_NUMBER}/evidence-report.md"
+        DELIVERABLES: "*/learning-log/issue-{ISSUE_NUMBER}/evidence-report.md,*/learning-log/issue-{ISSUE_NUMBER}/src/*"
+        COMMIT_SCOPE: "learning-log/issue-{ISSUE_NUMBER}"
       workspace-init:
         - clone-and-branch.sh
         - ban-git-write.sh
@@ -206,16 +224,20 @@ technical-investigation:
       phasename: report-consolidation
       phase-prompt: >-
         Verify that every given topic has been examined from all required
-        viewpoints, check logical consistency and coverage, and produce a
-        structured final report in the user-specified format.
+        viewpoints, check logical consistency and coverage.  Review the code
+        under learning-log/issue-{ISSUE_NUMBER}/src/ and verify it supports the
+        claims in the evidence report.
 
-        You MUST produce ONE deliverable file (create the directory if needed):
-          1. docs/issue-{ISSUE_NUMBER}/final-report.md — consolidated final report
+        You MUST produce ONE deliverable file:
+          1. learning-log/issue-{ISSUE_NUMBER}/final-report.md — consolidated final
+             report that references the source files as supporting evidence
 
-        Write it inside the cloned repo directory under /workspace.
+        If this file already exists, overwrite or update it.
+        IMPORTANT: Only create or modify files under learning-log/issue-{ISSUE_NUMBER}/.
       llm-model: "gpt-5-mini"
       phase-env:
-        DELIVERABLES: "*/docs/issue-{ISSUE_NUMBER}/final-report.md"
+        DELIVERABLES: "*/learning-log/issue-{ISSUE_NUMBER}/final-report.md"
+        COMMIT_SCOPE: "learning-log/issue-{ISSUE_NUMBER}"
       workspace-init:
         - clone-and-branch.sh
         - ban-git-write.sh

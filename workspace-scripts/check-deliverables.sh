@@ -40,6 +40,9 @@ if [ -z "$DELIVERABLES" ]; then
 fi
 
 # ---------- Check each deliverable ----------
+# Evaluation is per-pattern: each comma-separated pattern must have at least
+# one new/modified file.  Unchanged files from earlier phases are tolerated
+# as long as the pattern also has fresh content.
 STATUS="OK"
 IFS=',' read -ra PATTERNS <<< "$DELIVERABLES"
 
@@ -55,6 +58,7 @@ for pattern in "${PATTERNS[@]}"; do
         log "MISSING: $pattern"
         STATUS="FAIL"
     else
+        pattern_has_new=false
         for m in "${matches[@]}"; do
             # Determine repo name and relative path
             rel="${m#/workspace/}"
@@ -68,15 +72,20 @@ for pattern in "${PATTERNS[@]}"; do
                 diff_out=$($GIT -C "$repo_dir" diff --name-only "$pre_head" HEAD -- "$file_rel" 2>/dev/null || true)
                 if [ -n "$diff_out" ]; then
                     log "Found (new/modified): $m"
+                    pattern_has_new=true
                 else
-                    log "STALE (not modified in this phase): $m"
-                    STATUS="FAIL"
+                    log "Unchanged: $m"
                 fi
             else
                 # No baseline — fall back to existence check
                 log "Found: $m"
+                pattern_has_new=true
             fi
         done
+        if [ "$pattern_has_new" = false ]; then
+            log "FAIL: no new/modified files for pattern '$pattern'"
+            STATUS="FAIL"
+        fi
     fi
 done
 
