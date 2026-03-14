@@ -17,7 +17,6 @@ class Node4ImplementMvp(NodeBase):
         self.targets = [
             "依照已審查通過的 MVP scope 實作程式碼與基本專案檔案",
             "必須包含 README.md 說明如何執行",
-            "輸出的最後一行必須是狀態行，格式為 STATUS: SUCCESS 或 STATUS: ERROR",
         ]
         self.constraints = [
             "必須實際輸出 MVP 程式碼與 README.md",
@@ -28,7 +27,6 @@ class Node4ImplementMvp(NodeBase):
             "使用相對路徑（如 src/main.py, README.md）",
             "程式碼必須可直接執行，不得有 placeholder 或 TODO stub",
             "必須包含 README.md 說明如何執行",
-            "## Status（最後一行必須是 STATUS: SUCCESS）",
         ]
 
     def _parse_and_write_files(self, output: str, base_path: str) -> int:
@@ -80,14 +78,8 @@ class Node4ImplementMvp(NodeBase):
         if success:
             files_written = self._parse_and_write_files(output, state.local_repo_path)
             self.log_node(f"Files written: {files_written}")
-
-            if "STATUS: SUCCESS" in output and files_written > 0:
-                new_state.status = "SUCCESS"
-            elif "STATUS: ERROR" in output:
-                new_state.status = "ERROR"
-            else:
-                new_state.status = "UNKNOWN"
-            self.log_node(f"LLM returned {len(output)} chars, status={new_state.status}")
+            new_state.status = "SUCCESS"
+            self.log_node(f"LLM returned {len(output)} chars")
         else:
             new_state.status = "ERROR"
             self.log_node(f"LLM call failed: {output[:200]}")

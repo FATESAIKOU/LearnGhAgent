@@ -13,16 +13,16 @@ class Node7ReviewReport(NodeBase):
         self.role = "報告審查員"
         self.targets = [
             "檢查報告是否完整、與程式碼一致、是否足夠讓人審查與接手",
-            "輸出的最後一行必須是狀態行，格式為 STATUS: SUCCESS 或 STATUS: NG",
+            "輸出的第一行必須是判定結果：STATUS: SUCCESS 或 STATUS: NG",
         ]
         self.constraints = [
-            "輸出必須使用以下 markdown 結構：",
+            "第一行必須是 STATUS: SUCCESS 或 STATUS: NG（二擇一）",
+            "後續輸出必須使用以下 markdown 結構：",
             "# Report Review Result",
             "## Completeness Check",
             "## Consistency Check",
             "## Missing Information",
             "## Required Fixes（若 NG 才需要填寫）",
-            "## Status（最後一行必須是 STATUS: SUCCESS 或 STATUS: NG）",
             "",
             "審查 rubric（每項都必須檢查）：",
             "- 是否完整描述研究、scope、實作、限制",

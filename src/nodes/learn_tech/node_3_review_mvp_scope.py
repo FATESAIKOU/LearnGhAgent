@@ -13,15 +13,15 @@ class Node3ReviewMvpScope(NodeBase):
         self.role = "MVP 審查員"
         self.targets = [
             "檢查 MVP scope 是否過大、過小、不一致、不可實作、驗收條件不足",
-            "輸出的最後一行必須是狀態行，格式為 STATUS: SUCCESS 或 STATUS: NG",
+            "輸出的第一行必須是判定結果：STATUS: SUCCESS 或 STATUS: NG",
         ]
         self.constraints = [
-            "輸出必須使用以下 markdown 結構：",
+            "第一行必須是 STATUS: SUCCESS 或 STATUS: NG（二擇一）",
+            "後續輸出必須使用以下 markdown 結構：",
             "# MVP Scope Review",
             "## Findings",
             "## Missing / Over-scoped / Inconsistent Points",
             "## Required Fixes（若 NG 才需要填寫）",
-            "## Status（最後一行必須是 STATUS: SUCCESS 或 STATUS: NG）",
             "",
             "審查 rubric（每項都必須檢查）：",
             "- 是否明確對應 issue 目標",

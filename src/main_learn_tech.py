@@ -45,32 +45,34 @@ COPILOT_MODEL = os.environ.get("COPILOT_MODEL", "gpt-5-mini")
 TRANSFER_MATRIX = {
     ("START", "SUCCESS"):                    "node_1_research_tech",
 
+    # non-judge: SUCCESS / ERROR only
     ("node_1_research_tech", "SUCCESS"):     "node_2_define_mvp_scope",
-    ("node_1_research_tech", "UNKNOWN"):     "node_1_research_tech",
     ("node_1_research_tech", "ERROR"):       "END",
 
     ("node_2_define_mvp_scope", "SUCCESS"):  "node_3_review_mvp_scope",
-    ("node_2_define_mvp_scope", "UNKNOWN"):  "node_2_define_mvp_scope",
     ("node_2_define_mvp_scope", "ERROR"):    "END",
 
+    # judge: SUCCESS / NG / UNKNOWN / ERROR
     ("node_3_review_mvp_scope", "SUCCESS"):  "node_4_implement_mvp",
     ("node_3_review_mvp_scope", "NG"):       "node_2_define_mvp_scope",
     ("node_3_review_mvp_scope", "UNKNOWN"):  "node_3_review_mvp_scope",
     ("node_3_review_mvp_scope", "ERROR"):    "END",
 
+    # non-judge
     ("node_4_implement_mvp", "SUCCESS"):     "node_5_review_code",
-    ("node_4_implement_mvp", "UNKNOWN"):     "node_4_implement_mvp",
     ("node_4_implement_mvp", "ERROR"):       "END",
 
+    # judge
     ("node_5_review_code", "SUCCESS"):       "node_6_write_report",
     ("node_5_review_code", "NG"):            "node_4_implement_mvp",
     ("node_5_review_code", "UNKNOWN"):       "node_5_review_code",
     ("node_5_review_code", "ERROR"):         "END",
 
+    # non-judge
     ("node_6_write_report", "SUCCESS"):      "node_7_review_report",
-    ("node_6_write_report", "UNKNOWN"):      "node_6_write_report",
     ("node_6_write_report", "ERROR"):        "END",
 
+    # judge
     ("node_7_review_report", "SUCCESS"):     "END",
     ("node_7_review_report", "NG"):          "node_6_write_report",
     ("node_7_review_report", "UNKNOWN"):     "node_7_review_report",

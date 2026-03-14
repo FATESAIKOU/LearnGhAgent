@@ -13,7 +13,6 @@ class Node1ResearchTech(NodeBase):
         self.role = "技術調查員"
         self.targets = [
             "根據 issue 主題，整理相關技術、做法、候選方案、風險與建議方向",
-            "輸出的最後一行必須是狀態行，格式為 STATUS: SUCCESS 或 STATUS: ERROR",
         ]
         self.constraints = [
             "輸出必須使用以下 markdown 結構：",
@@ -24,7 +23,6 @@ class Node1ResearchTech(NodeBase):
             "## Recommended Direction",
             "## Risks",
             "## Assumptions",
-            "## Status（最後一行必須是 STATUS: SUCCESS）",
         ]
 
     def run(self, state: State) -> State:
@@ -44,13 +42,8 @@ class Node1ResearchTech(NodeBase):
         output, success = self.call_llm(prompt)
 
         if success:
-            if "STATUS: SUCCESS" in output:
-                new_state.status = "SUCCESS"
-            elif "STATUS: ERROR" in output:
-                new_state.status = "ERROR"
-            else:
-                new_state.status = "UNKNOWN"
-            self.log_node(f"LLM returned {len(output)} chars, status={new_state.status}")
+            new_state.status = "SUCCESS"
+            self.log_node(f"LLM returned {len(output)} chars")
         else:
             new_state.status = "ERROR"
             self.log_node(f"LLM call failed: {output[:200]}")

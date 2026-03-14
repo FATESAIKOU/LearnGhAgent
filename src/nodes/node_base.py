@@ -16,9 +16,7 @@ NodeBase: 所有 workflow node 的抽象基底類別。
 """
 
 import json
-import os
 import subprocess
-import tempfile
 from abc import ABC, abstractmethod
 
 from src.lib.state import State
@@ -69,18 +67,12 @@ class NodeBase(ABC):
         Returns (output_text, success_flag).
         """
         model = self.model
-        prompt_path = None
         try:
-            # Write prompt to temp file to avoid shell escaping issues
-            fd, prompt_path = tempfile.mkstemp(suffix=".md", prefix="prompt_")
-            with os.fdopen(fd, "w") as f:
-                f.write(prompt)
-
             cmd = [
                 "copilot",
                 "--model", model,
-                "-p", f"@{prompt_path}",
-                "--allow-all-tools",
+                "-p", prompt,
+                "--no-ask-user",
             ]
             self.log_node(f"LLM model: {model}")
 
@@ -107,9 +99,6 @@ class NodeBase(ABC):
             return "[LLM TIMEOUT]", False
         except Exception as e:
             return f"[LLM EXCEPTION] {e}", False
-        finally:
-            if prompt_path and os.path.exists(prompt_path):
-                os.unlink(prompt_path)
 
     def log_node(self, message: str):
         """Shared logging helper for nodes."""

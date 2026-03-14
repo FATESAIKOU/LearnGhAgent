@@ -13,7 +13,6 @@ class Node6WriteReport(NodeBase):
         self.role = "開發報告撰寫員"
         self.targets = [
             "將研究、scope、實作、使用方式、限制與後續方向整理成完整的開發報告",
-            "輸出的最後一行必須是狀態行，格式為 STATUS: SUCCESS 或 STATUS: ERROR",
         ]
         self.constraints = [
             "輸出必須使用以下 markdown 結構：",
@@ -24,7 +23,6 @@ class Node6WriteReport(NodeBase):
             "## How to Run",
             "## Known Limitations",
             "## Next Steps",
-            "## Status（最後一行必須是 STATUS: SUCCESS）",
         ]
 
     def run(self, state: State) -> State:
@@ -44,13 +42,8 @@ class Node6WriteReport(NodeBase):
         output, success = self.call_llm(prompt)
 
         if success:
-            if "STATUS: SUCCESS" in output:
-                new_state.status = "SUCCESS"
-            elif "STATUS: ERROR" in output:
-                new_state.status = "ERROR"
-            else:
-                new_state.status = "UNKNOWN"
-            self.log_node(f"LLM returned {len(output)} chars, status={new_state.status}")
+            new_state.status = "SUCCESS"
+            self.log_node(f"LLM returned {len(output)} chars")
         else:
             new_state.status = "ERROR"
             self.log_node(f"LLM call failed: {output[:200]}")

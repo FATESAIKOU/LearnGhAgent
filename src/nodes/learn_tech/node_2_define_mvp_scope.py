@@ -13,7 +13,6 @@ class Node2DefineMvpScope(NodeBase):
         self.role = "MVP 設計師"
         self.targets = [
             "根據技術調查結果，收斂 MVP 邊界、功能、非功能需求、驗收條件",
-            "輸出的最後一行必須是狀態行，格式為 STATUS: SUCCESS 或 STATUS: ERROR",
         ]
         self.constraints = [
             "輸出必須使用以下 markdown 結構：",
@@ -25,7 +24,6 @@ class Node2DefineMvpScope(NodeBase):
             "## Non-Functional Requirements",
             "## Acceptance Criteria（必須是可驗證的條件）",
             "## Implementation Notes",
-            "## Status（最後一行必須是 STATUS: SUCCESS）",
         ]
 
     def run(self, state: State) -> State:
@@ -45,13 +43,8 @@ class Node2DefineMvpScope(NodeBase):
         output, success = self.call_llm(prompt)
 
         if success:
-            if "STATUS: SUCCESS" in output:
-                new_state.status = "SUCCESS"
-            elif "STATUS: ERROR" in output:
-                new_state.status = "ERROR"
-            else:
-                new_state.status = "UNKNOWN"
-            self.log_node(f"LLM returned {len(output)} chars, status={new_state.status}")
+            new_state.status = "SUCCESS"
+            self.log_node(f"LLM returned {len(output)} chars")
         else:
             new_state.status = "ERROR"
             self.log_node(f"LLM call failed: {output[:200]}")

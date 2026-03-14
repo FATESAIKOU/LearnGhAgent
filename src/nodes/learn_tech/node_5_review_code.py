@@ -14,16 +14,16 @@ class Node5ReviewCode(NodeBase):
         self.targets = [
             "檢查程式碼是否符合 scope、結構、可讀性、可執行性",
             "檢查 README 是否足夠讓使用者執行",
-            "輸出的最後一行必須是狀態行，格式為 STATUS: SUCCESS 或 STATUS: NG",
+            "輸出的第一行必須是判定結果：STATUS: SUCCESS 或 STATUS: NG",
         ]
         self.constraints = [
-            "輸出必須使用以下 markdown 結構：",
+            "第一行必須是 STATUS: SUCCESS 或 STATUS: NG（二擇一）",
+            "後續輸出必須使用以下 markdown 結構：",
             "# Code Review Result",
             "## Scope Coverage",
             "## Code Quality Findings",
             "## Required Fixes（若 NG 才需要填寫）",
             "## README Findings",
-            "## Status（最後一行必須是 STATUS: SUCCESS 或 STATUS: NG）",
             "",
             "審查 rubric（每項都必須檢查）：",
             "- 是否覆蓋 scope 中的所有 functional requirements",
