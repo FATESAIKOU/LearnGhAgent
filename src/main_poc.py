@@ -31,6 +31,7 @@ from src.nodes.poc.node_2_post_comment import Node2PostComment
 # ──────────────────────────────────────────────
 
 COPILOT_MODEL = os.environ.get("COPILOT_MODEL", "gpt-5-mini")
+HISTORY_KEEP_FULL = int(os.environ.get("HISTORY_KEEP_FULL", "3"))
 
 
 # ──────────────────────────────────────────────
@@ -273,7 +274,7 @@ def main(repo: str, issue_id: str, branch_name: str):
         print(f"{'─' * 60}")
 
         # Run node
-        node = NODE_MAP[next_node_name](model=COPILOT_MODEL)
+        node = NODE_MAP[next_node_name](model=COPILOT_MODEL, history_keep_full=HISTORY_KEEP_FULL)
         state = node.run(state)
         print(f"  → Result: status={state.status}")
 

@@ -27,6 +27,7 @@ echo "  Copilot CLI version: $(copilot --version 2>&1)"
 echo "[ENTRYPOINT] Verifying setup..."
 gh auth status 2>&1 || true
 echo "  COPILOT_MODEL=${COPILOT_MODEL:-gpt-5-mini}"
+echo "  HISTORY_KEEP_FULL=${HISTORY_KEEP_FULL:-3}"
 echo ""
 
 # ── Run workflow ──

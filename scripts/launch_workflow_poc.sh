@@ -25,6 +25,7 @@ echo " Repo:   $REPO"
 echo " Issue:  #$ISSUE_ID"
 echo " Branch: $BRANCH_NAME"
 echo " Model:  ${COPILOT_MODEL:-gpt-5-mini}"
+echo " HistKeepFull: ${HISTORY_KEEP_FULL:-3}"
 echo "============================================================"
 echo ""
 
@@ -41,5 +42,6 @@ echo "[LAUNCH] Running PoC workflow in Docker..."
 docker run --rm \
     -v "$PROJECT_DIR/auth/hosts.yml:/auth-src/hosts.yml:ro" \
     -e "COPILOT_MODEL=${COPILOT_MODEL:-gpt-5-mini}" \
+    -e "HISTORY_KEEP_FULL=${HISTORY_KEEP_FULL:-3}" \
     poc-workflow \
     "$REPO" "$ISSUE_ID" "$BRANCH_NAME"

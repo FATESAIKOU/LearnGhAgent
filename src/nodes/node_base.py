@@ -23,12 +23,36 @@ from src.lib.state import State
 
 
 class NodeBase(ABC):
-    def __init__(self, model: str = "gpt-5-mini"):
+    def __init__(self, model: str = "gpt-5-mini", history_keep_full: int = 3):
         self.node_name: str = ""
         self.role: str = ""
         self.targets: list[str] = []
         self.constraints: list[str] = []
         self.model: str = model
+        self.history_keep_full: int = history_keep_full
+
+    def _build_workflow_progress(
+        self, histories: list[tuple[str, str]]
+    ) -> list[dict]:
+        """Build workflow_progress list.
+
+        The most recent ``self.history_keep_full`` entries are included in
+        full.  Older entries are truncated to 500 chars so the prompt
+        doesn't explode while still preserving the recent context that
+        matters most (e.g. reviewer feedback the next node needs to see).
+        """
+        if not histories:
+            return []
+
+        keep = self.history_keep_full
+        result: list[dict] = []
+        cutoff = max(len(histories) - keep, 0)
+        for i, (name, output) in enumerate(histories):
+            if i < cutoff:
+                result.append({"node": name, "output": output[:500]})
+            else:
+                result.append({"node": name, "output": output})
+        return result
 
     def build_prompt(
         self,
@@ -48,10 +72,7 @@ class NodeBase(ABC):
                 "body": issue_body[:1000],
                 "comments": [c[:300] for c in issue_comments] if issue_comments else [],
             },
-            "workflow_progress": [
-                {"node": name, "output": output[:500]}
-                for name, output in workflow_output_histories
-            ] if workflow_output_histories else [],
+            "workflow_progress": self._build_workflow_progress(workflow_output_histories),
             "node_instructions": {
                 "role": self.role,
                 "targets": self.targets,
