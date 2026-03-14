@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  learn-tech-poc:
+    build:
+      context: ../..
+      dockerfile: workenv/learn-tech/Dockerfile
+    volumes:
+      - ../../auth/hosts.yml:/auth-src/hosts.yml:ro
+    environment:
+      - REPO
+      - ISSUE_ID
+      - BRANCH_NAME
+    command: ["${REPO}", "${ISSUE_ID}", "${BRANCH_NAME}"]
