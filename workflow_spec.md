@@ -1,4 +1,4 @@
-# 各人先端技術研究 workflow
+# 個人先端技術研究 workflow
 
 ## 背景
 
