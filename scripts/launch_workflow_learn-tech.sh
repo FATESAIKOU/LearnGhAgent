@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-# Usage: bash scripts/launch_workflow_poc.sh <repo> <issue_id> <branch_name>
-# Example: bash scripts/launch_workflow_poc.sh FATESAIKOU/SelfImprovement 20 technical-investigation
+# Usage: bash scripts/launch_workflow_learn-tech.sh <repo> <issue_id> <branch_name>
+# Example: bash scripts/launch_workflow_learn-tech.sh FATESAIKOU/SelfImprovement 20 technical-investigation
 
 REPO="${1:?Usage: $0 <repo> <issue_id> <branch_name>}"
 ISSUE_ID="${2:?}"
@@ -19,7 +19,7 @@ if [ -f "$PROJECT_DIR/.env" ]; then
 fi
 
 echo "============================================================"
-echo " PoC Workflow Launcher"
+echo " LearnTech Workflow Launcher"
 echo "============================================================"
 echo " Repo:   $REPO"
 echo " Issue:  #$ISSUE_ID"
@@ -31,15 +31,15 @@ echo ""
 # ── Build Docker image ──
 echo "[LAUNCH] Building Docker image..."
 docker build \
-    -f "$PROJECT_DIR/workenv/poc/Dockerfile" \
-    -t poc-workflow \
+    -f "$PROJECT_DIR/workenv/learn-tech/Dockerfile" \
+    -t learn-tech \
     "$PROJECT_DIR"
 echo ""
 
 # ── Run container ──
-echo "[LAUNCH] Running PoC workflow in Docker..."
+echo "[LAUNCH] Running LearnTech workflow in Docker..."
 docker run --rm \
     -v "$PROJECT_DIR/auth/hosts.yml:/auth-src/hosts.yml:ro" \
     -e "COPILOT_MODEL=${COPILOT_MODEL:-gpt-5-mini}" \
-    poc-workflow \
+    learn-tech \
     "$REPO" "$ISSUE_ID" "$BRANCH_NAME"

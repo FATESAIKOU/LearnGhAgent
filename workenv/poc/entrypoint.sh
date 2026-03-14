@@ -30,5 +30,5 @@ echo "  COPILOT_MODEL=${COPILOT_MODEL:-gpt-5-mini}"
 echo ""
 
 # ── Run workflow ──
-echo "[ENTRYPOINT] Starting LearnTech workflow..."
-exec python3 /app/src/main_learn_tech.py "$@"
+echo "[ENTRYPOINT] Starting PoC workflow..."
+exec python3 /app/src/main_poc.py "$@"

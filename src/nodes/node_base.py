@@ -125,6 +125,35 @@ class NodeBase(ABC):
         """Shared logging helper for nodes."""
         print(f"  [{self.node_name}] {message}")
 
+    def _has_expected_headers(self, output: str, headers: list[str], min_matches: int = 3) -> bool:
+        """Check if output contains expected markdown headers."""
+        output_lower = output.lower()
+        matches = sum(1 for h in headers if h.lower() in output_lower)
+        return matches >= min_matches
+
+    def _parse_review_result(self, output: str) -> str:
+        """Parse review result from output.
+        Looks for SUCCESS or NG after '## Review Result' header.
+        Returns SUCCESS / NG / UNKNOWN.
+        """
+        import re
+        # Find the section after "## Review Result"
+        pattern = re.compile(
+            r'##\s*Review\s*Result\s*\n+(.+)',
+            re.IGNORECASE,
+        )
+        match = pattern.search(output)
+        if match:
+            first_content = match.group(1).strip().upper()
+            # Check first meaningful line
+            for line in first_content.split('\n'):
+                line = line.strip().lstrip('-').lstrip('*').strip()
+                if 'SUCCESS' in line:
+                    return 'SUCCESS'
+                if 'NG' in line:
+                    return 'NG'
+        return 'UNKNOWN'
+
     @abstractmethod
     def run(self, state: State) -> State:
         """

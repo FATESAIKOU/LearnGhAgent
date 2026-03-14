@@ -1,10 +1,10 @@
 version: '3.8'
 
 services:
-  learn-tech:
+  poc:
     build:
       context: ../..
-      dockerfile: workenv/learn-tech/Dockerfile
+      dockerfile: workenv/poc/Dockerfile
     volumes:
       - ../../auth/hosts.yml:/auth-src/hosts.yml:ro
     environment:

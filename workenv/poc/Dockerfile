@@ -1,11 +1,7 @@
-FROM ubuntu:24.04
-
-ENV DEBIAN_FRONTEND=noninteractive
+FROM python:3.11-slim
 
 # ── System dependencies ──
 RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
     git \
     curl \
     wget \
@@ -25,14 +21,14 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Git config (for commits inside container) ──
-RUN git config --global user.email "learn-tech-workflow@local" \
-    && git config --global user.name "LearnTech Workflow"
+RUN git config --global user.email "poc-workflow@local" \
+    && git config --global user.name "PoC Workflow"
 
 WORKDIR /app
 
 # ── Copy source ──
 COPY src/ /app/src/
-COPY workenv/learn-tech/entrypoint.sh /app/entrypoint.sh
+COPY workenv/poc/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 ENTRYPOINT ["/app/entrypoint.sh"]
