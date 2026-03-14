@@ -27,6 +27,13 @@ from src.nodes.node_2_post_comment import Node2PostComment
 
 
 # ──────────────────────────────────────────────
+# Global Constants
+# ──────────────────────────────────────────────
+
+COPILOT_MODEL = os.environ.get("COPILOT_MODEL", "gpt-5-mini")
+
+
+# ──────────────────────────────────────────────
 # Transfer Matrix
 # ──────────────────────────────────────────────
 
@@ -266,7 +273,7 @@ def main(repo: str, issue_id: str, branch_name: str):
         print(f"{'─' * 60}")
 
         # Run node
-        node = NODE_MAP[next_node_name]()
+        node = NODE_MAP[next_node_name](model=COPILOT_MODEL)
         state = node.run(state)
         print(f"  → Result: status={state.status}")
 

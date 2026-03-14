@@ -11,4 +11,5 @@ services:
       - REPO
       - ISSUE_ID
       - BRANCH_NAME
+      - COPILOT_MODEL
     command: ["${REPO}", "${ISSUE_ID}", "${BRANCH_NAME}"]

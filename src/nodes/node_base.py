@@ -22,11 +22,12 @@ from src.lib.state import State
 
 
 class NodeBase(ABC):
-    def __init__(self):
+    def __init__(self, model: str = "gpt-5-mini"):
         self.node_name: str = ""
         self.role: str = ""
         self.targets: list[str] = []
         self.constraints: list[str] = []
+        self.model: str = model
 
     def build_prompt(
         self,
@@ -73,12 +74,11 @@ class NodeBase(ABC):
 
     def call_llm(self, prompt: str) -> tuple[str, bool]:
         """
-        Call LLM via gh copilot CLI.
+        Call LLM via copilot CLI (npm: @github/copilot).
+        Model is determined by self.model (set from main's global constant).
         Returns (output_text, success_flag).
-
-        NOTE: gh copilot explain is used as initial approach.
-              The exact invocation may need adjustment during PoC testing.
         """
+        model = self.model
         prompt_path = None
         try:
             # Write prompt to temp file to avoid shell escaping issues
@@ -86,13 +86,19 @@ class NodeBase(ABC):
             with os.fdopen(fd, "w") as f:
                 f.write(prompt)
 
-            # Try: pipe prompt file into gh copilot explain
+            cmd = [
+                "copilot",
+                "--model", model,
+                "-p", f"@{prompt_path}",
+                "--allow-all-tools",
+            ]
+            self.log_node(f"LLM model: {model}")
+
             result = subprocess.run(
-                f'cat "{prompt_path}" | gh copilot explain',
+                cmd,
                 capture_output=True,
                 text=True,
-                timeout=120,
-                shell=True,
+                timeout=300,
             )
 
             stdout = result.stdout.strip()

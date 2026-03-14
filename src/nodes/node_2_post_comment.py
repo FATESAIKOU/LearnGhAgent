@@ -16,8 +16,8 @@ from src.lib.state import State
 
 
 class Node2PostComment(NodeBase):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, model: str = "gpt-5-mini"):
+        super().__init__(model=model)
         self.node_name = "node_2_post_comment"
         self.role = "結果彙報員"
         self.targets = ["將 workflow 的執行紀錄整理成 markdown 摘要"]

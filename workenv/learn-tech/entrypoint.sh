@@ -14,15 +14,19 @@ else
     exit 1
 fi
 
-# ── Install gh copilot extension ──
-echo "[ENTRYPOINT] Installing gh copilot extension..."
-gh extension install github/gh-copilot --force 2>&1 || {
-    echo "  ⚠️  gh copilot extension install failed (may already exist)"
-}
+# ── Setup git credential helper (for push) ──
+echo "[ENTRYPOINT] Setting up git credential helper..."
+gh auth setup-git 2>&1 || true
+
+# ── Install Copilot CLI ──
+echo "[ENTRYPOINT] Installing Copilot CLI..."
+npm install -g @github/copilot 2>&1 | tail -3
+echo "  Copilot CLI version: $(copilot --version 2>&1)"
 
 # ── Verify ──
 echo "[ENTRYPOINT] Verifying setup..."
 gh auth status 2>&1 || true
+echo "  COPILOT_MODEL=${COPILOT_MODEL:-gpt-5-mini}"
 echo ""
 
 # ── Run workflow ──

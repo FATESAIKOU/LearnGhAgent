@@ -5,6 +5,8 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     wget \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Install gh CLI ──
@@ -26,7 +28,7 @@ WORKDIR /app
 
 # ── Copy source ──
 COPY src/ /app/src/
-COPY workenv/learn-tech/entrypoint_poc.sh /app/entrypoint.sh
+COPY workenv/learn-tech/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 ENTRYPOINT ["/app/entrypoint.sh"]

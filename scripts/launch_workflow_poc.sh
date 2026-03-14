@@ -11,12 +11,20 @@ BRANCH_NAME="${3:?}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# ── Load .env ──
+if [ -f "$PROJECT_DIR/.env" ]; then
+    set -a
+    source "$PROJECT_DIR/.env"
+    set +a
+fi
+
 echo "============================================================"
 echo " PoC Workflow Launcher"
 echo "============================================================"
 echo " Repo:   $REPO"
 echo " Issue:  #$ISSUE_ID"
 echo " Branch: $BRANCH_NAME"
+echo " Model:  ${COPILOT_MODEL:-gpt-5-mini}"
 echo "============================================================"
 echo ""
 
@@ -32,5 +40,6 @@ echo ""
 echo "[LAUNCH] Running PoC workflow in Docker..."
 docker run --rm \
     -v "$PROJECT_DIR/auth/hosts.yml:/auth-src/hosts.yml:ro" \
+    -e "COPILOT_MODEL=${COPILOT_MODEL:-gpt-5-mini}" \
     learn-tech-poc \
     "$REPO" "$ISSUE_ID" "$BRANCH_NAME"
