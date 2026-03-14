@@ -22,8 +22,8 @@ import json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.lib.state import State
-from src.nodes.node_1_hello_llm import Node1HelloLlm
-from src.nodes.node_2_post_comment import Node2PostComment
+from src.nodes.poc.node_1_hello_llm import Node1HelloLlm
+from src.nodes.poc.node_2_post_comment import Node2PostComment
 
 
 # ──────────────────────────────────────────────

@@ -1,14 +1,5 @@
 """
 Node 2: Post Comment — 組裝 workflow 摘要。
-
-職責：
-  - 從 state 的 workflow_output_histories 取出所有歷史
-  - 組裝結構化 markdown 摘要作為自己的 output
-  - 判定 status
-
-不做：
-  - 決定下一個節點
-  - 直接 git / github 操作（comment 由 main 負責）
 """
 
 from src.nodes.node_base import NodeBase
@@ -31,7 +22,6 @@ class Node2PostComment(NodeBase):
         self.log_node("Building workflow summary...")
 
         try:
-            # Fixed logic (no LLM) — assemble summary from histories
             lines = [
                 "# PoC Workflow Summary",
                 "",
@@ -54,7 +44,7 @@ class Node2PostComment(NodeBase):
                 "|------|--------|",
                 "| gh auth | ✅ |",
                 "| Read issue | ✅ |",
-                "| gh copilot LLM call | ✅ |",
+                "| copilot LLM call | ✅ |",
                 "| State transition | ✅ |",
                 "| gh issue comment | ⏳ (this comment itself) |",
                 "| git commit/push | ⏳ (teardown) |",
@@ -79,10 +69,7 @@ class Node2PostComment(NodeBase):
             new_state.workflow_output_histories.append(
                 (self.node_name, error_msg)
             )
-            new_state.workflow_input_histories.append(
-                (self.node_name, "(fixed logic — no prompt)")
-            )
             new_state.status = "ERROR"
-            self.log_node(f"Failed to build summary: {e}")
+            self.log_node(f"Failed: {e}")
 
         return new_state

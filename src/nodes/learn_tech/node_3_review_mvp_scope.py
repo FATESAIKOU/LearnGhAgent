@@ -1,14 +1,5 @@
 """
 Node 3: Review MVP Scope — 審查 MVP scope 是否合理。
-
-職責：
-  - 組裝 prompt（scope 審查）
-  - 呼叫 LLM
-  - 解析 Review Result 判定 status
-
-不做：
-  - 決定下一個節點
-  - 直接 git / github 操作
 """
 
 from src.nodes.node_base import NodeBase
@@ -22,15 +13,15 @@ class Node3ReviewMvpScope(NodeBase):
         self.role = "MVP 審查員"
         self.targets = [
             "檢查 MVP scope 是否過大、過小、不一致、不可實作、驗收條件不足",
+            "輸出的最後一行必須是狀態行，格式為 STATUS: SUCCESS 或 STATUS: NG",
         ]
         self.constraints = [
             "輸出必須使用以下 markdown 結構：",
             "# MVP Scope Review",
-            "## Review Result",
-            "- 第一行必須是 SUCCESS 或 NG（二擇一）",
             "## Findings",
             "## Missing / Over-scoped / Inconsistent Points",
             "## Required Fixes（若 NG 才需要填寫）",
+            "## Status（最後一行必須是 STATUS: SUCCESS 或 STATUS: NG）",
             "",
             "審查 rubric（每項都必須檢查）：",
             "- 是否明確對應 issue 目標",
@@ -57,9 +48,13 @@ class Node3ReviewMvpScope(NodeBase):
         output, success = self.call_llm(prompt)
 
         if success:
-            review_result = self._parse_review_result(output)
-            new_state.status = review_result
-            self.log_node(f"Review result: {review_result} ({len(output)} chars)")
+            if "STATUS: SUCCESS" in output:
+                new_state.status = "SUCCESS"
+            elif "STATUS: NG" in output:
+                new_state.status = "NG"
+            else:
+                new_state.status = "UNKNOWN"
+            self.log_node(f"Review result: {new_state.status} ({len(output)} chars)")
         else:
             new_state.status = "ERROR"
             self.log_node(f"LLM call failed: {output[:200]}")

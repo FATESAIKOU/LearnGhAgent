@@ -1,16 +1,5 @@
 """
 Node 4: Implement MVP — 依 scope 實作 MVP 程式碼與專案檔案。
-
-職責：
-  - 組裝 prompt（程式碼實作）
-  - 呼叫 LLM
-  - 解析輸出中的檔案區塊
-  - 將檔案寫入 local_repo_path
-  - 判定 status
-
-不做：
-  - 決定下一個節點
-  - 直接 git push / gh comment
 """
 
 import os
@@ -28,6 +17,7 @@ class Node4ImplementMvp(NodeBase):
         self.targets = [
             "依照已審查通過的 MVP scope 實作程式碼與基本專案檔案",
             "必須包含 README.md 說明如何執行",
+            "輸出的最後一行必須是狀態行，格式為 STATUS: SUCCESS 或 STATUS: ERROR",
         ]
         self.constraints = [
             "必須實際輸出 MVP 程式碼與 README.md",
@@ -38,19 +28,13 @@ class Node4ImplementMvp(NodeBase):
             "使用相對路徑（如 src/main.py, README.md）",
             "程式碼必須可直接執行，不得有 placeholder 或 TODO stub",
             "必須包含 README.md 說明如何執行",
-            "",
-            "輸出結構：",
-            "# MVP Implementation Result",
-            "## Implemented Files（列出所有檔案清單）",
-            "## Main Design Decisions",
-            "## Files（每個檔案用 --- FILE: --- 格式輸出）",
+            "## Status（最後一行必須是 STATUS: SUCCESS）",
         ]
 
     def _parse_and_write_files(self, output: str, base_path: str) -> int:
         """Parse file blocks from LLM output and write to disk.
         Returns number of files written.
         """
-        # Format: --- FILE: path --- ... --- END FILE ---
         pattern = re.compile(
             r'--- FILE:\s*(.+?)\s*---\n(.*?)--- END FILE ---',
             re.DOTALL,
@@ -94,16 +78,15 @@ class Node4ImplementMvp(NodeBase):
         output, success = self.call_llm(prompt)
 
         if success:
-            # Parse file blocks and write to disk
             files_written = self._parse_and_write_files(output, state.local_repo_path)
             self.log_node(f"Files written: {files_written}")
 
-            if files_written > 0:
+            if "STATUS: SUCCESS" in output and files_written > 0:
                 new_state.status = "SUCCESS"
+            elif "STATUS: ERROR" in output:
+                new_state.status = "ERROR"
             else:
                 new_state.status = "UNKNOWN"
-                self.log_node("No files parsed from output — may need format adjustment")
-
             self.log_node(f"LLM returned {len(output)} chars, status={new_state.status}")
         else:
             new_state.status = "ERROR"

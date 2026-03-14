@@ -1,14 +1,5 @@
 """
 Node 5: Review Code — 審查程式碼品質與 scope 覆蓋。
-
-職責：
-  - 組裝 prompt（程式碼審查）
-  - 呼叫 LLM
-  - 解析 Review Result 判定 status
-
-不做：
-  - 決定下一個節點
-  - 直接 git / github 操作
 """
 
 from src.nodes.node_base import NodeBase
@@ -23,16 +14,16 @@ class Node5ReviewCode(NodeBase):
         self.targets = [
             "檢查程式碼是否符合 scope、結構、可讀性、可執行性",
             "檢查 README 是否足夠讓使用者執行",
+            "輸出的最後一行必須是狀態行，格式為 STATUS: SUCCESS 或 STATUS: NG",
         ]
         self.constraints = [
             "輸出必須使用以下 markdown 結構：",
             "# Code Review Result",
-            "## Review Result",
-            "- 第一行必須是 SUCCESS 或 NG（二擇一）",
             "## Scope Coverage",
             "## Code Quality Findings",
             "## Required Fixes（若 NG 才需要填寫）",
             "## README Findings",
+            "## Status（最後一行必須是 STATUS: SUCCESS 或 STATUS: NG）",
             "",
             "審查 rubric（每項都必須檢查）：",
             "- 是否覆蓋 scope 中的所有 functional requirements",
@@ -59,9 +50,13 @@ class Node5ReviewCode(NodeBase):
         output, success = self.call_llm(prompt)
 
         if success:
-            review_result = self._parse_review_result(output)
-            new_state.status = review_result
-            self.log_node(f"Review result: {review_result} ({len(output)} chars)")
+            if "STATUS: SUCCESS" in output:
+                new_state.status = "SUCCESS"
+            elif "STATUS: NG" in output:
+                new_state.status = "NG"
+            else:
+                new_state.status = "UNKNOWN"
+            self.log_node(f"Review result: {new_state.status} ({len(output)} chars)")
         else:
             new_state.status = "ERROR"
             self.log_node(f"LLM call failed: {output[:200]}")

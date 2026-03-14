@@ -1,15 +1,5 @@
 """
-Node 1: Hello LLM — 呼叫 gh copilot 驗證 LLM 連線。
-
-職責：
-  - 組裝 prompt（用一句話概括 issue 主題）
-  - 呼叫 gh copilot
-  - 解析輸出
-  - 判定 status
-
-不做：
-  - 決定下一個節點
-  - 直接 git / github 操作
+Node 1: Hello LLM — 呼叫 copilot CLI 驗證 LLM 連線。
 """
 
 from src.nodes.node_base import NodeBase
@@ -29,7 +19,6 @@ class Node1HelloLlm(NodeBase):
         new_state.from_node = self.node_name
         new_state.status = "UNKNOWN"
 
-        # Build prompt
         prompt = self.build_prompt(
             state.issue_title,
             state.issue_body,
@@ -38,9 +27,7 @@ class Node1HelloLlm(NodeBase):
         )
         new_state.workflow_input_histories.append((self.node_name, prompt))
 
-        self.log_node("Calling LLM via gh copilot...")
-
-        # Call LLM
+        self.log_node("Calling LLM via copilot CLI...")
         output, success = self.call_llm(prompt)
 
         if success:

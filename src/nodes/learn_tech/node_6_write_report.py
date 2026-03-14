@@ -1,15 +1,5 @@
 """
-Node 6: Write Report — 撰寫開發報告以及程式碼內容報告。
-
-職責：
-  - 組裝 prompt（報告撰寫）
-  - 呼叫 LLM
-  - 解析輸出
-  - 判定 status
-
-不做：
-  - 決定下一個節點
-  - 直接 git / github 操作
+Node 6: Write Report — 撰寫開發報告。
 """
 
 from src.nodes.node_base import NodeBase
@@ -23,6 +13,7 @@ class Node6WriteReport(NodeBase):
         self.role = "開發報告撰寫員"
         self.targets = [
             "將研究、scope、實作、使用方式、限制與後續方向整理成完整的開發報告",
+            "輸出的最後一行必須是狀態行，格式為 STATUS: SUCCESS 或 STATUS: ERROR",
         ]
         self.constraints = [
             "輸出必須使用以下 markdown 結構：",
@@ -33,15 +24,8 @@ class Node6WriteReport(NodeBase):
             "## How to Run",
             "## Known Limitations",
             "## Next Steps",
+            "## Status（最後一行必須是 STATUS: SUCCESS）",
         ]
-
-    EXPECTED_HEADERS = [
-        "What Was Researched",
-        "Chosen MVP Scope",
-        "What Was Implemented",
-        "How to Run",
-        "Known Limitations",
-    ]
 
     def run(self, state: State) -> State:
         new_state = state.clone()
@@ -60,8 +44,10 @@ class Node6WriteReport(NodeBase):
         output, success = self.call_llm(prompt)
 
         if success:
-            if self._has_expected_headers(output, self.EXPECTED_HEADERS, min_matches=3):
+            if "STATUS: SUCCESS" in output:
                 new_state.status = "SUCCESS"
+            elif "STATUS: ERROR" in output:
+                new_state.status = "ERROR"
             else:
                 new_state.status = "UNKNOWN"
             self.log_node(f"LLM returned {len(output)} chars, status={new_state.status}")

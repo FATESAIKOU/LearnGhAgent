@@ -3,7 +3,8 @@ NodeBase: 所有 workflow node 的抽象基底類別。
 
 職責：
   - node metadata (node_name, role, targets, constraints)
-  - build_prompt() 共通骨架
+  - build_prompt() 共通骨架（JSON 格式）
+  - call_llm() 呼叫 copilot CLI
   - run(state) 介面定義
   - 共通 logging helper
 
@@ -11,8 +12,10 @@ NodeBase: 所有 workflow node 的抽象基底類別。
   - 決定 workflow transition
   - 直接操作 git / github
   - 決定整體 orchestration
+  - 判定 status（交給各 node 自行 keyword matching）
 """
 
+import json
 import os
 import subprocess
 import tempfile
@@ -36,41 +39,28 @@ class NodeBase(ABC):
         issue_comments: list[str],
         workflow_output_histories: list[tuple[str, str]],
     ) -> str:
-        """Build the standard prompt structure shared by all nodes."""
-        # Comments
-        if issue_comments:
-            comments_str = "\n".join(
-                f"        - {c[:300]}" for c in issue_comments
-            )
-        else:
-            comments_str = "        (none)"
+        """Build the standard prompt as a JSON string.
 
-        # Workflow progress
-        if workflow_output_histories:
-            histories_str = "\n".join(
-                f"        - [{name}]: {output[:500]}"
+        Free-text fields are json.dumps()-ed so that newlines become \\n
+        and won't break the overall prompt structure.
+        """
+        prompt_obj = {
+            "issue": {
+                "title": issue_title,
+                "body": issue_body[:1000],
+                "comments": [c[:300] for c in issue_comments] if issue_comments else [],
+            },
+            "workflow_progress": [
+                {"node": name, "output": output[:500]}
                 for name, output in workflow_output_histories
-            )
-        else:
-            histories_str = "        (none)"
-
-        # Targets / Constraints
-        targets_str = "\n".join(f"            - {t}" for t in self.targets)
-        constraints_str = "\n".join(f"            - {c}" for c in self.constraints)
-
-        return f"""- issue
-    - title: {issue_title}
-    - body: {issue_body[:1000]}
-    - comments
-{comments_str}
-- workflow_progress
-{histories_str}
-- node_instructions
-    - role: {self.role}
-    - targets
-{targets_str}
-    - constraints
-{constraints_str}"""
+            ] if workflow_output_histories else [],
+            "node_instructions": {
+                "role": self.role,
+                "targets": self.targets,
+                "constraints": self.constraints,
+            },
+        }
+        return json.dumps(prompt_obj, ensure_ascii=False, indent=2)
 
     def call_llm(self, prompt: str) -> tuple[str, bool]:
         """
@@ -82,7 +72,7 @@ class NodeBase(ABC):
         prompt_path = None
         try:
             # Write prompt to temp file to avoid shell escaping issues
-            fd, prompt_path = tempfile.mkstemp(suffix=".md", prefix="poc_prompt_")
+            fd, prompt_path = tempfile.mkstemp(suffix=".md", prefix="prompt_")
             with os.fdopen(fd, "w") as f:
                 f.write(prompt)
 
@@ -124,35 +114,6 @@ class NodeBase(ABC):
     def log_node(self, message: str):
         """Shared logging helper for nodes."""
         print(f"  [{self.node_name}] {message}")
-
-    def _has_expected_headers(self, output: str, headers: list[str], min_matches: int = 3) -> bool:
-        """Check if output contains expected markdown headers."""
-        output_lower = output.lower()
-        matches = sum(1 for h in headers if h.lower() in output_lower)
-        return matches >= min_matches
-
-    def _parse_review_result(self, output: str) -> str:
-        """Parse review result from output.
-        Looks for SUCCESS or NG after '## Review Result' header.
-        Returns SUCCESS / NG / UNKNOWN.
-        """
-        import re
-        # Find the section after "## Review Result"
-        pattern = re.compile(
-            r'##\s*Review\s*Result\s*\n+(.+)',
-            re.IGNORECASE,
-        )
-        match = pattern.search(output)
-        if match:
-            first_content = match.group(1).strip().upper()
-            # Check first meaningful line
-            for line in first_content.split('\n'):
-                line = line.strip().lstrip('-').lstrip('*').strip()
-                if 'SUCCESS' in line:
-                    return 'SUCCESS'
-                if 'NG' in line:
-                    return 'NG'
-        return 'UNKNOWN'
 
     @abstractmethod
     def run(self, state: State) -> State:

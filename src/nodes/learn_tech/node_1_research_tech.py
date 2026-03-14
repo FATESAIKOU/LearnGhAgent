@@ -1,15 +1,5 @@
 """
 Node 1: Research Tech — 根據 issue 主題整理相關技術。
-
-職責：
-  - 組裝 prompt（技術調查）
-  - 呼叫 LLM
-  - 解析輸出
-  - 判定 status
-
-不做：
-  - 決定下一個節點
-  - 直接 git / github 操作
 """
 
 from src.nodes.node_base import NodeBase
@@ -23,6 +13,7 @@ class Node1ResearchTech(NodeBase):
         self.role = "技術調查員"
         self.targets = [
             "根據 issue 主題，整理相關技術、做法、候選方案、風險與建議方向",
+            "輸出的最後一行必須是狀態行，格式為 STATUS: SUCCESS 或 STATUS: ERROR",
         ]
         self.constraints = [
             "輸出必須使用以下 markdown 結構：",
@@ -33,16 +24,8 @@ class Node1ResearchTech(NodeBase):
             "## Recommended Direction",
             "## Risks",
             "## Assumptions",
+            "## Status（最後一行必須是 STATUS: SUCCESS）",
         ]
-
-    # Expected headers for structure validation
-    EXPECTED_HEADERS = [
-        "Problem Understanding",
-        "Candidate Technologies",
-        "Comparison",
-        "Recommended Direction",
-        "Risks",
-    ]
 
     def run(self, state: State) -> State:
         new_state = state.clone()
@@ -61,8 +44,10 @@ class Node1ResearchTech(NodeBase):
         output, success = self.call_llm(prompt)
 
         if success:
-            if self._has_expected_headers(output, self.EXPECTED_HEADERS, min_matches=3):
+            if "STATUS: SUCCESS" in output:
                 new_state.status = "SUCCESS"
+            elif "STATUS: ERROR" in output:
+                new_state.status = "ERROR"
             else:
                 new_state.status = "UNKNOWN"
             self.log_node(f"LLM returned {len(output)} chars, status={new_state.status}")

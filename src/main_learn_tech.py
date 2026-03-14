@@ -22,13 +22,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.lib.state import State
 from src.lib.github_helper import GithubHelper
 from src.lib.git_helper import GitHelper
-from src.nodes.node_1_research_tech import Node1ResearchTech
-from src.nodes.node_2_define_mvp_scope import Node2DefineMvpScope
-from src.nodes.node_3_review_mvp_scope import Node3ReviewMvpScope
-from src.nodes.node_4_implement_mvp import Node4ImplementMvp
-from src.nodes.node_5_review_code import Node5ReviewCode
-from src.nodes.node_6_write_report import Node6WriteReport
-from src.nodes.node_7_review_report import Node7ReviewReport
+from src.nodes.learn_tech.node_1_research_tech import Node1ResearchTech
+from src.nodes.learn_tech.node_2_define_mvp_scope import Node2DefineMvpScope
+from src.nodes.learn_tech.node_3_review_mvp_scope import Node3ReviewMvpScope
+from src.nodes.learn_tech.node_4_implement_mvp import Node4ImplementMvp
+from src.nodes.learn_tech.node_5_review_code import Node5ReviewCode
+from src.nodes.learn_tech.node_6_write_report import Node6WriteReport
+from src.nodes.learn_tech.node_7_review_report import Node7ReviewReport
 
 
 # ──────────────────────────────────────────────

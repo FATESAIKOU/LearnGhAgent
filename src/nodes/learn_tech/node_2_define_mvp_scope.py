@@ -1,15 +1,5 @@
 """
 Node 2: Define MVP Scope — 根據技術調查結果收斂 MVP 邊界。
-
-職責：
-  - 組裝 prompt（MVP scope 定義）
-  - 呼叫 LLM
-  - 解析輸出
-  - 判定 status
-
-不做：
-  - 決定下一個節點
-  - 直接 git / github 操作
 """
 
 from src.nodes.node_base import NodeBase
@@ -23,6 +13,7 @@ class Node2DefineMvpScope(NodeBase):
         self.role = "MVP 設計師"
         self.targets = [
             "根據技術調查結果，收斂 MVP 邊界、功能、非功能需求、驗收條件",
+            "輸出的最後一行必須是狀態行，格式為 STATUS: SUCCESS 或 STATUS: ERROR",
         ]
         self.constraints = [
             "輸出必須使用以下 markdown 結構：",
@@ -34,15 +25,8 @@ class Node2DefineMvpScope(NodeBase):
             "## Non-Functional Requirements",
             "## Acceptance Criteria（必須是可驗證的條件）",
             "## Implementation Notes",
+            "## Status（最後一行必須是 STATUS: SUCCESS）",
         ]
-
-    EXPECTED_HEADERS = [
-        "Goal",
-        "In Scope",
-        "Out of Scope",
-        "Functional Requirements",
-        "Acceptance Criteria",
-    ]
 
     def run(self, state: State) -> State:
         new_state = state.clone()
@@ -61,8 +45,10 @@ class Node2DefineMvpScope(NodeBase):
         output, success = self.call_llm(prompt)
 
         if success:
-            if self._has_expected_headers(output, self.EXPECTED_HEADERS, min_matches=3):
+            if "STATUS: SUCCESS" in output:
                 new_state.status = "SUCCESS"
+            elif "STATUS: ERROR" in output:
+                new_state.status = "ERROR"
             else:
                 new_state.status = "UNKNOWN"
             self.log_node(f"LLM returned {len(output)} chars, status={new_state.status}")

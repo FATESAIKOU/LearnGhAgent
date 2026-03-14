@@ -1,14 +1,5 @@
 """
 Node 7: Review Report — 審查報告完整性與一致性。
-
-職責：
-  - 組裝 prompt（報告審查）
-  - 呼叫 LLM
-  - 解析 Review Result 判定 status
-
-不做：
-  - 決定下一個節點
-  - 直接 git / github 操作
 """
 
 from src.nodes.node_base import NodeBase
@@ -22,16 +13,16 @@ class Node7ReviewReport(NodeBase):
         self.role = "報告審查員"
         self.targets = [
             "檢查報告是否完整、與程式碼一致、是否足夠讓人審查與接手",
+            "輸出的最後一行必須是狀態行，格式為 STATUS: SUCCESS 或 STATUS: NG",
         ]
         self.constraints = [
             "輸出必須使用以下 markdown 結構：",
             "# Report Review Result",
-            "## Review Result",
-            "- 第一行必須是 SUCCESS 或 NG（二擇一）",
             "## Completeness Check",
             "## Consistency Check",
             "## Missing Information",
             "## Required Fixes（若 NG 才需要填寫）",
+            "## Status（最後一行必須是 STATUS: SUCCESS 或 STATUS: NG）",
             "",
             "審查 rubric（每項都必須檢查）：",
             "- 是否完整描述研究、scope、實作、限制",
@@ -57,9 +48,13 @@ class Node7ReviewReport(NodeBase):
         output, success = self.call_llm(prompt)
 
         if success:
-            review_result = self._parse_review_result(output)
-            new_state.status = review_result
-            self.log_node(f"Review result: {review_result} ({len(output)} chars)")
+            if "STATUS: SUCCESS" in output:
+                new_state.status = "SUCCESS"
+            elif "STATUS: NG" in output:
+                new_state.status = "NG"
+            else:
+                new_state.status = "UNKNOWN"
+            self.log_node(f"Review result: {new_state.status} ({len(output)} chars)")
         else:
             new_state.status = "ERROR"
             self.log_node(f"LLM call failed: {output[:200]}")
