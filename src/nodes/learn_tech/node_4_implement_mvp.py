@@ -10,8 +10,8 @@ from src.lib.state import State
 
 
 class Node4ImplementMvp(NodeBase):
-    def __init__(self, model: str = "gpt-5-mini"):
-        super().__init__(model=model)
+    def __init__(self, model: str = "gpt-5-mini", **kwargs):
+        super().__init__(model=model, **kwargs)
         self.node_name = "node_4_implement_mvp"
         self.role = "MVP 開發者"
         self.targets = [

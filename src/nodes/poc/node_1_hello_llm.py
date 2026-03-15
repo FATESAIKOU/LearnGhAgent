@@ -7,8 +7,8 @@ from src.lib.state import State
 
 
 class Node1HelloLlm(NodeBase):
-    def __init__(self, model: str = "gpt-5-mini"):
-        super().__init__(model=model)
+    def __init__(self, model: str = "gpt-5-mini", **kwargs):
+        super().__init__(model=model, **kwargs)
         self.node_name = "node_1_hello_llm"
         self.role = "技術摘要助手"
         self.targets = ["用一句話概括這個 issue 的主題"]

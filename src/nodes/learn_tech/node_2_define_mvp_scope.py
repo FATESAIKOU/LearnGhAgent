@@ -7,8 +7,8 @@ from src.lib.state import State
 
 
 class Node2DefineMvpScope(NodeBase):
-    def __init__(self, model: str = "gpt-5-mini"):
-        super().__init__(model=model)
+    def __init__(self, model: str = "gpt-5-mini", **kwargs):
+        super().__init__(model=model, **kwargs)
         self.node_name = "node_2_define_mvp_scope"
         self.role = "MVP 設計師"
         self.targets = [

@@ -7,8 +7,8 @@ from src.lib.state import State
 
 
 class Node7ReviewReport(NodeBase):
-    def __init__(self, model: str = "gpt-5-mini"):
-        super().__init__(model=model)
+    def __init__(self, model: str = "gpt-5-mini", **kwargs):
+        super().__init__(model=model, **kwargs)
         self.node_name = "node_7_review_report"
         self.role = "報告審查員"
         self.targets = [
