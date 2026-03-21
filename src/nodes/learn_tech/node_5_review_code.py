@@ -50,10 +50,10 @@ class Node5ReviewCode(NodeBase):
         output, success = self.call_llm(prompt)
 
         if success:
-            if "STATUS: SUCCESS" in output:
-                new_state.status = "SUCCESS"
-            elif "STATUS: NG" in output:
+            if "STATUS: NG" in output:
                 new_state.status = "NG"
+            elif "STATUS: SUCCESS" in output:
+                new_state.status = "SUCCESS"
             else:
                 new_state.status = "UNKNOWN"
             self.log_node(f"Review result: {new_state.status} ({len(output)} chars)")
