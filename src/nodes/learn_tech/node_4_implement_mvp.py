@@ -71,6 +71,9 @@ class Node4ImplementMvp(NodeBase):
             state.workflow_output_histories,
             state.workflow_output_histories[-1][1] if state.workflow_output_histories else "",
         )
+
+        self.log_node(f"Built prompt {prompt}")
+
         new_state.workflow_input_histories.append((self.node_name, prompt))
 
         self.log_node("Calling LLM for MVP implementation...")

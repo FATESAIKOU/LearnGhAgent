@@ -25,7 +25,7 @@ echo " Repo:   $REPO"
 echo " Issue:  #$ISSUE_ID"
 echo " Branch: $BRANCH_NAME"
 echo " Model:  ${COPILOT_MODEL:-gpt-5-mini}"
-echo " HistKeepFull: ${HISTORY_KEEP_FULL:-10}"
+echo " HistKeepFull: ${HISTORY_KEEP_FULL:-3}"
 echo "============================================================"
 echo ""
 
