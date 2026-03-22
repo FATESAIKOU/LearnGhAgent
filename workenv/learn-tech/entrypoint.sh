@@ -32,4 +32,4 @@ echo ""
 
 # ── Run workflow ──
 echo "[ENTRYPOINT] Starting LearnTech workflow..."
-exec python3 /app/src/main_learn_tech.py "$@"
+exec python3 -u /app/src/main_learn_tech.py "$@"

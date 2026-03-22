@@ -12,8 +12,7 @@ class Node5ReviewCode(NodeBase):
         self.node_name = "node_5_review_code"
         self.role = "程式碼審查員"
         self.targets = [
-            "檢查程式碼是否符合 scope、結構、可讀性、可執行性",
-            "檢查 README 是否足夠讓使用者執行",
+            "上述全部條件通過才能給 SUCCESS",
             "輸出的第一行必須是判定結果：STATUS: SUCCESS 或 STATUS: NG",
         ]
         self.constraints = [
@@ -31,6 +30,7 @@ class Node5ReviewCode(NodeBase):
             "- README 是否足夠執行",
             "- 專案結構是否合理",
             "- 是否有不必要過度設計",
+            "- 檢查程式碼是否存在",
         ]
 
     def run(self, state: State) -> State:
@@ -50,10 +50,10 @@ class Node5ReviewCode(NodeBase):
         output, success = self.call_llm(prompt)
 
         if success:
-            if "STATUS: SUCCESS" in output:
-                new_state.status = "SUCCESS"
-            elif "STATUS: NG" in output:
+            if "STATUS: NG" in output:
                 new_state.status = "NG"
+            elif "STATUS: SUCCESS" in output:
+                new_state.status = "SUCCESS"
             else:
                 new_state.status = "UNKNOWN"
             self.log_node(f"Review result: {new_state.status} ({len(output)} chars)")
