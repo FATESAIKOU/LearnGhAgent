@@ -69,6 +69,7 @@ class Node4ImplementMvp(NodeBase):
             state.issue_body,
             state.issue_comments,
             state.workflow_output_histories,
+            state.workflow_output_histories[-1][1] if state.workflow_output_histories else "",
         )
         new_state.workflow_input_histories.append((self.node_name, prompt))
 

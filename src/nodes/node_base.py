@@ -60,6 +60,7 @@ class NodeBase(ABC):
         issue_body: str,
         issue_comments: list[str],
         workflow_output_histories: list[tuple[str, str]],
+        previous_node_output: str = "",
     ) -> str:
         """Build the standard prompt as a JSON string.
 
@@ -78,6 +79,7 @@ class NodeBase(ABC):
                 "targets": self.targets,
                 "constraints": self.constraints,
             },
+            "previous_node_output": previous_node_output,
         }
         return json.dumps(prompt_obj, ensure_ascii=False, indent=2)
 

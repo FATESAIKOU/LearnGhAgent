@@ -88,8 +88,10 @@ class GithubHelper:
             f"<summary>Input (click to expand)</summary>\n\n"
             f"```\n{input_summary}\n```\n\n"
             f"</details>\n\n"
-            f"### Output\n\n"
-            f"{output_display}\n\n"
+            f"<details>\n"
+            f"<summary>Output (click to expand)</summary>\n\n"
+            f"```\n{output_display}\n```\n\n"
+            f"</details>\n\n"
             f"---\n"
             f"_Posted by LearnTech Workflow_"
         )
