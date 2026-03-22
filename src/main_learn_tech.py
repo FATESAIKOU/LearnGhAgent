@@ -80,7 +80,7 @@ TRANSFER_MATRIX = {
     ("node_7_review_report", "ERROR"):       "END",
 }
 
-MAX_RETRY = 200  # spec: 同一 edge 超過 200 次 → END
+MAX_RETRY = 300  # spec: 同一 edge 超過 300 次 → END
 
 NODE_MAP = {
     "node_1_research_tech":    Node1ResearchTech,
