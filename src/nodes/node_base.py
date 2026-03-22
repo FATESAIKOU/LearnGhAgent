@@ -101,7 +101,7 @@ class NodeBase(ABC):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=300,
+                timeout=600,
             )
 
             stdout = result.stdout.strip()
