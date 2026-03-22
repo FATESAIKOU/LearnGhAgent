@@ -96,6 +96,7 @@ class NodeBase(ABC):
                 "--model", model,
                 "-p", prompt,
                 "--no-ask-user",
+                "--yolo",
             ]
             self.log_node(f"LLM model: {model}")
 
@@ -107,15 +108,13 @@ class NodeBase(ABC):
             )
 
             stdout = result.stdout.strip()
-            stderr = result.stderr.strip()
 
             if result.returncode == 0 and stdout:
                 return stdout, True
             else:
                 return (
                     f"[LLM FAILED] rc={result.returncode}\n"
-                    f"stdout={stdout[:500]}\n"
-                    f"stderr={stderr[:500]}"
+                    f"output={stdout[:500]}\n"
                 ), False
 
         except subprocess.TimeoutExpired:
