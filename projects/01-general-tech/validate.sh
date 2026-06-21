@@ -2,10 +2,9 @@
 # 硬性驗證腳本：檢查 step 產出是否符合 AGENTS.md 規定的格式
 # 用法：
 #   ./validate.sh <step> <file-path>
-#   ./validate.sh req <file>           # 驗證 Step 1 意圖理解產出
-#   ./validate.sh execution-log <file> # 驗證 Step 2 執行記錄
-#   ./validate.sh report <file>        # 驗證 Step 4 分析報告
-#   ./validate.sh summary <file>       # 驗證 Step 4 summary
+#   step 可選值：
+#     step-log    : 驗證通用 step log（4 個通用 section，用於 Step1/2/3/4 的 log）
+#     report      : 驗證 output/ 分析報告
 #
 # 回傳 0 = 通過，非 0 = 失敗（錯誤訊息印到 stderr）
 set -euo pipefail
@@ -47,31 +46,39 @@ check_sections() {
 }
 
 case "$step" in
-  req)
-    check_max_length 2000
-    check_sections "## 標的" "## 使用者意圖" "## 關鍵條件" "## 缺乏資訊"
+  step-log)
+    # 通用 step log：4 個 section（長度由呼叫端用第二參數 max 控制？這裡給一個寬鬆上限）
+    check_max_length 8000
+    check_sections "## 狀況理解" "## 執行的動作與結果" "## 動作結束後的現狀" "## 其中的決斷點"
     ;;
-  execution-log)
+  step-log-short)
+    # 短版 step log（Step 1 / Step 4）：2000 / 1000
+    check_max_length 2000
+    check_sections "## 狀況理解" "## 執行的動作與結果" "## 動作結束後的現狀" "## 其中的決斷點"
+    ;;
+  step-log-medium)
+    # 中版 step log（Step 3）：3000
+    check_max_length 3000
+    check_sections "## 狀況理解" "## 執行的動作與結果" "## 動作結束後的現狀" "## 其中的決斷點"
+    ;;
+  step-log-long)
+    # 長版 step log（Step 2）：6000
     check_max_length 6000
     check_sections "## 狀況理解" "## 執行的動作與結果" "## 動作結束後的現狀" "## 其中的決斷點"
     ;;
   report)
     check_max_length 20000
     check_sections "## 1." "## 2." "## 3." "## 4."
-    # 檔名格式：(日期)-(技術名).md
+    # 檔名格式：(pr-id)_(技術名).md（數字開頭 + 底線 + 技術名 + .md）
     basename="$(basename "$file")"
-    if ! [[ "$basename" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}-.+\.md$ ]]; then
-      echo "FAIL: report filename '$basename' does not match (date)-(tech).md" >&2
+    if ! [[ "$basename" =~ ^[0-9]+_.+\.md$ ]]; then
+      echo "FAIL: report filename '$basename' does not match (pr-id)_(tech).md" >&2
       exit 1
     fi
     echo "OK: report filename format"
     ;;
-  summary)
-    check_max_length 1000
-    check_sections "## 本輪產出" "## 變更摘要" "## 待追問"
-    ;;
   *)
-    echo "FAIL: unknown step '$step' (use: req|execution-log|report|summary)" >&2
+    echo "FAIL: unknown step '$step' (use: step-log|step-log-short|step-log-medium|step-log-long|report)" >&2
     exit 2
     ;;
 esac

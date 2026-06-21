@@ -17,9 +17,6 @@ on:
 
 jobs:
   execute:
-    # workflow_dispatch 一律跑；
-    # pull_request opened 只在帶 project:01-general-tech label 時跑；
-    # issue_comment 只在 PR comment 且非 bot 作者時跑
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.action == 'opened') ||
@@ -61,7 +58,6 @@ jobs:
           elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
             pr_number="${{ github.event.pull_request.number }}"
           else
-            # issue_comment
             pr_number="${{ github.event.issue.number }}"
           fi
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
@@ -70,10 +66,8 @@ jobs:
       - name: Switch to PR branch
         run: |
           set -euo pipefail
-          # 從 PR number 查 PR head branch 名
           pr_branch=$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName 2>/dev/null || echo "")
           if [[ -z "$pr_branch" ]]; then
-            # workflow_dispatch 可能 PR 不存在，fallback 用 main
             echo "no PR found for #$PR_NUMBER, stay on main"
           else
             echo "switching to PR branch: $pr_branch"
@@ -82,63 +76,80 @@ jobs:
           fi
 
       - name: Check PR has project label
+        id: labelcheck
         run: |
           set -euo pipefail
           labels=$(gh pr view "$PR_NUMBER" --json labels -q '.labels[].name')
           if ! echo "$labels" | grep -q '^project:01-general-tech$'; then
             echo "PR #$PR_NUMBER does not have project:01-general-tech label, skip"
-            exit 0
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "PR #$PR_NUMBER has project:01-general-tech label, proceed"
 
       - name: Compute round id
+        if: steps.labelcheck.outputs.skip != 'true'
         run: |
-          round_id=$(../../.github/scripts/calc-round.sh "$PR_NUMBER")
-          echo "ROUND_ID=$round_id" >> "$GITHUB_ENV"
-          echo "round_id=$round_id"
-
-      - name: Extract user intent (PR body)
-        run: |
-          ../../.github/scripts/extract-target.sh "$PR_NUMBER" > /tmp/user_intent.txt
-          echo "user intent captured: $(wc -c < /tmp/user_intent.txt) chars"
+          set -euo pipefail
+          # PR body 算 user 第 1 次發言 → 起始 user_count=1
+          # 計算非 bot 的 comment 數量
+          json=$(gh pr view "$PR_NUMBER" --json comments)
+          user_count=1
+          comment_count=$(echo "$json" | jq '.comments | length')
+          for ((i=0; i<comment_count; i++)); do
+            author=$(echo "$json" | jq -r ".comments[$i].author.login")
+            if [[ "$author" == *"bot"* ]] || [[ "$author" == "github-actions[bot]" ]]; then
+              continue
+            fi
+            user_count=$((user_count + 1))
+          done
+          echo "ROUND_ID=R${user_count}" >> "$GITHUB_ENV"
+          echo "round_id=R${user_count}"
 
       - name: Prepare paths
+        if: steps.labelcheck.outputs.skip != 'true'
         run: |
-          mkdir -p memory/log judge output
-          echo "REQ_FILE=memory/log/${PR_NUMBER}_${ROUND_ID}_req.md" >> "$GITHUB_ENV"
-          echo "LOG_C1=memory/log/${PR_NUMBER}_${ROUND_ID}_execution-log_C1.md" >> "$GITHUB_ENV"
-          echo "REVIEW_FILE=judge/review_${PR_NUMBER}_${ROUND_ID}_C1.md" >> "$GITHUB_ENV"
-          echo "SUMMARY_FILE=memory/log/${PR_NUMBER}_${ROUND_ID}_summary.md" >> "$GITHUB_ENV"
+          mkdir -p memory/log output
+          echo "STEP1_LOG=memory/log/${PR_NUMBER}_${ROUND_ID}_step1-intent.md" >> "$GITHUB_ENV"
+          echo "STEP2_LOG=memory/log/${PR_NUMBER}_${ROUND_ID}_step2-plan_C1.md" >> "$GITHUB_ENV"
+          echo "STEP3_LOG=memory/log/${PR_NUMBER}_${ROUND_ID}_step3-qa.md" >> "$GITHUB_ENV"
+          echo "STEP4_LOG=memory/log/${PR_NUMBER}_${ROUND_ID}_step4-summary.md" >> "$GITHUB_ENV"
+
+      - name: Stop if skip
+        if: steps.labelcheck.outputs.skip == 'true'
+        run: echo "skipped due to label mismatch"
 
       # ============================================================
       # Step 1: 意圖理解
       # ============================================================
       - name: Step 1.1 - Build prompt
+        if: steps.labelcheck.outputs.skip != 'true'
         run: |
+          pr_body=$(gh pr view "$PR_NUMBER" --json body -q .body)
           cat > /tmp/step1_prompt.txt <<EOF
           你是「技術解析助理」。現在執行 Step 1：意圖理解。
 
-          使用者意圖（PR body）：
+          使用者輸入（PR body，自由文字）：
           ---
-          $(cat /tmp/user_intent.txt)
+          ${pr_body}
           ---
 
-          請依 know/AGENTS.md 中 Step 1 的硬性輸出規定，產出 ${REQ_FILE}。
-          結構必須含以下 4 個 section（順序固定）：
-          ## 標的
-          ## 使用者意圖
-          ## 關鍵條件
-          ## 缺乏資訊
+          請依 know/AGENTS.md 中 Step 1 的規定，產出 ${STEP1_LOG}。
+          這是「你自己的動作總結」，不是 LLM 的詳細產出內容。格式必須是 4 個 section：
+          ## 狀況理解
+          ## 執行的動作與結果
+          ## 動作結束後的現狀
+          ## 其中的決斷點
 
-          直接把檔案內容寫到 ${REQ_FILE}，不要額外輸出說明文字。
+          直接把檔案內容寫到 ${STEP1_LOG}，不要額外輸出說明文字。
           EOF
-          echo "prompt built: $(wc -c < /tmp/step1_prompt.txt) chars"
 
       - name: Step 1.2 - Run opencode (with retry on hard validate)
+        if: steps.labelcheck.outputs.skip != 'true'
         env:
           STEP_NAME: step1-intent
-          OUT_FILE: ${{ env.REQ_FILE }}
-          VALIDATE_TYPE: req
+          OUT_FILE: ${{ env.STEP1_LOG }}
+          VALIDATE_TYPE: step-log-short
         run: |
           set -euo pipefail
           attempt=0
@@ -163,32 +174,32 @@ jobs:
       # Step 2: 執行計劃 (C1)
       # ============================================================
       - name: Step 2.1 - Build prompt (C1)
+        if: steps.labelcheck.outputs.skip != 'true'
         run: |
           cat > /tmp/step2_prompt.txt <<EOF
           你是「技術解析助理」。現在執行 Step 2 的第一個 sub-step C1：取得 repo metadata 與主要文件。
 
-          使用者意圖與需求理解請參考 ${REQ_FILE}。
-
+          使用者輸入與你的意圖理解請參考 ${STEP1_LOG}（自行讀取）。
           請依 do/skills/document/SKILL.md 的標準調研動作執行：
           1. 若是 GitHub repo，用 gh api / gh repo view 取得 metadata
           2. 擷取 README.md 與關鍵子文件
           3. 補查背景脈絡
 
-          產出 ${LOG_C1}，結構必須含 4 個 section：
+          產出 ${STEP2_LOG}。這是「你自己的動作總結」，不是詳細產出內容。格式必須是 4 個 section：
           ## 狀況理解
           ## 執行的動作與結果
           ## 動作結束後的現狀
           ## 其中的決斷點
 
-          直接把檔案內容寫到 ${LOG_C1}。
+          直接把檔案內容寫到 ${STEP2_LOG}。
           EOF
-          echo "prompt built: $(wc -c < /tmp/step2_prompt.txt) chars"
 
       - name: Step 2.2 - Run opencode (with retry on hard validate)
+        if: steps.labelcheck.outputs.skip != 'true'
         env:
           STEP_NAME: step2-c1
-          OUT_FILE: ${{ env.LOG_C1 }}
-          VALIDATE_TYPE: execution-log
+          OUT_FILE: ${{ env.STEP2_LOG }}
+          VALIDATE_TYPE: step-log-long
         run: |
           set -euo pipefail
           attempt=0
@@ -213,16 +224,16 @@ jobs:
       # Step 3: 品質保證 (產報告 + 軟性驗證 + 硬性驗證)
       # ============================================================
       - name: Step 3.1 - Build prompt (report)
+        if: steps.labelcheck.outputs.skip != 'true'
         run: |
-          date_str=$(date -u +%Y-%m-%d)
-          echo "DATE_STR=$date_str" >> "$GITHUB_ENV"
           cat > /tmp/step3_report_prompt.txt <<EOF
           你是「技術解析助理」。現在執行 Step 3：基於 Step 2 的調研資料，產出最終分析報告。
 
-          參考 ${LOG_C1} 的調研資料與 ${REQ_FILE} 的需求。
+          參考 ${STEP2_LOG} 的調研資料與 ${STEP1_LOG} 的需求（自行讀取）。
 
-          產出檔名格式：output/${date_str}-<技術名>.md（<技術名> 由你從調研標的決定，用簡潔英文，例如 agent-skills、deepseek-v4）。
-          必須含 4 個必要 section：
+          產出分析報告，檔名格式：output/${PR_NUMBER}_<技術名>.md
+          （<技術名> 由你從調研標的自行判斷決定，用簡潔英文，例如 agent-skills、deepseek-v4）
+          報告必須含 4 個必要 section：
           ## 1. 這個技術解決什麼問題？
           ## 2. 這個問題為什麼會發生？（背景）
           ## 3. 這個技術是如何解決該問題的？
@@ -231,9 +242,9 @@ jobs:
 
           詳細格式見 know/AGENTS.md「分析報告格式」。直接把檔案內容寫到 output/ 目錄。
           EOF
-          echo "prompt built: $(wc -c < /tmp/step3_report_prompt.txt) chars"
 
       - name: Step 3.2 - Run opencode for report (with retry on hard validate)
+        if: steps.labelcheck.outputs.skip != 'true'
         env:
           STEP_NAME: step3-report
           VALIDATE_TYPE: report
@@ -243,16 +254,16 @@ jobs:
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
             echo "--- Step 3 (report) attempt $attempt/$MAX_RETRY ---"
-            # 清掉今日產出的 report（避免 opencode 看到「已存在」不重寫）
-            rm -f output/${DATE_STR}-*.md
+            # 清掉本 PR 的 report（避免 opencode 看到「已存在」不重寫）
+            rm -f output/${PR_NUMBER}_*.md
             opencode run --model "$OPENCODE_MODEL" --title "${STEP_NAME}-$attempt" "$(cat /tmp/step3_report_prompt.txt)" || {
               echo "opencode run failed, retry"
               continue
             }
-            # 抓實際產出的 report 檔（glob）
-            report_file=$(ls output/${DATE_STR}-*.md 2>/dev/null | head -1)
+            # glob 抓實際產出的 report
+            report_file=$(ls output/${PR_NUMBER}_*.md 2>/dev/null | head -1)
             if [[ -z "$report_file" ]]; then
-              echo "FAIL: no report file found matching output/${DATE_STR}-*.md" >&2
+              echo "FAIL: no report file found matching output/${PR_NUMBER}_*.md" >&2
               continue
             fi
             echo "REPORT_FILE=$report_file" >> "$GITHUB_ENV"
@@ -265,57 +276,65 @@ jobs:
           echo "Step 3 report failed after $MAX_RETRY attempts"
           exit 1
 
-      - name: Step 3.3 - Soft validate (LLM self-review, optional, no retry)
+      - name: Step 3.3 - Soft validate (LLM self-review, optional)
+        if: steps.labelcheck.outputs.skip != 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
           cat > /tmp/step3_review_prompt.txt <<EOF
-          你是「技術解析助理」。現在執行 Step 3 的軟性驗證：對本輪產出的分析報告做 LLM 自評。
+          你是「技術解析助理」。現在執行 Step 3 的軟性驗證。
 
-          報告路徑：${REPORT_FILE}
-          請讀取該檔案，依以下結構產出 ${REVIEW_FILE}：
-          ## 驗證項目
-          | 項目 | 結果 | 備註 |
-          |------|------|------|
+          請讀取 judge/step3-qa.md 取得 review 觀點，再讀取報告 ${REPORT_FILE}，依觀點做評估。
 
-          ## 問題點
-          - <若無則寫「無」>
+          產出 ${STEP3_LOG}。這是「你自己的動作總結」，格式必須是 4 個 section：
+          ## 狀況理解
+          ## 執行的動作與結果
+          ## 動作結束後的現狀
+          ## 其中的決斷點
 
-          ## 建議
-          - <若無則寫「無」>
-
-          驗證項目至少含：4 個 section 是否齊全、DA 表是否存在、是否使用中文、是否有比喻或情緒性語言。
-          直接把檔案內容寫到 ${REVIEW_FILE}。
+          直接把檔案內容寫到 ${STEP3_LOG}。
           EOF
-          opencode run --model "$OPENCODE_MODEL" --title "step3-review" "$(cat /tmp/step3_review_prompt.txt)" || echo "soft validate failed (optional), continue"
+          opencode run --model "$OPENCODE_MODEL" --title "step3-qa" "$(cat /tmp/step3_review_prompt.txt)" || echo "soft validate failed (optional), continue"
+
+      - name: Step 3.4 - Hard validate step log
+        if: steps.labelcheck.outputs.skip != 'true'
+        env:
+          OUT_FILE: ${{ env.STEP3_LOG }}
+        run: |
+          if [[ -f "$OUT_FILE" ]]; then
+            ./validate.sh step-log-medium "$OUT_FILE" || echo "step3 log validate failed (optional), continue"
+          fi
 
       # ============================================================
       # Step 4: 總結
       # ============================================================
       - name: Step 4.1 - Build prompt (summary)
+        if: steps.labelcheck.outputs.skip != 'true'
         run: |
           cat > /tmp/step4_prompt.txt <<EOF
           你是「技術解析助理」。現在執行 Step 4：總結本輪產出。
 
           本輪產出：
           - 分析報告：${REPORT_FILE}
-          - execution-log：${LOG_C1}
-          - req：${REQ_FILE}
+          - Step 1 log：${STEP1_LOG}
+          - Step 2 log：${STEP2_LOG}
+          - Step 3 log：${STEP3_LOG}
 
-          產出 ${SUMMARY_FILE}，結構必須含 3 個 section：
-          ## 本輪產出
-          ## 變更摘要
-          ## 待追問
+          產出 ${STEP4_LOG}。這是「你自己的動作總結」，格式必須是 4 個 section：
+          ## 狀況理解
+          ## 執行的動作與結果
+          ## 動作結束後的現狀
+          ## 其中的決斷點
 
-          直接把檔案內容寫到 ${SUMMARY_FILE}。
+          直接把檔案內容寫到 ${STEP4_LOG}。
           EOF
-          echo "prompt built: $(wc -c < /tmp/step4_prompt.txt) chars"
 
       - name: Step 4.2 - Run opencode (with retry on hard validate)
+        if: steps.labelcheck.outputs.skip != 'true'
         env:
           STEP_NAME: step4-summary
-          OUT_FILE: ${{ env.SUMMARY_FILE }}
-          VALIDATE_TYPE: summary
+          OUT_FILE: ${{ env.STEP4_LOG }}
+          VALIDATE_TYPE: step-log-short
         run: |
           set -euo pipefail
           attempt=0
@@ -340,29 +359,54 @@ jobs:
       # Final: Commit + Post logs to PR chat
       # ============================================================
       - name: Setup git bot identity
+        if: steps.labelcheck.outputs.skip != 'true'
         working-directory: .
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Commit & push
+        if: steps.labelcheck.outputs.skip != 'true'
         working-directory: .
         run: |
-          git add projects/01-general-tech/memory projects/01-general-tech/judge projects/01-general-tech/output
+          git add projects/01-general-tech/memory projects/01-general-tech/output
           git commit -m "tech-analysis: PR #${PR_NUMBER} ${ROUND_ID}" || echo "nothing to commit"
           git push
 
       - name: Post logs to PR chat (in order)
+        if: steps.labelcheck.outputs.skip != 'true'
         run: |
           set -euo pipefail
-          ../../.github/scripts/post-log.sh "$PR_NUMBER" "$REQ_FILE" "Step 1 - Intent Understanding"
-          ../../.github/scripts/post-log.sh "$PR_NUMBER" "$LOG_C1" "Step 2 - Execution Log C1"
-          if [[ -f "$REVIEW_FILE" ]]; then
-            ../../.github/scripts/post-log.sh "$PR_NUMBER" "$REVIEW_FILE" "Step 3 - Review (soft validate)"
-          fi
-          ../../.github/scripts/post-log.sh "$PR_NUMBER" "$REPORT_FILE" "Step 3 - Analysis Report"
-          ../../.github/scripts/post-log.sh "$PR_NUMBER" "$SUMMARY_FILE" "Step 4 - Summary"
+          post_log() {
+            local label="$1"
+            local file="$2"
+            if [[ ! -f "$file" ]]; then
+              echo "skip: $file not found"
+              return
+            fi
+            local content
+            content="$(cat "$file")"
+            # 分段（GitHub comment 約 65536 字元限制）
+            local max=60000
+            if (( ${#content} <= max )); then
+              gh pr comment "$PR_NUMBER" --body "$(printf '### [%s]\n\n```markdown\n%s\n```\n' "$label" "$content")"
+            else
+              local idx=1
+              while (( ${#content} > 0 )); do
+                local chunk="${content:0:$max}"
+                content="${content:$max}"
+                gh pr comment "$PR_NUMBER" --body "$(printf '### [%s part %d]\n\n```markdown\n%s\n```\n' "$label" "$idx" "$chunk")"
+                idx=$((idx+1))
+              done
+            fi
+          }
+          post_log "Step 1 - 意圖理解" "$STEP1_LOG"
+          post_log "Step 2 - 執行計劃 C1" "$STEP2_LOG"
+          post_log "Step 3 - 品質保證" "$STEP3_LOG"
+          post_log "Step 4 - 總結" "$STEP4_LOG"
+          post_log "分析報告" "$REPORT_FILE"
 
       - name: Post completion notice
+        if: steps.labelcheck.outputs.skip != 'true'
         run: |
           gh pr comment "$PR_NUMBER" --body "✅ Round ${ROUND_ID} 完成。請 review 上方各 step log，決定 merge 或追問。"

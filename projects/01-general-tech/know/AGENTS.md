@@ -2,6 +2,8 @@
 
 > 本檔案定義 `01-general-tech` project 的 agent 角色、執行流程、輸出規範。
 > 本 project 對應 REQ.md「典型工作流2：給定 github 連結或技術名 → 分析 → 產出報告 → 接受 QA loop」。
+>
+> 重要：本 harness 內除 `memory/` 與 `output/` 之外的所有檔案在執行任務時都不會被變更。
 
 ---
 
@@ -20,114 +22,92 @@
 
 ## KV cache 注意事項
 
-呼叫 LLM 時，system prompt 與本 AGENTS.md 內容構成 prompt 的固定前綴。動態內容（issue 內容、chat log、調研資料）應放在訊息後段，以最大化服務端 prefix cache 命中率。
+呼叫 LLM 時，system prompt 與本 AGENTS.md 內容構成 prompt 的固定前綴。動態內容（PR body、chat log、調研資料）應放在訊息後段，以最大化服務端 prefix cache 命中率。
 
 ---
 
-## 執行流程（4 個 step）
+## 輸入
 
-> 檔名定位規則：所有 log 檔以 `(pr-id)_R(round-id)_*` 定位。
-> - `pr-id`：GitHub PR number
-> - `round-id`：該 PR 上 user 第幾次發言（PR body 算第 1 次，格式 `R1`, `R2`, ...）
-> workflow 內部由 `calc-round.sh` 計算，agent 不需自行計算。
+- PR body：使用者自由文字（issue 內容複製到 PR body）。LLM 自行從中判斷技術標的，不抽取成外部 script。
+
+## 檔名定位規則
+
+所有 log 檔以 `(pr-id)_R(round-id)_*` 定位。
+- `pr-id`：GitHub PR number
+- `round-id`：該 PR 上 user 第幾次發言（PR body 算第 1 次，格式 `R1`, `R2`, ...）
+- workflow 內部計算，agent 不需自行計算
+
+檔案只會落在兩個目錄：
+- `memory/log/`：每個 step 一個 log（agent 動作總結，非詳細產出內容）
+- `output/`：最終成果物
+
+---
+
+## 執行流程（4 個 step，每個 step 產一個 log）
+
+每個 step 的 log 格式固定（所有 workflow 共通），記錄的是 agent 在該階段「自己的動作總結」，不是 LLM 的詳細產出：
+
+```markdown
+# <檔名>
+
+## 狀況理解
+<你對現狀與使用者回饋的理解>
+
+## 執行的動作與結果
+<表格：執行的動作 | 動作的目的 | 預期達成效果 | 實際的結果>
+
+## 動作結束後的現狀
+<執行後驗證的現狀（表格：驗證的面向 | 驗證的內容與方式 | 驗證結果）>
+
+## 其中的決斷點
+<過程中的意思決定（表格：意思決定面向 | 可選選項條列 | 選擇結果 | 選擇理由）>
+```
 
 ### Step 1：意圖理解
-讀取 PR message / issue 內容，理解使用者要調研的技術標的與任何附帶條件。
+讀取 PR body，理解使用者要調研的技術標的與任何附帶條件。
 
-**硬性輸出規定：**
-- 檔案：`memory/log/(pr-id)_R(round-id)_req.md`
-- 最大長度：2000 字
-- 結構（必須含以下 4 個 section，順序固定）：
-  ```
-  # Requirement Understanding - (issue-id)
-
-  ## 標的
-  <技術名稱或 GitHub repo>
-
-  ## 使用者意圖
-  <一句話描述使用者要什麼>
-
-  ## 關鍵條件
-  - <條件 1>
-  - <條件 2>
-
-  ## 缺乏資訊
-  - <需要補查的資訊>
-  ```
+**log 檔：** `memory/log/(pr-id)_R(round-id)_step1-intent.md`
+**最大長度：** 2000 字
+**必含 4 個 section**（順序固定）：
+- `## 狀況理解`
+- `## 執行的動作與結果`
+- `## 動作結束後的現狀`
+- `## 其中的決斷點`
 
 ### Step 2：執行計劃
-根據 Step 1 的需求，羅列資訊取得渠道並逐一取得資料，收斂成分析內容。可拆成多個 sub-step（C1, C2, ...）。
+根據 Step 1 的需求，羅列資訊取得渠道並逐一取得資料，收斂成分析內容。可拆成多個 sub-step（C1, C2, ...），每個 sub-step 一個 log。
 
-**硬性輸出規定：**
-- 檔案：`memory/log/(pr-id)_R(round-id)_execution-log_(step-id).md`，`(step-id)` = `C1`, `C2`, ...
-- 每個檔案最大長度：6000 字
-- 結構（必須含以下 4 個 section）：
-  ```
-  # (step-id) - <做的事情總結>
-
-  ## 狀況理解
-  <對現狀與使用者回饋的理解>
-
-  ## 執行的動作與結果
-  | 執行的動作 | 動作的目的 | 預期達成效果 | 實際的結果 |
-  |-----------|-----------|-------------|-----------|
-
-  ## 動作結束後的現狀
-  | 驗證的面向 | 驗證的內容與方式 | 驗證結果 |
-  |-----------|----------------|---------|
-
-  ## 其中的決斷點
-  | 意思決定面向 | 可選選項條列 | 選擇結果 | 選擇理由 |
-  |-------------|------------|---------|---------|
-  ```
+**log 檔：** `memory/log/(pr-id)_R(round-id)_step2-plan_(step-id).md`，`(step-id)` = `C1`, `C2`, ...
+**最大長度：** 6000 字
+**必含 4 個 section**（同上通用格式）
 
 ### Step 3：品質保證
-對 Step 2 的產出做硬性驗證（確定性程式）與軟性驗證（LLM 自評）。
+對 Step 2 的產出做硬性驗證（確定性程式）與軟性驗證（LLM 自評，review 觀點見 `judge/`）。
 
-**硬性驗證（確定性程式，必選）：**
-- 分析報告必須含 4 個必要 section：`## 1.`、`## 2.`、`## 3.`、`## 4.`
-- 單一檔案長度 ≤ 20000 字
-- 必須存在於 `output/` 目錄
-- 檔名格式：`(日期)-(技術名).md`
+本 step 產出最終分析報告（落於 `output/`）與一個 step log。
 
-**軟性驗證（LLM 自評，可選）：**
-- 檔案：`judge/review_(pr-id)_R(round-id)_(step-id).md`
-- 結構：
-  ```
-  # Review - (step-id)
+**log 檔：** `memory/log/(pr-id)_R(round-id)_step3-qa.md`
+**最大長度：** 3000 字
+**必含 4 個 section**（同上通用格式）
 
-  ## 驗證項目
-  | 項目 | 結果 | 備註 |
-  |------|------|------|
-
-  ## 問題點
-  - <若無則寫「無」>
-
-  ## 建議
-  - <若無則寫「無」>
-  ```
+**分析報告：** `output/(pr-id)_(技術名).md`（技術名由 LLM 自行判斷決定，不抽取成 script）
+**報告最大長度：** 20000 字
+**報告必含 4 個 section：** `## 1.`、`## 2.`、`## 3.`、`## 4.`（詳見下方「分析報告格式」）
 
 ### Step 4：總結
-產出最終分析報告與該輪 summary。
+產出該輪 summary。
 
-**硬性輸出規定：**
-- 分析報告：`output/(日期)-(技術名).md`
-- summary：`memory/log/(pr-id)_R(round-id)_summary.md`
-- summary 最大長度：1000 字
-- summary 結構：
-  ```
-  # Summary - (issue-id) - (round-id)
+**log 檔：** `memory/log/(pr-id)_R(round-id)_step4-summary.md`
+**最大長度：** 1000 字
+**必含 4 個 section**（同上通用格式）
 
-  ## 本輪產出
-  - 分析報告：output/<檔名>
-  - execution-log：<條列本輪產生的 log 檔>
+---
 
-  ## 變更摘要
-  <本輪對既有報告做了什麼變更，首次則寫「新建」>
+## judge/ — 軟性驗證的 review 觀點
 
-  ## 待追問
-  <列出預期使用者可能追問的方向，若無則寫「無」>
-  ```
+`judge/` 內的檔案定義的是「各 step 軟性驗證時 LLM 應採用的 review 觀點」，不是 review 紀錄。
+軟性驗證時 LLM 讀取對應觀點，對該 step 的產出做評估。
+review 觀點檔案本身在執行任務時不會被變更。
 
 ---
 
@@ -152,7 +132,7 @@
    - 簡要說明它們各自解決問題的切入點差異
 
 5. **User Q&A（每次使用者提問後追加，無提問則無此節）**
-   - 路徑：`output/<日期>-<分析技術名>.md` 的 `## 5. User Q&A` 章節（位於 §4 與附錄之間）
+   - 路徑：`output/<pr-id>_<技術名>.md` 的 `## 5. User Q&A` 章節（位於 §4 與附錄之間）
    - 規則：
      - 每次使用者對該技術提出疑問、質疑、追問後，將該輪對話（含使用者提問）構造化為一個以上的 QA 條目，追加進此節
      - 同一輪對話含多個子問題時，拆成多個獨立 QA（每個子問題一題），不可合併
@@ -177,15 +157,3 @@
 - 不寫「可能」「也許」「我認為」
 - 全體說明最好配合使用圖示作說明
 - 說明時善用程式碼或虛擬碼做舉例
-
----
-
-## execution-log 檔名規則
-
-```
-(pr-id)_R(round-id)_execution-log_(step-id).md
-```
-
-例：`42_R1_execution-log_C1.md`、`42_R1_execution-log_C2.md`
-
-每個 PR 的每個 round 的 step-id 從 C1 開始起算。
