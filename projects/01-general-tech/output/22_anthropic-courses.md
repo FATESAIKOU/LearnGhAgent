@@ -82,3 +82,56 @@ anthropics/courses
 - **anthropics/courses** 是唯一由 Anthropic 官方維護、完全免費、且專注於 Claude 模型的系統化教材。與 OpenAI Cookbook 相比，其課程結構更完整（非零散範例），且涵蓋 prompt evaluations 與 tool use 等生產級主題
 - **LangChain 教學** 與 **DeepLearning.AI 課程** 偏向框架層或通用概念層，而 anthropics/courses 直接操作底層 API，讓學員理解 Claude 的原生行為後再考慮是否引入框架
 - **Google Vertex AI 教學** 與 anthropics/courses 的 real_world_prompting 課程有直接合作關係（Vertex 版本分支），但前者綁定 GCP 生態系，後者可獨立於任何雲端平台使用
+
+---
+
+## 5. User Q&A
+
+### Q1：anthropics/courses 是什麼（「是誰」）？
+
+**A**：`anthropics/courses` 是 Anthropic 公司（Claude 系列 LLM 的開發者）官方維護的 **教育性 GitHub 倉庫**，不是一個產品或工具，而是一套 **免費的結構化教材**。
+
+| 面向 | 內容 |
+|---|---|
+| 維護者 | Anthropic（AI 安全公司，Claude Haiku / Sonnet / Opus 的開發者） |
+| 形式 | 5 門 Jupyter Notebook 課程，可於本地或 Google Colab 執行 |
+| 目標受眾 | 使用 Claude API 的軟體開發者 |
+| 授權 | CC BY-NC 4.0（非商業用途免費，須標示出處） |
+| 規模 | 21.9k GitHub stars，2.3k forks |
+
+它不是一個「可以安裝的套件」或「可以呼叫的服務」，而是一份 **教學資源**，類似官方提供的教科書。
+
+**結論**：`anthropics/courses` 是 Anthropic 官方為 Claude API 開發者設計的免費系統化教材倉庫。
+
+### Q2：可以用在什麼業務？
+
+**A**：該教材本身不直接提供業務功能，但教材教授的技術可直接應用於以下業務場景：
+
+| 業務場景 | 對應課程 | 具體應用 |
+|---|---|---|
+| **客服自動化** | real_world_prompting（客服機器人案例） | 用 Claude API 建置客服對話機器人，處理常見問題、升級複雜案件 |
+| **醫療問診輔助** | real_world_prompting（醫療問診 prompt） | 設計結構化 prompt 引導 Claude 進行症狀問診與病歷摘要 |
+| **通話摘要與分析** | real_world_prompting（通話摘要） | 將客服/銷售通話錄音轉為結構化摘要（關鍵主題、行動項目） |
+| **內容生成與格式控制** | prompt_engineering（輸出格式控制）+ tool_use（強制 JSON） | 從非結構化資料生成結構化輸出（JSON/XML），用於資料管線 |
+| **Prompt 品質管控** | prompt_evaluations（promptfoo 整合） | 建立 prompt 回歸測試，確保 prompt 修改不破壞既有功能 |
+| **多工具自動化流程** | tool_use（多工具聊天機器人） | 讓 Claude 根據使用者意圖自動選擇並呼叫外部 API（資料庫查詢、排程系統等） |
+
+**結論**：教材本身是學習資源，但其所教授的技術可應用於客服、醫療、內容生產、品質管控、流程自動化等業務場景。
+
+### Q3：效果是加速還是提升品質？
+
+**A**：**兩者皆有，但主要貢獻在品質提升，加速為次要效果。** 以下對照表說明各課程對加速與品質的影響：
+
+| 課程 | 對加速的貢獻 | 對品質的貢獻 |
+|---|---|---|
+| API fundamentals | 降低 API 整合的學習時間（從 0 到可呼叫 API） | 確保正確使用 API 參數（max_tokens、temperature、streaming），避免因參數錯誤導致輸出異常 |
+| Prompt engineering | 減少反覆嘗試 prompt 的時間（提供 proven pattern） | 提升 prompt 的準確性與一致性（清晰指令、角色賦予、few-shot、chain-of-thought） |
+| Real world prompting | 提供可直接參考的案例模板，加速開發 | 展示真實場景的 prompt 設計陷阱與解決方案，提升生產環境的穩定性 |
+| Prompt evaluations | 自動化評估減少人工審查時間 | 建立量化評估標準，確保 prompt 修改不降低品質 |
+| Tool use | 提供 tool use 完整工作流程模板，加速整合 | 確保工具呼叫的正確性與錯誤處理，提升多工具協作的可靠性 |
+
+**加速效果**：教材提供 proven pattern 與模板，開發者不需從零摸索，可直接參考或修改既有 notebook，縮短開發週期。
+
+**品質效果**：教材強調 prompt 評估（evaluations）、輸出格式控制、避免幻覺等生產級議題，這些是基礎 API 文件不會涵蓋的品質面向。
+
+**結論**：教材的主要價值在於提升 Claude API 應用的品質（正確性、一致性、可評估性），同時透過模板與最佳實務間接加速開發。
