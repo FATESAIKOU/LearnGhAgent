@@ -200,31 +200,28 @@ jobs:
       # ============================================================
       - name: Step 3.1 - Build prompt (report)
         run: |
-          # 從 user intent 第一行 / PR title 抽技術名
-          tech_name=$(gh pr view "$PR_NUMBER" --json title -q .title | sed -E 's/^\[01-general-tech\][[:space:]]*//' | head -c 50 | tr '/' '-' | tr ' ' '-')
           date_str=$(date -u +%Y-%m-%d)
-          echo "REPORT_FILE=output/${date_str}-${tech_name}.md" >> "$GITHUB_ENV"
+          echo "DATE_STR=$date_str" >> "$GITHUB_ENV"
           cat > /tmp/step3_report_prompt.txt <<EOF
           你是「技術解析助理」。現在執行 Step 3：基於 Step 2 的調研資料，產出最終分析報告。
 
           參考 ${LOG_C1} 的調研資料與 ${REQ_FILE} 的需求。
 
-          產出 ${REPORT_FILE}，必須含 4 個必要 section：
+          產出檔名格式：output/${date_str}-<技術名>.md（<技術名> 由你從調研標的決定，用簡潔英文，例如 agent-skills、deepseek-v4）。
+          必須含 4 個必要 section：
           ## 1. 這個技術解決什麼問題？
           ## 2. 這個問題為什麼會發生？（背景）
           ## 3. 這個技術是如何解決該問題的？
           ## 4. 是否存在解決類似問題的其他技術 / 框架 / 思考方式？
           （首次產出無 ## 5. User Q&A）
 
-          詳細格式見 know/AGENTS.md「分析報告格式」。直接把檔案內容寫到 ${REPORT_FILE}。
+          詳細格式見 know/AGENTS.md「分析報告格式」。直接把檔案內容寫到 output/ 目錄。
           EOF
-          echo "report file: $REPORT_FILE"
           echo "prompt built: $(wc -c < /tmp/step3_report_prompt.txt) chars"
 
       - name: Step 3.2 - Run opencode for report (with retry on hard validate)
         env:
           STEP_NAME: step3-report
-          OUT_FILE: ${{ env.REPORT_FILE }}
           VALIDATE_TYPE: report
         run: |
           set -euo pipefail
@@ -232,12 +229,20 @@ jobs:
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
             echo "--- Step 3 (report) attempt $attempt/$MAX_RETRY ---"
-            rm -f "$OUT_FILE"
+            # 清掉今日產出的 report（避免 opencode 看到「已存在」不重寫）
+            rm -f output/${DATE_STR}-*.md
             opencode run --model "$OPENCODE_MODEL" --title "${STEP_NAME}-$attempt" "$(cat /tmp/step3_report_prompt.txt)" || {
               echo "opencode run failed, retry"
               continue
             }
-            if ./validate.sh "$VALIDATE_TYPE" "$OUT_FILE"; then
+            # 抓實際產出的 report 檔（glob）
+            report_file=$(ls output/${DATE_STR}-*.md 2>/dev/null | head -1)
+            if [[ -z "$report_file" ]]; then
+              echo "FAIL: no report file found matching output/${DATE_STR}-*.md" >&2
+              continue
+            fi
+            echo "REPORT_FILE=$report_file" >> "$GITHUB_ENV"
+            if ./validate.sh "$VALIDATE_TYPE" "$report_file"; then
               echo "Step 3 report hard validate passed on attempt $attempt"
               exit 0
             fi
