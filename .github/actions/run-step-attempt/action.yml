@@ -1,5 +1,5 @@
 name: Run Step Attempt
-description: Run opencode + hard validate + soft validate for one step attempt. Returns pass/fail via outputs.
+description: Run opencode (main) + Hard validate + Soft validate (LLM review). 3 internal steps visible in UI.
 
 inputs:
   main-prompt-file:
@@ -34,7 +34,6 @@ runs:
       working-directory: projects/01-general-tech
       env:
         OPENCODE_MODEL: ${{ env.OPENCODE_MODEL }}
-        MAX_RETRY: ${{ env.MAX_RETRY }}
       run: |
         rm -f "${{ inputs.out-file }}" "${{ inputs.review-file }}"
         opencode run --model "$OPENCODE_MODEL" --title "${{ inputs.step-name }}" "$(cat ${{ inputs.main-prompt-file }})" || echo "opencode run failed (will validate)"
