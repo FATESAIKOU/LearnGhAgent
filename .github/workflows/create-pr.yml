@@ -80,13 +80,14 @@ jobs:
 
           # 建 PR，body = issue 內容複製
           pr_body=$(printf '## Original Issue: #%s\n\n%s\n\n---\n_This PR was auto-created from issue #%s by create-pr workflow._' "$issue_number" "$issue_body" "$issue_number")
-          pr_number=$(gh pr create \
+          pr_url=$(gh pr create \
             --base main \
             --head "$branch_name" \
             --title "[${project_name}] ${issue_title}" \
             --body "$pr_body" \
             --label "project:${project_name}" \
-            --label "agent-exec" --json number -q .number)
+            --label "agent-exec")
+          pr_number=$(echo "$pr_url" | grep -oE '[0-9]+/?$' | tr -d '/')
 
           echo "Created PR #$pr_number for issue #$issue_number (project: $project_name)"
           echo "PR_NUMBER=$pr_number" >> "$GITHUB_ENV"
