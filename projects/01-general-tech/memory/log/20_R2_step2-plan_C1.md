@@ -2,36 +2,36 @@
 
 ## 狀況理解
 
-Step 1 已確認調研標的為 GitHub repo `ollama/ollama`，需依 SKILL.md 標準調研動作執行 C1：取得 repo metadata、擷取主要文件、補查背景脈絡。此 step 為資料收集階段，不進行分析或撰寫報告。
+Step 1 確認使用者要求調研 GitHub repo `ollama/ollama`。本 sub-step C1 依 SKILL.md 標準調研動作，執行：(1) 取得 repo metadata、(2) 擷取 README.md 與關鍵子文件、(3) 補查背景脈絡。
 
 ## 執行的動作與結果
 
 | 執行的動作 | 動作的目的 | 預期達成效果 | 實際的結果 |
 |---|---|---|---|
-| `gh repo view ollama/ollama --json ...` | 取得 repo metadata | 獲得 stars、license、語言、topic 等結構化資料 | 成功：174,616 stars、MIT license、Go 為主語言、15 個 topics（llama, llm, go, deepseek 等） |
-| `webfetch` README.md（raw GitHub） | 擷取專案主要說明文件 | 了解專案定位、安裝方式、API 用法、社群整合 | 成功：取得完整 README，含安裝指令、REST API 範例、Python/JS SDK、大量社群整合列表 |
-| `webfetch` docs/development.md | 了解編譯與開發方式 | 掌握專案技術棧與建置流程 | 成功：Go + CMake + C/C++（llama.cpp）的建置流程，支援 CUDA/ROCm/Vulkan/Metal 後端 |
-| `webfetch` docs.ollama.com/api | 了解 REST API 規格 | 掌握 API endpoint 與使用方式 | 成功：取得 API 基礎 URL（localhost:11434/api）、chat/generate/embed 等 endpoint 概覽 |
-| `webfetch` docs.ollama.com/quickstart | 了解快速入門流程 | 掌握使用者第一手體驗 | 成功：ollama 指令互動選單、launch 整合工具、API 快速範例 |
-| `webfetch` docs.ollama.com/modelfile.md | 了解模型自訂機制 | 掌握 Modelfile 格式與參數 | 成功：FROM/PARAMETER/TEMPLATE/SYSTEM/ADAPTER 等指令完整說明 |
-| `webfetch` docs.ollama.com/import.md | 了解模型匯入流程 | 掌握 Safetensors/GGUF 匯入方式 | 成功：支援 Safetensors 與 GGUF 兩種格式，含量化選項（q4_K_M 等） |
-| `webfetch` docs.ollama.com/gpu.md | 了解硬體支援範圍 | 掌握 GPU 加速支援清單 | 成功：NVIDIA（CC 5.0+）、AMD ROCm、Apple Metal、Vulkan 完整 GPU 列表 |
-| `webfetch` docs.ollama.com/cli.md | 了解 CLI 指令集 | 掌握所有子命令與用法 | 成功：run/pull/push/create/ls/ps/serve/launch/signin/signout 等完整 CLI 參考 |
-| `webfetch` github.com/ggml-org/llama.cpp | 補查底層推論引擎背景 | 了解 Ollama 依賴的 llama.cpp 專案 | 成功：117k stars、MIT license、C/C++ 實作、GGUF 格式、多後端支援 |
+| `gh repo view ollama/ollama --json ...` | 取得 repo metadata | 取得 stars、license、分支、更新時間等 | 174,616 stars、MIT license、main 分支、2026-06-21 更新、Go 語言 |
+| `curl` 抓取 README.md | 取得專案主要說明文件 | 了解專案定位、功能、安裝方式 | 取得完整 README：本地 LLM 執行平台，支援 CLI/REST API/Docker/Python/JS，整合 Claude Code、OpenCode 等工具 |
+| `curl` 列出 repo 根目錄 | 了解專案結構與關鍵子文件 | 確認 docs/、api/ 等目錄存在 | 根目錄含 docs/、api/、server/、llm/、cmd/ 等 50+ 項目 |
+| `curl` 列出 docs/ 目錄 | 確認關鍵子文件位置 | 找到 API、modelfile、quickstart、development 等文件 | docs/ 含 api.md、modelfile.mdx、quickstart.mdx、development.md、cli.mdx 等 |
+| `curl` 抓取 docs/api.md | 取得 API 規格 | 了解 REST API 端點與使用方式 | 取得完整 API 文件：/api/generate、/api/chat、/api/create 等 12 個端點，支援 streaming、structured output、JSON mode |
+| `curl` 抓取 docs/modelfile.mdx | 取得模型自訂格式 | 了解 Modelfile 指令與參數 | 取得完整 Modelfile 規格：FROM/PARAMETER/TEMPLATE/SYSTEM/ADAPTER 等指令，支援 Safetensors/GGUF 匯入 |
+| `curl` 抓取 docs/quickstart.mdx | 取得快速入門 | 了解基本使用流程 | 取得 quickstart：`ollama` 互動選單、`ollama launch` 啟動工具、`ollama run` 執行模型 |
+| `curl` 抓取 docs/development.md | 取得開發建置說明 | 了解原始碼建置方式 | 取得 development 文件：Go + CMake + C/C++ 編譯，支援 CUDA/ROCm/Vulkan/MLX 後端 |
+| `curl` 抓取 go.mod | 取得 Go 依賴 | 了解技術棧 | Go 1.26，依賴 gin、cobra、sqlite3、bubbletea 等 |
+| `webfetch` Wikipedia | 補查背景脈絡 | 了解歷史、定位、安全性等 | 2023-07-07 首次釋出，使用 llama.cpp 後端，支援本地 LLM 執行，2026-01 有 175,000 台暴露伺服器資安事件 |
 
 ## 動作結束後的現狀
 
 | 驗證的面向 | 驗證的內容與方式 | 驗證結果 |
 |---|---|---|
-| Repo metadata 完整性 | 確認 nameWithOwner、stars、license、language、topics、description 皆取得 | 完整取得，無缺漏 |
-| 主要文件覆蓋率 | 確認 README + 關鍵子文件（dev guide、API、Modelfile、import、GPU、CLI）皆已擷取 | 6 份關鍵文件已取得 |
-| 背景脈絡補查 | 確認 llama.cpp 作為底層引擎的定位與功能已了解 | 已確認 Ollama 為 llama.cpp 的上層封裝 |
-| 資料品質 | 確認所有文件來源為官方（raw GitHub 或 docs.ollama.com） | 皆為官方來源，無第三方轉載 |
+| Repo metadata 完整性 | 確認 stars、license、語言、更新時間 | 完整取得，無缺漏 |
+| 主要文件完整性 | README + API + Modelfile + Quickstart + Development | 5 份關鍵文件均已取得 |
+| 背景脈絡 | Wikipedia 歷史與技術背景 | 已取得，含版本歷史、安全性事件 |
+| 技術棧 | go.mod 確認 Go 版本與依賴 | Go 1.26，gin web framework、llama.cpp 後端 |
 
 ## 其中的決斷點
 
 | 意思決定面向 | 可選選項條列 | 選擇結果 | 選擇理由 |
 |---|---|---|---|
-| 文件選取範圍 | (a) 只讀 README；(b) 讀 README + 開發文件 + API + Modelfile + import + GPU + CLI | (b) 讀取 7 份文件 | 涵蓋使用者面（README/CLI/Quickstart）、開發者面（dev guide/API）、進階面（Modelfile/import/GPU），確保分析報告各 section 有足夠素材 |
-| 背景脈絡補查方式 | (a) 只查 Ollama 自身文件；(b) 查 llama.cpp 原始專案 | (b) 查 llama.cpp | Ollama 的 README 明確標註「Supported backends: llama.cpp」，理解底層引擎是分析其技術定位的必要條件 |
-| 文件來源選擇 | (a) 只從 GitHub raw 抓；(b) 從 docs.ollama.com 官方文件站抓 | (b) 兩者並用 | GitHub raw 提供最新版 README 與開發文件，docs.ollama.com 提供結構化 API/CLI/Modelfile 參考，互補 |
+| 子文件選取 | 全部 docs/ 文件 / 僅關鍵文件 | 僅關鍵文件（API、Modelfile、Quickstart、Development） | 其餘文件（faq、troubleshooting、gpu 等）為操作細節，非核心技術說明 |
+| 背景資料來源 | Wikipedia / 技術部落格 / 官方文件 | Wikipedia | 提供中立客觀的歷史與定位說明，無行銷偏誤 |
+| 是否使用 CDP | 是 / 否 | 否 | 所有 URL 均為公開 GitHub raw 內容，無反爬阻擋 |

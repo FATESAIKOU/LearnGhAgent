@@ -2,26 +2,26 @@
 
 ## 狀況理解
 
-使用者透過 PR body 要求調研 GitHub repo `ollama/ollama`，並依 01-general-tech 的分析報告格式（4 個 section）產出報告。這是該 PR 上的第二次發言（R2），使用者未附帶其他條件或特殊要求。
+使用者透過 PR body 要求調研 GitHub repo `ollama/ollama`，並依 01-general-tech 的分析報告格式（know/AGENTS.md 定義的 4 個 section）產出最終報告。這是該 PR 的第二輪互動（R2），上一輪（R1）已產出過報告，本次為新的調研請求。
 
 ## 執行的動作與結果
 
 | 執行的動作 | 動作的目的 | 預期達成效果 | 實際的結果 |
 |---|---|---|---|
-| 讀取 PR body 內容 | 理解使用者要調研的技術標的與條件 | 確認技術標的為 ollama/ollama | PR body 明確指出調研對象為 ollama/ollama，無其他附帶條件 |
-| 檢查 memory/log/ 與 output/ 目錄 | 確認是否有先前輪次的產出可參考 | 若存在先前產出則可延續 | 目錄僅有 README.md，無先前輪次檔案，此為全新調研任務 |
+| 讀取 PR body 內容 | 理解使用者要調研的技術標的 | 確認技術標的為 ollama/ollama | PR body 明確指定 ollama/ollama |
+| 確認 know/AGENTS.md 規範 | 確認 Step 1 的輸出格式與後續流程 | 確保後續步驟符合規範 | 已確認格式要求 |
 
 ## 動作結束後的現狀
 
 | 驗證的面向 | 驗證的內容與方式 | 驗證結果 |
 |---|---|---|
-| 技術標的確認 | 從 PR body 提取調研對象 | ollama/ollama，無歧義 |
-| 先前產出檢查 | 檢查 memory/log/ 與 output/ 目錄 | 無先前輪次檔案，需從零開始 |
-| 檔案命名規則 | 確認 pr-id = 20, round-id = R2 | 符合 AGENTS.md 規範 |
+| 技術標的 | PR body 指定 ollama/ollama | 明確，無歧義 |
+| 報告格式 | know/AGENTS.md 定義的 4 個 section 格式 | 已確認，後續 Step 2 需依此產出 |
+| 輪次 | 檔名規則為 (pr-id)_R(round-id) | 正確：20_R2 |
 
 ## 其中的決斷點
 
 | 意思決定面向 | 可選選項條列 | 選擇結果 | 選擇理由 |
 |---|---|---|---|
-| 調研範圍 | (a) 僅分析 ollama 官方 README；(b) 從網路搜尋補足背景與技術脈絡 | (b) 從網路搜尋補足 | AGENTS.md 明確要求「若文章本身資訊不足，請盡量從網路搜尋補上」 |
-| 下一步執行計劃 | (a) 直接產出報告；(b) 先制定 Step 2 執行計劃再逐步收集資料 | (b) 先制定 Step 2 執行計劃 | AGENTS.md 規定 Step 2 需「羅列資訊取得渠道並逐一取得資料，收斂成分析內容」 |
+| 技術標的判定 | ollama/ollama | ollama/ollama | PR body 直接指定，無需推測 |
+| 是否需要額外條件 | 有 / 無 | 無 | PR body 未附加其他條件或限制 |
