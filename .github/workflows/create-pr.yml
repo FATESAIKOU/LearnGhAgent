@@ -1,0 +1,102 @@
+name: create-pr
+
+# 觸發條件：issue opened + 帶有 `project:<name>` label
+# 也保留 workflow_dispatch 手動觸發（輸入 issue number + project name）
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number"
+        required: true
+      project_name:
+        description: "Project folder name (e.g. 01-general-tech)"
+        required: true
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install gh (ensure)
+        run: |
+          gh --version || (sudo apt-get update && sudo apt-get install -y gh)
+
+      - name: Resolve issue number and project name
+        id: resolve
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "issue_number=${{ github.event.inputs.issue_number }}" >> "$GITHUB_OUTPUT"
+            echo "project_name=${{ github.event.inputs.project_name }}" >> "$GITHUB_OUTPUT"
+          else
+            # issue opened event
+            issue_number="${{ github.event.issue.number }}"
+            # 從 labels 抓出 project:<name>
+            project_name=$(gh issue view "$issue_number" --json labels -q '.labels[].name' | grep -E '^project:' | head -1 | sed 's/^project://')
+            if [[ -z "$project_name" ]]; then
+              echo "No project:<name> label on issue $issue_number, skip"
+              exit 0
+            fi
+            echo "issue_number=$issue_number" >> "$GITHUB_OUTPUT"
+            echo "project_name=$project_name" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create PR
+        if: steps.resolve.outputs.project_name != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          issue_number="${{ steps.resolve.outputs.issue_number }}"
+          project_name="${{ steps.resolve.outputs.project_name }}"
+          branch_name="${project_name}_${issue_number}"
+
+          # 取 issue title 與 body
+          issue_json=$(gh issue view "$issue_number" --json title,body)
+          issue_title=$(echo "$issue_json" | jq -r .title)
+          issue_body=$(echo "$issue_json" | jq -r .body)
+
+          # 建 branch
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch_name"
+          # 確保 branch 與 main 同步（空 commit 也行，讓 PR 有 base）
+          git push origin "$branch_name"
+
+          # 建 PR，body = issue 內容複製
+          pr_body=$(printf '## Original Issue: #%s\n\n%s\n\n---\n_This PR was auto-created from issue #%s by create-pr workflow._' "$issue_number" "$issue_body" "$issue_number")
+          pr_number=$(gh pr create \
+            --base main \
+            --head "$branch_name" \
+            --title "[${project_name}] ${issue_title}" \
+            --body "$pr_body" \
+            --label "project:${project_name}" \
+            --label "agent-exec" 2>&1 | grep -oE '[0-9]+$' | head -1)
+
+          echo "Created PR #$pr_number for issue #$issue_number (project: $project_name)"
+          echo "pr_number=$pr_number" >> "$GITHUB_ENV"
+
+      - name: Trigger execute workflow
+        if: steps.resolve.outputs.project_name != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          project_name="${{ steps.resolve.outputs.project_name }}"
+          pr_number="$PR_NUMBER"
+          # 觸發對應 project 的 execute workflow
+          gh workflow run "${project_name}.yml" \
+            --ref main \
+            -f pr_number="$pr_number" || echo "workflow trigger may have lag, will retry on PR comment"

@@ -1,0 +1,342 @@
+name: 01-general-tech
+
+# 觸發條件：
+# 1. workflow_dispatch (input: pr_number) — 由 create-pr workflow 末段或手動觸發
+# 2. issue_comment on PR (user 留言觸發接續工作)
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to execute"
+        required: true
+  issue_comment:
+    types: [created]
+
+jobs:
+  execute:
+    # workflow_dispatch 一律跑；issue_comment 只在 PR comment 且非 bot 作者且帶 project:01-general-tech label 時跑
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != null &&
+       github.event.comment.author_association != 'OWNER' || github.event.comment.user.login != 'github-actions[bot]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+      OPENCODE_MODEL: ollama-cloud/${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash' }}
+      PROJECT_DIR: projects/01-general-tech
+      MAX_RETRY: "3"
+    defaults:
+      run:
+        working-directory: projects/01-general-tech
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install opencode
+        working-directory: .
+        run: |
+          curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+      - name: Resolve PR number
+        id: pr
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            pr_number="${{ github.event.inputs.pr_number }}"
+          else
+            pr_number="${{ github.event.issue.number }}"
+          fi
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+          echo "PR_NUMBER=$pr_number" >> "$GITHUB_ENV"
+
+      - name: Check PR has project label
+        run: |
+          set -euo pipefail
+          labels=$(gh pr view "$PR_NUMBER" --json labels -q '.labels[].name')
+          if ! echo "$labels" | grep -q '^project:01-general-tech$'; then
+            echo "PR #$PR_NUMBER does not have project:01-general-tech label, skip"
+            exit 0
+          fi
+          echo "PR #$PR_NUMBER has project:01-general-tech label, proceed"
+
+      - name: Compute round id
+        run: |
+          round_id=$(../../.github/scripts/calc-round.sh "$PR_NUMBER")
+          echo "ROUND_ID=$round_id" >> "$GITHUB_ENV"
+          echo "round_id=$round_id"
+
+      - name: Extract user intent (PR body)
+        run: |
+          ../../.github/scripts/extract-target.sh "$PR_NUMBER" > /tmp/user_intent.txt
+          echo "user intent captured: $(wc -c < /tmp/user_intent.txt) chars"
+
+      - name: Prepare paths
+        run: |
+          mkdir -p memory/log judge output
+          echo "REQ_FILE=memory/log/${PR_NUMBER}_${ROUND_ID}_req.md" >> "$GITHUB_ENV"
+          echo "LOG_C1=memory/log/${PR_NUMBER}_${ROUND_ID}_execution-log_C1.md" >> "$GITHUB_ENV"
+          echo "REVIEW_FILE=judge/review_${PR_NUMBER}_${ROUND_ID}_C1.md" >> "$GITHUB_ENV"
+          echo "SUMMARY_FILE=memory/log/${PR_NUMBER}_${ROUND_ID}_summary.md" >> "$GITHUB_ENV"
+
+      # ============================================================
+      # Step 1: 意圖理解
+      # ============================================================
+      - name: Step 1.1 - Build prompt
+        run: |
+          cat > /tmp/step1_prompt.txt <<EOF
+          你是「技術解析助理」。現在執行 Step 1：意圖理解。
+
+          使用者意圖（PR body）：
+          ---
+          $(cat /tmp/user_intent.txt)
+          ---
+
+          請依 know/AGENTS.md 中 Step 1 的硬性輸出規定，產出 ${REQ_FILE}。
+          結構必須含以下 4 個 section（順序固定）：
+          ## 標的
+          ## 使用者意圖
+          ## 關鍵條件
+          ## 缺乏資訊
+
+          直接把檔案內容寫到 ${REQ_FILE}，不要額外輸出說明文字。
+          EOF
+          echo "prompt built: $(wc -c < /tmp/step1_prompt.txt) chars"
+
+      - name: Step 1.2 - Run opencode (with retry on hard validate)
+        env:
+          STEP_NAME: step1-intent
+          OUT_FILE: ${{ env.REQ_FILE }}
+          VALIDATE_TYPE: req
+        run: |
+          set -euo pipefail
+          attempt=0
+          while (( attempt < MAX_RETRY )); do
+            attempt=$((attempt+1))
+            echo "--- Step 1 attempt $attempt/$MAX_RETRY ---"
+            rm -f "$OUT_FILE"
+            opencode run --model "$OPENCODE_MODEL" --title "${STEP_NAME}-$attempt" "$(cat /tmp/step1_prompt.txt)" || {
+              echo "opencode run failed, retry"
+              continue
+            }
+            if ./validate.sh "$VALIDATE_TYPE" "$OUT_FILE"; then
+              echo "Step 1 hard validate passed on attempt $attempt"
+              exit 0
+            fi
+            echo "hard validate failed, retry"
+          done
+          echo "Step 1 failed after $MAX_RETRY attempts"
+          exit 1
+
+      # ============================================================
+      # Step 2: 執行計劃 (C1)
+      # ============================================================
+      - name: Step 2.1 - Build prompt (C1)
+        run: |
+          cat > /tmp/step2_prompt.txt <<EOF
+          你是「技術解析助理」。現在執行 Step 2 的第一個 sub-step C1：取得 repo metadata 與主要文件。
+
+          使用者意圖與需求理解請參考 ${REQ_FILE}。
+
+          請依 do/skills/document/SKILL.md 的標準調研動作執行：
+          1. 若是 GitHub repo，用 gh api / gh repo view 取得 metadata
+          2. 擷取 README.md 與關鍵子文件
+          3. 補查背景脈絡
+
+          產出 ${LOG_C1}，結構必須含 4 個 section：
+          ## 狀況理解
+          ## 執行的動作與結果
+          ## 動作結束後的現狀
+          ## 其中的決斷點
+
+          直接把檔案內容寫到 ${LOG_C1}。
+          EOF
+          echo "prompt built: $(wc -c < /tmp/step2_prompt.txt) chars"
+
+      - name: Step 2.2 - Run opencode (with retry on hard validate)
+        env:
+          STEP_NAME: step2-c1
+          OUT_FILE: ${{ env.LOG_C1 }}
+          VALIDATE_TYPE: execution-log
+        run: |
+          set -euo pipefail
+          attempt=0
+          while (( attempt < MAX_RETRY )); do
+            attempt=$((attempt+1))
+            echo "--- Step 2 attempt $attempt/$MAX_RETRY ---"
+            rm -f "$OUT_FILE"
+            opencode run --model "$OPENCODE_MODEL" --title "${STEP_NAME}-$attempt" "$(cat /tmp/step2_prompt.txt)" || {
+              echo "opencode run failed, retry"
+              continue
+            }
+            if ./validate.sh "$VALIDATE_TYPE" "$OUT_FILE"; then
+              echo "Step 2 hard validate passed on attempt $attempt"
+              exit 0
+            fi
+            echo "hard validate failed, retry"
+          done
+          echo "Step 2 failed after $MAX_RETRY attempts"
+          exit 1
+
+      # ============================================================
+      # Step 3: 品質保證 (產報告 + 軟性驗證 + 硬性驗證)
+      # ============================================================
+      - name: Step 3.1 - Build prompt (report)
+        run: |
+          # 從 user intent 第一行 / PR title 抽技術名
+          tech_name=$(gh pr view "$PR_NUMBER" --json title -q .title | sed -E 's/^\[01-general-tech\][[:space:]]*//' | head -c 50 | tr '/' '-' | tr ' ' '-')
+          date_str=$(date -u +%Y-%m-%d)
+          echo "REPORT_FILE=output/${date_str}-${tech_name}.md" >> "$GITHUB_ENV"
+          cat > /tmp/step3_report_prompt.txt <<EOF
+          你是「技術解析助理」。現在執行 Step 3：基於 Step 2 的調研資料，產出最終分析報告。
+
+          參考 ${LOG_C1} 的調研資料與 ${REQ_FILE} 的需求。
+
+          產出 ${REPORT_FILE}，必須含 4 個必要 section：
+          ## 1. 這個技術解決什麼問題？
+          ## 2. 這個問題為什麼會發生？（背景）
+          ## 3. 這個技術是如何解決該問題的？
+          ## 4. 是否存在解決類似問題的其他技術 / 框架 / 思考方式？
+          （首次產出無 ## 5. User Q&A）
+
+          詳細格式見 know/AGENTS.md「分析報告格式」。直接把檔案內容寫到 ${REPORT_FILE}。
+          EOF
+          echo "report file: $REPORT_FILE"
+          echo "prompt built: $(wc -c < /tmp/step3_report_prompt.txt) chars"
+
+      - name: Step 3.2 - Run opencode for report (with retry on hard validate)
+        env:
+          STEP_NAME: step3-report
+          OUT_FILE: ${{ env.REPORT_FILE }}
+          VALIDATE_TYPE: report
+        run: |
+          set -euo pipefail
+          attempt=0
+          while (( attempt < MAX_RETRY )); do
+            attempt=$((attempt+1))
+            echo "--- Step 3 (report) attempt $attempt/$MAX_RETRY ---"
+            rm -f "$OUT_FILE"
+            opencode run --model "$OPENCODE_MODEL" --title "${STEP_NAME}-$attempt" "$(cat /tmp/step3_report_prompt.txt)" || {
+              echo "opencode run failed, retry"
+              continue
+            }
+            if ./validate.sh "$VALIDATE_TYPE" "$OUT_FILE"; then
+              echo "Step 3 report hard validate passed on attempt $attempt"
+              exit 0
+            fi
+            echo "hard validate failed, retry"
+          done
+          echo "Step 3 report failed after $MAX_RETRY attempts"
+          exit 1
+
+      - name: Step 3.3 - Soft validate (LLM self-review, optional, no retry)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cat > /tmp/step3_review_prompt.txt <<EOF
+          你是「技術解析助理」。現在執行 Step 3 的軟性驗證：對本輪產出的分析報告做 LLM 自評。
+
+          報告路徑：${REPORT_FILE}
+          請讀取該檔案，依以下結構產出 ${REVIEW_FILE}：
+          ## 驗證項目
+          | 項目 | 結果 | 備註 |
+          |------|------|------|
+
+          ## 問題點
+          - <若無則寫「無」>
+
+          ## 建議
+          - <若無則寫「無」>
+
+          驗證項目至少含：4 個 section 是否齊全、DA 表是否存在、是否使用中文、是否有比喻或情緒性語言。
+          直接把檔案內容寫到 ${REVIEW_FILE}。
+          EOF
+          opencode run --model "$OPENCODE_MODEL" --title "step3-review" "$(cat /tmp/step3_review_prompt.txt)" || echo "soft validate failed (optional), continue"
+
+      # ============================================================
+      # Step 4: 總結
+      # ============================================================
+      - name: Step 4.1 - Build prompt (summary)
+        run: |
+          cat > /tmp/step4_prompt.txt <<EOF
+          你是「技術解析助理」。現在執行 Step 4：總結本輪產出。
+
+          本輪產出：
+          - 分析報告：${REPORT_FILE}
+          - execution-log：${LOG_C1}
+          - req：${REQ_FILE}
+
+          產出 ${SUMMARY_FILE}，結構必須含 3 個 section：
+          ## 本輪產出
+          ## 變更摘要
+          ## 待追問
+
+          直接把檔案內容寫到 ${SUMMARY_FILE}。
+          EOF
+          echo "prompt built: $(wc -c < /tmp/step4_prompt.txt) chars"
+
+      - name: Step 4.2 - Run opencode (with retry on hard validate)
+        env:
+          STEP_NAME: step4-summary
+          OUT_FILE: ${{ env.SUMMARY_FILE }}
+          VALIDATE_TYPE: summary
+        run: |
+          set -euo pipefail
+          attempt=0
+          while (( attempt < MAX_RETRY )); do
+            attempt=$((attempt+1))
+            echo "--- Step 4 attempt $attempt/$MAX_RETRY ---"
+            rm -f "$OUT_FILE"
+            opencode run --model "$OPENCODE_MODEL" --title "${STEP_NAME}-$attempt" "$(cat /tmp/step4_prompt.txt)" || {
+              echo "opencode run failed, retry"
+              continue
+            }
+            if ./validate.sh "$VALIDATE_TYPE" "$OUT_FILE"; then
+              echo "Step 4 hard validate passed on attempt $attempt"
+              exit 0
+            fi
+            echo "hard validate failed, retry"
+          done
+          echo "Step 4 failed after $MAX_RETRY attempts"
+          exit 1
+
+      # ============================================================
+      # Final: Commit + Post logs to PR chat
+      # ============================================================
+      - name: Setup git bot identity
+        working-directory: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit & push
+        working-directory: .
+        run: |
+          git add projects/01-general-tech/memory projects/01-general-tech/judge projects/01-general-tech/output
+          git commit -m "tech-analysis: PR #${PR_NUMBER} ${ROUND_ID}" || echo "nothing to commit"
+          git push
+
+      - name: Post logs to PR chat (in order)
+        run: |
+          set -euo pipefail
+          ../../.github/scripts/post-log.sh "$PR_NUMBER" "$REQ_FILE" "Step 1 - Intent Understanding"
+          ../../.github/scripts/post-log.sh "$PR_NUMBER" "$LOG_C1" "Step 2 - Execution Log C1"
+          if [[ -f "$REVIEW_FILE" ]]; then
+            ../../.github/scripts/post-log.sh "$PR_NUMBER" "$REVIEW_FILE" "Step 3 - Review (soft validate)"
+          fi
+          ../../.github/scripts/post-log.sh "$PR_NUMBER" "$REPORT_FILE" "Step 3 - Analysis Report"
+          ../../.github/scripts/post-log.sh "$PR_NUMBER" "$SUMMARY_FILE" "Step 4 - Summary"
+
+      - name: Post completion notice
+        run: |
+          gh pr comment "$PR_NUMBER" --body "✅ Round ${ROUND_ID} 完成。請 review 上方各 step log，決定 merge 或追問。"
