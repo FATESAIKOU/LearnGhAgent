@@ -1,5 +1,1 @@
-auth/
-workspace/
-poc/copilot-linux-arm64
-
-__pycache__/
+.env
