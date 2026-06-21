@@ -103,4 +103,5 @@
 
 ※ 注意 每一步都需要經過我 review 否則不該進下一步
 ※ 注意 你不得同時進行多步
-※ 我的 ollama cloud 預期設定放在 myllminfo.md
+※ 注意 我的 ollama cloud 預期設定放在 myllminfo.md
+※ 注意 github action workflow 中呼叫 opencode 要注意 KV cache 機制　
