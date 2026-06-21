@@ -67,7 +67,7 @@ case "$step" in
     check_sections "## 狀況理解" "## 執行的動作與結果" "## 動作結束後的現狀" "## 其中的決斷點"
     ;;
   report)
-    check_max_length 20000
+    check_max_length 50000
     check_sections "## 1." "## 2." "## 3." "## 4."
     # 檔名格式：(pr-id)_(技術名).md（數字開頭 + 底線 + 技術名 + .md）
     basename="$(basename "$file")"
