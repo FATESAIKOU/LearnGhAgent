@@ -67,6 +67,20 @@ jobs:
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
           echo "PR_NUMBER=$pr_number" >> "$GITHUB_ENV"
 
+      - name: Switch to PR branch
+        run: |
+          set -euo pipefail
+          # 從 PR number 查 PR head branch 名
+          pr_branch=$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName 2>/dev/null || echo "")
+          if [[ -z "$pr_branch" ]]; then
+            # workflow_dispatch 可能 PR 不存在，fallback 用 main
+            echo "no PR found for #$PR_NUMBER, stay on main"
+          else
+            echo "switching to PR branch: $pr_branch"
+            git fetch origin "$pr_branch"
+            git checkout "$pr_branch"
+          fi
+
       - name: Check PR has project label
         run: |
           set -euo pipefail
