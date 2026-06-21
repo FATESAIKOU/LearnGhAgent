@@ -82,3 +82,65 @@ anthropics/courses
 - **anthropics/courses** 是唯一由 Anthropic 官方維護、完全免費、且專注於 Claude 模型的系統化教材。與 OpenAI Cookbook 相比，其課程結構更完整（非零散範例），且涵蓋 prompt evaluations 與 tool use 等生產級主題
 - **LangChain 教學** 與 **DeepLearning.AI 課程** 偏向框架層或通用概念層，而 anthropics/courses 直接操作底層 API，讓學員理解 Claude 的原生行為後再考慮是否引入框架
 - **Google Vertex AI 教學** 與 anthropics/courses 的 real_world_prompting 課程有直接合作關係（Vertex 版本分支），但前者綁定 GCP 生態系，後者可獨立於任何雲端平台使用
+
+---
+
+## 5. User Q&A
+
+### Q1：anthropics/courses 是什麼（「是誰」）？
+
+**A**：`anthropics/courses` 是 **Anthropic 官方維護的免費教學資源庫**，不是產品、不是工具、不是框架。
+
+| 面向 | 內容 |
+|---|---|
+| 擁有者 | Anthropic（Claude 模型的開發公司） |
+| 形式 | GitHub 上的 Jupyter Notebook 集合 |
+| 定位 | 官方教學課程（educational courses），非 SDK、非 CLI、非 API |
+| 內容 | 5 門課程：API 基礎 → 提示工程 → 真實世界提示 → Prompt 評估 → 工具使用 |
+| 費用 | 完全免費（學員僅需自付 Claude API 使用費） |
+| 技術棧 | Python + Jupyter Notebook，可在本地、Colab、AWS、Vertex 執行 |
+
+**結論**：它是一套「官方出品的教科書」，不是一個可以部署的軟體元件。
+
+---
+
+### Q2：可以用在什麼業務？
+
+**A**：適用於需要 **團隊內建立 Claude API 開發能力** 的任何業務場景。以下為具體業務場景與對應課程：
+
+| 業務場景 | 適用課程 | 解決的問題 |
+|---|---|---|
+| **新進開發者 onboarding** | API fundamentals + Prompt engineering | 讓不熟悉 Claude API 的開發者在 2-3 天內具備基礎開發能力 |
+| **客服機器人開發** | Real world prompting（客服案例）+ Tool use | 學習如何設計客服 prompt、讓 Claude 查詢訂單系統、處理多輪對話 |
+| **醫療 / 專業領域 prompt 設計** | Real world prompting（醫療案例） | 學習領域專用 prompt 的設計模式（結構化輸出、安全限制、引用來源） |
+| **Prompt 品質管控（QA 流程）** | Prompt evaluations | 建立 prompt 回歸測試機制，確保 prompt 修改不降低輸出品質 |
+| **內部工具串接（function calling）** | Tool use | 讓 Claude 呼叫內部 API / 資料庫 / 第三方服務 |
+| **通話 / 會議摘要自動化** | Real world prompting（通話摘要案例） | 學習長文本摘要的 prompt 設計與結構化輸出 |
+| **提示工程團隊標準化** | Prompt engineering（完整 9 章） | 統一團隊的 prompt 撰寫風格與最佳實務 |
+
+**結論**：適用於任何需要「讓團隊學會有效使用 Claude API」的業務，不適用於不需要 Claude 或不需要自建 LLM 應用的業務。
+
+---
+
+### Q3：是加速還是提升品質？
+
+**A**：**兩者兼具**，但貢獻面向不同。
+
+| 面向 | 加速開發 | 提升品質 | 說明 |
+|---|---|---|---|
+| API fundamentals | ✅ 縮短摸索期 | — | 提供可直接執行的 notebook，開發者不必從零讀 API 文件 |
+| Prompt engineering | ✅ 減少 trial-and-error | ✅ 教導最佳實務 | 系統化教學避免常見錯誤（幻覺、格式不穩、指令模糊） |
+| Real world prompting | ✅ 提供可複用模板 | ✅ 展示生產級設計 | 5 個真實案例可直接改寫為生產 prompt |
+| Prompt evaluations | — | ✅ 建立量化評估機制 | 引入 promptfoo 做回歸測試，防止品質退化 |
+| Tool use | ✅ 加速工具整合開發 | ✅ 教導錯誤處理與邊界案例 | 完整工作流程範例減少整合時的除錯時間 |
+
+**量化估算**（基於課程內容推測，非官方數據）：
+
+| 指標 | 無課程（自學） | 使用 courses | 差異 |
+|---|---|---|---|
+| 從零到第一個可用 prompt | 2-5 天 | 0.5-1 天 | 加速 4-5 倍 |
+| 建立 prompt 評估 pipeline | 2-4 週（需自行摸索） | 1-3 天（照課程實作） | 加速 5-10 倍 |
+| 生產環境 prompt 品質 | 不穩定，依個人經驗 | 有系統化評估機制 | 品質可量化、可回歸 |
+| 團隊 prompt 風格一致性 | 低（每人各自摸索） | 高（共用教材與最佳實務） | 品質提升 |
+
+**結論**：`anthropics/courses` 同時貢獻加速（降低學習曲線、提供可複用範例）與品質（系統化最佳實務、評估機制），但「加速」的效果更直接且可量化，「品質」的提升則依賴團隊是否確實執行課程中的評估流程。
