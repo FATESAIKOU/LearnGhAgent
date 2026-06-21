@@ -71,11 +71,12 @@ jobs:
           issue_title=$(echo "$issue_json" | jq -r .title)
           issue_body=$(echo "$issue_json" | jq -r .body)
 
-          # 建 branch
+          # 建 branch + dummy commit（讓 PR 有差異）
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch_name"
-          # 確保 branch 與 main 同步（空 commit 也行，讓 PR 有 base）
+          # 空 commit 確保 branch 與 main 有差異
+          git commit --allow-empty -m "Initialize PR branch for issue #$issue_number (project: $project_name)"
           git push origin "$branch_name"
 
           # 建 PR，body = issue 內容複製
