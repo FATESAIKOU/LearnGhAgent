@@ -91,14 +91,15 @@ jobs:
         if: steps.labelcheck.outputs.skip != 'true'
         run: |
           set -euo pipefail
-          # PR body 算 user 第 1 次發言 → 起始 user_count=1
-          # 計算非 bot 的 comment 數量
+          # round id = PR body 算第 1 次 + 後續「非 bot 作者」的 comment 次數
+          # bot 作者判定：login 含 "bot" 或以 "github-actions" 開頭 或以 "app/" 開頭
           json=$(gh pr view "$PR_NUMBER" --json comments)
           user_count=1
           comment_count=$(echo "$json" | jq '.comments | length')
           for ((i=0; i<comment_count; i++)); do
             author=$(echo "$json" | jq -r ".comments[$i].author.login")
-            if [[ "$author" == *"bot"* ]] || [[ "$author" == "github-actions[bot]" ]]; then
+            # bot 判定：含 "bot" / 以 github-actions 開頭 / 以 app/ 開頭 / 含 "[bot]"
+            if [[ "$author" == *"bot"* ]] || [[ "$author" == "github-actions"* ]] || [[ "$author" == "app/"* ]] || [[ "$author" == *"[bot]"* ]]; then
               continue
             fi
             user_count=$((user_count + 1))
