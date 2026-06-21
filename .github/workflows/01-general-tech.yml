@@ -110,58 +110,10 @@ jobs:
         run: |
           set -euo pipefail
           CHATLOG="../../scripts/chatlog.py"
-          CHATLOG_FILE="/tmp/chatlog.json"
-
-          # 初始化對話陣列
-          python3 "$CHATLOG" "$CHATLOG_FILE" init
-
-          # R1: [User] = PR body
-          pr_body=$(gh pr view "$PR_NUMBER" --json body -q .body)
-          python3 "$CHATLOG" "$CHATLOG_FILE" append-round R1 user "$pr_body"
-
-          # R1: [Assistant] = R1 step4 summary（若存在）
-          if [[ -f "memory/log/${PR_NUMBER}_R1_step4-summary.md" ]]; then
-            python3 "$CHATLOG" "$CHATLOG_FILE" append-round-file R1 assistant "memory/log/${PR_NUMBER}_R1_step4-summary.md"
-          fi
-
-          # 抓所有非 bot 的 user comments（按時間順序）
-          json=$(gh pr view "$PR_NUMBER" --json comments)
-          user_comments=()
-          comment_count=$(echo "$json" | jq '.comments | length')
-          for ((i=0; i<comment_count; i++)); do
-            author=$(echo "$json" | jq -r ".comments[$i].author.login")
-            if [[ "$author" == *"bot"* ]] || [[ "$author" == "github-actions"* ]] || [[ "$author" == "app/"* ]] || [[ "$author" == *"[bot]"* ]]; then
-              continue
-            fi
-            body=$(echo "$json" | jq -r ".comments[$i].body")
-            user_comments+=("$body")
-          done
-
-          # R2..current-1: 交替 [User] = user_comments[i], [Assistant] = 該 round summary
-          current_round="${ROUND_ID#R}"
-          for ((r=2; r<current_round; r++)); do
-            idx=$((r-2))
-            if (( idx < ${#user_comments[@]} )); then
-              python3 "$CHATLOG" "$CHATLOG_FILE" append-round "R${r}" user "${user_comments[$idx]}"
-              if [[ -f "memory/log/${PR_NUMBER}_R${r}_step4-summary.md" ]]; then
-                python3 "$CHATLOG" "$CHATLOG_FILE" append-round-file "R${r}" assistant "memory/log/${PR_NUMBER}_R${r}_step4-summary.md"
-              fi
-            fi
-          done
-
-          # Current round: 只有 [User]，沒有 [Assistant]（尚未執行）
-          if (( current_round == 1 )); then
-            : # R1 的 [User] 已在開頭加過
-          else
-            idx=$((current_round-2))
-            if (( idx < ${#user_comments[@]} )); then
-              python3 "$CHATLOG" "$CHATLOG_FILE" append-round "${ROUND_ID}" user "${user_comments[$idx]}"
-            fi
-          fi
-
-          # 轉成 prompt 字串
-          python3 "$CHATLOG" "$CHATLOG_FILE" toprompt > /tmp/conversation_context.txt
-          echo "conversation context built: $(wc -c < /tmp/conversation_context.txt) chars, $(python3 "$CHATLOG" "$CHATLOG_FILE" len) messages"
+          gh pr view "$PR_NUMBER" --json body,comments \
+            | python3 "$CHATLOG" /tmp/chatlog.json load-context-from-pr-log "$ROUND_ID"
+          python3 "$CHATLOG" /tmp/chatlog.json toprompt > /tmp/conversation_context.txt
+          echo "context built: $(wc -c < /tmp/conversation_context.txt) chars"
 
       - name: Prepare paths
         if: steps.labelcheck.outputs.skip != 'true'
@@ -456,33 +408,33 @@ jobs:
           post_log() {
             local label="$1"
             local file="$2"
+            local tag="$3"
             if [[ ! -f "$file" ]]; then
               echo "skip: $file not found"
               return
             fi
             local content
             content="$(cat "$file")"
+            local prefix=""
+            if [[ -n "$tag" ]]; then
+              prefix="<!-- chatlog:${tag} -->\n"
+            fi
             # 分段（GitHub comment 約 65536 字元限制）
             local max=60000
             if (( ${#content} <= max )); then
-              gh pr comment "$PR_NUMBER" --body "$(printf '### [%s]\n\n```markdown\n%s\n```\n' "$label" "$content")"
+              gh pr comment "$PR_NUMBER" --body "$(printf "${prefix}### [%s]\n\n\`\`\`markdown\n%s\n\`\`\`\n" "$label" "$content")"
             else
               local idx=1
               while (( ${#content} > 0 )); do
                 local chunk="${content:0:$max}"
                 content="${content:$max}"
-                gh pr comment "$PR_NUMBER" --body "$(printf '### [%s part %d]\n\n```markdown\n%s\n```\n' "$label" "$idx" "$chunk")"
+                gh pr comment "$PR_NUMBER" --body "$(printf "${prefix}### [%s part %d]\n\n\`\`\`markdown\n%s\n\`\`\`\n" "$label" "$idx" "$chunk")"
                 idx=$((idx+1))
               done
             fi
           }
-          post_log "Step 1 - 意圖理解" "$STEP1_LOG"
-          post_log "Step 2 - 執行計劃 C1" "$STEP2_LOG"
-          post_log "Step 3 - 品質保證" "$STEP3_LOG"
-          post_log "Step 4 - 總結" "$STEP4_LOG"
-          post_log "分析報告" "$REPORT_FILE"
-
-      - name: Post completion notice
-        if: steps.labelcheck.outputs.skip != 'true'
-        run: |
-          gh pr comment "$PR_NUMBER" --body "✅ Round ${ROUND_ID} 完成。請 review 上方各 step log，決定 merge 或追問。"
+          post_log "Step 1 - 意圖理解" "$STEP1_LOG" ""
+          post_log "Step 2 - 執行計劃 C1" "$STEP2_LOG" ""
+          post_log "Step 3 - 品質保證" "$STEP3_LOG" ""
+          post_log "Step 4 - 總結" "$STEP4_LOG" "summary:${ROUND_ID}"
+          post_log "分析報告" "$REPORT_FILE" ""
