@@ -11,7 +11,7 @@ on:
         description: "PR number to execute"
         required: true
       max_retry:
-        description: "Max retry attempts per step"
+        description: "Max retry attempts per step (1-5)"
         required: false
         default: "3"
   pull_request:
@@ -21,7 +21,7 @@ on:
 
 jobs:
   # ============================================================
-  # Job 1: guard — 判 PR number + label，輸出 skip + pr_number
+  # Job 1: guard
   # ============================================================
   guard:
     if: |
@@ -56,7 +56,7 @@ jobs:
           fi
 
   # ============================================================
-  # Job 2: execute — 只在 guard 通過時跑
+  # Job 2: execute
   # ============================================================
   execute:
     needs: guard
@@ -92,7 +92,6 @@ jobs:
           echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
 
       - name: Switch to PR branch + build context + round id + paths
-        id: ctx
         run: |
           set -euo pipefail
           pr_branch=$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName 2>/dev/null || echo "")
@@ -116,7 +115,7 @@ jobs:
       # ============================================================
       # Step 1: 意圖理解
       # ============================================================
-      - name: Step 1 - Build prompt (main + review)
+      - name: Step 1 - Build prompt
         run: |
           REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_step1.md"
           echo "STEP1_REVIEW=$REVIEW_FILE" >> "$GITHUB_ENV"
@@ -145,76 +144,50 @@ jobs:
             echo "直接把檔案內容寫到 ${REVIEW_FILE}。"
           } > /tmp/step1_review_prompt.txt
 
-      - name: Step 1 - Attempt 1
-        id: step1_a1
-        if: always()
-        uses: ./.github/actions/run-step-attempt
-        with:
-          main-prompt-file: /tmp/step1_prompt.txt
-          review-prompt-file: /tmp/step1_review_prompt.txt
-          out-file: ${{ env.STEP1_LOG }}
-          review-file: ${{ env.STEP1_REVIEW }}
-          validate-type: step-log-short
-          step-name: step1-a1
-
-      - name: Step 1 - Attempt 2
-        id: step1_a2
-        if: ${{ steps.step1_a1.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 2 }}
-        uses: ./.github/actions/run-step-attempt
-        with:
-          main-prompt-file: /tmp/step1_prompt.txt
-          review-prompt-file: /tmp/step1_review_prompt.txt
-          out-file: ${{ env.STEP1_LOG }}
-          review-file: ${{ env.STEP1_REVIEW }}
-          validate-type: step-log-short
-          step-name: step1-a2
-
-      - name: Step 1 - Attempt 3
-        id: step1_a3
-        if: ${{ steps.step1_a2.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 3 }}
-        uses: ./.github/actions/run-step-attempt
-        with:
-          main-prompt-file: /tmp/step1_prompt.txt
-          review-prompt-file: /tmp/step1_review_prompt.txt
-          out-file: ${{ env.STEP1_LOG }}
-          review-file: ${{ env.STEP1_REVIEW }}
-          validate-type: step-log-short
-          step-name: step1-a3
-
-      - name: Step 1 - Attempt 4
-        id: step1_a4
-        if: ${{ steps.step1_a3.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 4 }}
-        uses: ./.github/actions/run-step-attempt
-        with:
-          main-prompt-file: /tmp/step1_prompt.txt
-          review-prompt-file: /tmp/step1_review_prompt.txt
-          out-file: ${{ env.STEP1_LOG }}
-          review-file: ${{ env.STEP1_REVIEW }}
-          validate-type: step-log-short
-          step-name: step1-a4
-
-      - name: Step 1 - Attempt 5
-        id: step1_a5
-        if: ${{ steps.step1_a4.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 5 }}
-        uses: ./.github/actions/run-step-attempt
-        with:
-          main-prompt-file: /tmp/step1_prompt.txt
-          review-prompt-file: /tmp/step1_review_prompt.txt
-          out-file: ${{ env.STEP1_LOG }}
-          review-file: ${{ env.STEP1_REVIEW }}
-          validate-type: step-log-short
-          step-name: step1-a5
-
-      - name: Step 1 - Fail check
-        if: ${{ steps.step1_a1.outputs.pass != 'true' && steps.step1_a2.outputs.pass != 'true' && steps.step1_a3.outputs.pass != 'true' && steps.step1_a4.outputs.pass != 'true' && steps.step1_a5.outputs.pass != 'true' }}
+      - name: Step 1 - Execute (opencode + hard validate + soft validate)
         run: |
+          set -euo pipefail
+          attempt=0
+          while (( attempt < MAX_RETRY )); do
+            attempt=$((attempt+1))
+            echo "::group::Step 1 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
+            rm -f "${STEP1_LOG}" "${STEP1_REVIEW}"
+            opencode run --model "$OPENCODE_MODEL" --title "step1-$attempt" "$(cat /tmp/step1_prompt.txt)" || echo "opencode run failed (will validate)"
+            echo "::endgroup::"
+
+            echo "::group::Step 1 - Hard validate"
+            if ./validate.sh step-log-short "${STEP1_LOG}"; then
+              echo "hard validate passed"
+              echo "::endgroup::"
+            else
+              echo "hard validate failed, retry"
+              echo "::endgroup::"
+              continue
+            fi
+
+            echo "::group::Step 1 - Soft validate (opencode review)"
+            opencode run --model "$OPENCODE_MODEL" --title "step1-review-$attempt" "$(cat /tmp/step1_review_prompt.txt)" || echo "review run failed"
+            echo "::endgroup::"
+
+            echo "::group::Step 1 - Check verdict"
+            if grep -q "VERDICT: PASS" "${STEP1_REVIEW}" 2>/dev/null; then
+              echo "soft validate passed"
+              echo "::endgroup::"
+              echo "Step 1 passed on attempt $attempt"
+              exit 0
+            else
+              echo "soft validate FAIL, retry"
+              echo "::endgroup::"
+              continue
+            fi
+          done
           echo "Step 1 failed after $MAX_RETRY attempts"
           exit 1
 
       # ============================================================
       # Step 2: 執行計劃 (C1)
       # ============================================================
-      - name: Step 2 - Build prompt (main + review)
+      - name: Step 2 - Build prompt
         run: |
           REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_step2.md"
           echo "STEP2_REVIEW=$REVIEW_FILE" >> "$GITHUB_ENV"
@@ -250,76 +223,50 @@ jobs:
             echo "直接把檔案內容寫到 ${REVIEW_FILE}。"
           } > /tmp/step2_review_prompt.txt
 
-      - name: Step 2 - Attempt 1
-        id: step2_a1
-        if: always()
-        uses: ./.github/actions/run-step-attempt
-        with:
-          main-prompt-file: /tmp/step2_prompt.txt
-          review-prompt-file: /tmp/step2_review_prompt.txt
-          out-file: ${{ env.STEP2_LOG }}
-          review-file: ${{ env.STEP2_REVIEW }}
-          validate-type: step-log-long
-          step-name: step2-a1
-
-      - name: Step 2 - Attempt 2
-        id: step2_a2
-        if: ${{ steps.step2_a1.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 2 }}
-        uses: ./.github/actions/run-step-attempt
-        with:
-          main-prompt-file: /tmp/step2_prompt.txt
-          review-prompt-file: /tmp/step2_review_prompt.txt
-          out-file: ${{ env.STEP2_LOG }}
-          review-file: ${{ env.STEP2_REVIEW }}
-          validate-type: step-log-long
-          step-name: step2-a2
-
-      - name: Step 2 - Attempt 3
-        id: step2_a3
-        if: ${{ steps.step2_a2.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 3 }}
-        uses: ./.github/actions/run-step-attempt
-        with:
-          main-prompt-file: /tmp/step2_prompt.txt
-          review-prompt-file: /tmp/step2_review_prompt.txt
-          out-file: ${{ env.STEP2_LOG }}
-          review-file: ${{ env.STEP2_REVIEW }}
-          validate-type: step-log-long
-          step-name: step2-a3
-
-      - name: Step 2 - Attempt 4
-        id: step2_a4
-        if: ${{ steps.step2_a3.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 4 }}
-        uses: ./.github/actions/run-step-attempt
-        with:
-          main-prompt-file: /tmp/step2_prompt.txt
-          review-prompt-file: /tmp/step2_review_prompt.txt
-          out-file: ${{ env.STEP2_LOG }}
-          review-file: ${{ env.STEP2_REVIEW }}
-          validate-type: step-log-long
-          step-name: step2-a4
-
-      - name: Step 2 - Attempt 5
-        id: step2_a5
-        if: ${{ steps.step2_a4.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 5 }}
-        uses: ./.github/actions/run-step-attempt
-        with:
-          main-prompt-file: /tmp/step2_prompt.txt
-          review-prompt-file: /tmp/step2_review_prompt.txt
-          out-file: ${{ env.STEP2_LOG }}
-          review-file: ${{ env.STEP2_REVIEW }}
-          validate-type: step-log-long
-          step-name: step2-a5
-
-      - name: Step 2 - Fail check
-        if: ${{ steps.step2_a1.outputs.pass != 'true' && steps.step2_a2.outputs.pass != 'true' && steps.step2_a3.outputs.pass != 'true' && steps.step2_a4.outputs.pass != 'true' && steps.step2_a5.outputs.pass != 'true' }}
+      - name: Step 2 - Execute (opencode + hard validate + soft validate)
         run: |
+          set -euo pipefail
+          attempt=0
+          while (( attempt < MAX_RETRY )); do
+            attempt=$((attempt+1))
+            echo "::group::Step 2 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
+            rm -f "${STEP2_LOG}" "${STEP2_REVIEW}"
+            opencode run --model "$OPENCODE_MODEL" --title "step2-$attempt" "$(cat /tmp/step2_prompt.txt)" || echo "opencode run failed (will validate)"
+            echo "::endgroup::"
+
+            echo "::group::Step 2 - Hard validate"
+            if ./validate.sh step-log-long "${STEP2_LOG}"; then
+              echo "hard validate passed"
+              echo "::endgroup::"
+            else
+              echo "hard validate failed, retry"
+              echo "::endgroup::"
+              continue
+            fi
+
+            echo "::group::Step 2 - Soft validate (opencode review)"
+            opencode run --model "$OPENCODE_MODEL" --title "step2-review-$attempt" "$(cat /tmp/step2_review_prompt.txt)" || echo "review run failed"
+            echo "::endgroup::"
+
+            echo "::group::Step 2 - Check verdict"
+            if grep -q "VERDICT: PASS" "${STEP2_REVIEW}" 2>/dev/null; then
+              echo "soft validate passed"
+              echo "::endgroup::"
+              echo "Step 2 passed on attempt $attempt"
+              exit 0
+            else
+              echo "soft validate FAIL, retry"
+              echo "::endgroup::"
+              continue
+            fi
+          done
           echo "Step 2 failed after $MAX_RETRY attempts"
           exit 1
 
       # ============================================================
       # Step 3: 品質保證 (產報告 + 軟性驗證)
       # ============================================================
-      - name: Step 3 - Build prompt (report + review)
+      - name: Step 3 - Build prompt
         run: |
           current_round_num="${ROUND_ID#R}"
           {
@@ -363,57 +310,66 @@ jobs:
             echo "直接把檔案內容寫到 ${STEP3_LOG}。"
           } > /tmp/step3_review_prompt.txt
 
-      - name: Step 3 - Attempt 1 (report + review, retry loop)
-        id: step3_a1
-        if: always()
+      - name: Step 3 - Execute (report + hard validate + soft validate)
         run: |
           set -euo pipefail
           current_round_num="${ROUND_ID#R}"
           attempt=0
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
-            echo "--- Step 3 attempt $attempt/$MAX_RETRY ---"
+            echo "::group::Step 3 - 執行 opencode report (attempt $attempt/$MAX_RETRY)"
             rm -f "${STEP3_LOG}"
             if (( current_round_num == 1 )); then
               rm -f output/${PR_NUMBER}_*.md
             fi
             opencode run --model "$OPENCODE_MODEL" --title "step3-report-$attempt" "$(cat /tmp/step3_report_prompt.txt)" || echo "report run failed (will validate)"
+            echo "::endgroup::"
+
+            echo "::group::Step 3 - Hard validate (report)"
             report_file=$(ls output/${PR_NUMBER}_*.md 2>/dev/null | head -1)
             if [[ -z "$report_file" ]]; then
               echo "hard validate failed (no report file), retry"
+              echo "::endgroup::"
               continue
             fi
-            if ! ./validate.sh report "$report_file"; then
+            if ./validate.sh report "$report_file"; then
+              echo "report hard validate passed"
+              echo "::endgroup::"
+            else
               echo "report hard validate failed, retry"
+              echo "::endgroup::"
               continue
             fi
-            echo "report hard validate passed"
+
+            echo "::group::Step 3 - Soft validate (opencode review)"
             opencode run --model "$OPENCODE_MODEL" --title "step3-review-$attempt" "$(cat /tmp/step3_review_prompt.txt)" || echo "review run failed"
+            echo "::endgroup::"
+
+            echo "::group::Step 3 - Hard validate (step log) + Check verdict"
             if ! ./validate.sh step-log-medium "${STEP3_LOG}"; then
               echo "step3 log hard validate failed, retry"
+              echo "::endgroup::"
               continue
             fi
-            if ! grep -q "VERDICT: PASS" "${STEP3_LOG}" 2>/dev/null; then
+            if grep -q "VERDICT: PASS" "${STEP3_LOG}" 2>/dev/null; then
+              echo "soft validate passed"
+              echo "::endgroup::"
+              echo "REPORT_FILE=$report_file" >> "$GITHUB_ENV"
+              echo "Step 3 passed on attempt $attempt"
+              exit 0
+            else
               echo "soft validate FAIL, retry"
+              echo "::endgroup::"
               continue
             fi
-            echo "soft validate passed"
-            echo "pass=true" >> "$GITHUB_OUTPUT"
-            exit 0
           done
-          echo "pass=false" >> "$GITHUB_OUTPUT"
+          echo "Step 3 failed after $MAX_RETRY attempts"
           exit 1
-
-      - name: Step 3 - Resolve report file
-        if: steps.step3_a1.outputs.pass == 'true'
-        run: |
-          report_file=$(ls output/${PR_NUMBER}_*.md 2>/dev/null | head -1)
-          echo "REPORT_FILE=$report_file" >> "$GITHUB_ENV"
 
       # ============================================================
       # Step 4: 總結
       # ============================================================
-      - name: Step 4 - Build prompt (main + review)
+      - name: Step 4 - Build prompt
         run: |
           REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_step4.md"
           echo "STEP4_REVIEW=$REVIEW_FILE" >> "$GITHUB_ENV"
@@ -455,69 +411,43 @@ jobs:
             echo "直接把檔案內容寫到 ${REVIEW_FILE}。"
           } > /tmp/step4_review_prompt.txt
 
-      - name: Step 4 - Attempt 1
-        id: step4_a1
-        if: always()
-        uses: ./.github/actions/run-step-attempt
-        with:
-          main-prompt-file: /tmp/step4_prompt.txt
-          review-prompt-file: /tmp/step4_review_prompt.txt
-          out-file: ${{ env.STEP4_LOG }}
-          review-file: ${{ env.STEP4_REVIEW }}
-          validate-type: step-log-short
-          step-name: step4-a1
-
-      - name: Step 4 - Attempt 2
-        id: step4_a2
-        if: ${{ steps.step4_a1.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 2 }}
-        uses: ./.github/actions/run-step-attempt
-        with:
-          main-prompt-file: /tmp/step4_prompt.txt
-          review-prompt-file: /tmp/step4_review_prompt.txt
-          out-file: ${{ env.STEP4_LOG }}
-          review-file: ${{ env.STEP4_REVIEW }}
-          validate-type: step-log-short
-          step-name: step4-a2
-
-      - name: Step 4 - Attempt 3
-        id: step4_a3
-        if: ${{ steps.step4_a2.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 3 }}
-        uses: ./.github/actions/run-step-attempt
-        with:
-          main-prompt-file: /tmp/step4_prompt.txt
-          review-prompt-file: /tmp/step4_review_prompt.txt
-          out-file: ${{ env.STEP4_LOG }}
-          review-file: ${{ env.STEP4_REVIEW }}
-          validate-type: step-log-short
-          step-name: step4-a3
-
-      - name: Step 4 - Attempt 4
-        id: step4_a4
-        if: ${{ steps.step4_a3.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 4 }}
-        uses: ./.github/actions/run-step-attempt
-        with:
-          main-prompt-file: /tmp/step4_prompt.txt
-          review-prompt-file: /tmp/step4_review_prompt.txt
-          out-file: ${{ env.STEP4_LOG }}
-          review-file: ${{ env.STEP4_REVIEW }}
-          validate-type: step-log-short
-          step-name: step4-a4
-
-      - name: Step 4 - Attempt 5
-        id: step4_a5
-        if: ${{ steps.step4_a4.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 5 }}
-        uses: ./.github/actions/run-step-attempt
-        with:
-          main-prompt-file: /tmp/step4_prompt.txt
-          review-prompt-file: /tmp/step4_review_prompt.txt
-          out-file: ${{ env.STEP4_LOG }}
-          review-file: ${{ env.STEP4_REVIEW }}
-          validate-type: step-log-short
-          step-name: step4-a5
-
-      - name: Step 4 - Fail check
-        if: ${{ steps.step4_a1.outputs.pass != 'true' && steps.step4_a2.outputs.pass != 'true' && steps.step4_a3.outputs.pass != 'true' && steps.step4_a4.outputs.pass != 'true' && steps.step4_a5.outputs.pass != 'true' }}
+      - name: Step 4 - Execute (opencode + hard validate + soft validate)
         run: |
+          set -euo pipefail
+          attempt=0
+          while (( attempt < MAX_RETRY )); do
+            attempt=$((attempt+1))
+            echo "::group::Step 4 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
+            rm -f "${STEP4_LOG}" "${STEP4_REVIEW}"
+            opencode run --model "$OPENCODE_MODEL" --title "step4-$attempt" "$(cat /tmp/step4_prompt.txt)" || echo "opencode run failed (will validate)"
+            echo "::endgroup::"
+
+            echo "::group::Step 4 - Hard validate"
+            if ./validate.sh step-log-short "${STEP4_LOG}"; then
+              echo "hard validate passed"
+              echo "::endgroup::"
+            else
+              echo "hard validate failed, retry"
+              echo "::endgroup::"
+              continue
+            fi
+
+            echo "::group::Step 4 - Soft validate (opencode review)"
+            opencode run --model "$OPENCODE_MODEL" --title "step4-review-$attempt" "$(cat /tmp/step4_review_prompt.txt)" || echo "review run failed"
+            echo "::endgroup::"
+
+            echo "::group::Step 4 - Check verdict"
+            if grep -q "VERDICT: PASS" "${STEP4_REVIEW}" 2>/dev/null; then
+              echo "soft validate passed"
+              echo "::endgroup::"
+              echo "Step 4 passed on attempt $attempt"
+              exit 0
+            else
+              echo "soft validate FAIL, retry"
+              echo "::endgroup::"
+              continue
+            fi
+          done
           echo "Step 4 failed after $MAX_RETRY attempts"
           exit 1
 
