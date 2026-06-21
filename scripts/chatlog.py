@@ -17,16 +17,55 @@ chatlog.py — 維護對話陣列的工具，支援基本陣列指令。
   chatlog.py <json-file> append-file <role> <file>         從檔案讀內容 append
   chatlog.py <json-file> append-round <round> <role> <text>  帶 round 標記 append
   chatlog.py <json-file> append-round-file <round> <role> <file>  帶 round + 檔案內容
+  chatlog.py <json-file> load-context-from-pr-log <round>  從 stdin 讀 gh pr view --json body,comments，建對話
   chatlog.py <json-file> toprompt                          轉成 prompt 字串（交替 user/assistant）
   chatlog.py <json-file> toprompt-from-round <round>       只含指定 round 起（含）的訊息
   chatlog.py <json-file> len                               回傳 message 數
   chatlog.py <json-file> get <index>                       取第 N 則
   chatlog.py <json-file> clear                             清空
   chatlog.py <json-file> rounds                            列出所有 round
+
+load-context-from-pr-log 的 stdin 格式（gh pr view --json body,comments 原始輸出）：
+{
+  "body": "PR body 原文",
+  "comments": [
+    {"author": {"login": "..."}, "body": "<!-- chatlog:summary:R1 -->...", "createdAt": "..."},
+    {"author": {"login": "FATESAIKOU"}, "body": "user comment", "createdAt": "..."},
+    ...
+  ]
+}
+
+bot comment 透過 body 內的 <!-- chatlog:summary:R1 --> HTML comment tag 標記為 summary。
+chatlog.py 會：過濾 bot comments、用 tag 識別 summary、按 createdAt 排序 user comments、
+配對 user/assistant 交替、current round 只加 user 不加 assistant。
 """
 import json
+import re
 import sys
 from pathlib import Path
+
+
+TAG_RE = re.compile(r"<!-- chatlog:(\w+):(\w+) -->")
+
+
+def is_bot(login: str) -> bool:
+    return (
+        "bot" in login
+        or login.startswith("github-actions")
+        or login.startswith("app/")
+        or "[bot]" in login
+    )
+
+
+def parse_tag(body: str) -> tuple[str | None, str | None]:
+    m = TAG_RE.search(body)
+    if m:
+        return m.group(1), m.group(2)
+    return None, None
+
+
+def strip_tag(body: str) -> str:
+    return TAG_RE.sub("", body, count=1).lstrip("\n")
 
 
 def load(path: str) -> dict:
@@ -114,6 +153,63 @@ def main() -> int:
         append_msg(data, args[1], content, round_id=args[0])
         save(path, data)
         print(f"appended-round-file {args[0]} ({args[1]}): {len(data['messages'])} total")
+
+    elif cmd == "load-context-from-pr-log":
+        if len(args) < 1:
+            print("usage: load-context-from-pr-log <round>", file=sys.stderr)
+            return 2
+        current_round = args[0]
+        current_num = int(current_round[1:])
+
+        gh_data = json.load(sys.stdin)
+        data = {"messages": []}
+
+        # R1: [User] = PR body
+        body = gh_data.get("body", "")
+        append_msg(data, "user", body, round_id="R1")
+
+        # 從 comments 抓 summaries（bot comment 含 <!-- chatlog:summary:Rn --> tag）
+        # 與 user comments（非 bot author），按 createdAt 排序
+        comments = gh_data.get("comments", [])
+        summaries: dict[str, str] = {}
+        user_comments: list[dict] = []
+        for c in comments:
+            login = c.get("author", {}).get("login", "")
+            cbody = c.get("body", "")
+            created = c.get("createdAt", "")
+            tag_type, tag_round = parse_tag(cbody)
+            if tag_type == "summary" and tag_round:
+                summaries[tag_round] = strip_tag(cbody)
+            elif not is_bot(login):
+                user_comments.append({"body": cbody, "createdAt": created})
+        user_comments.sort(key=lambda c: c["createdAt"])
+        user_texts = [c["body"] for c in user_comments]
+
+        # R1: [Assistant] = summaries["R1"]（若存在且 R1 不是 current）
+        if current_num > 1:
+            r1_sum = summaries.get("R1")
+            if r1_sum:
+                append_msg(data, "assistant", r1_sum, round_id="R1")
+
+        # R2..current-1: [User] + [Assistant]
+        for i, uc in enumerate(user_texts):
+            round_num = i + 2
+            if round_num >= current_num:
+                break
+            rid = f"R{round_num}"
+            append_msg(data, "user", uc, round_id=rid)
+            summ = summaries.get(rid)
+            if summ:
+                append_msg(data, "assistant", summ, round_id=rid)
+
+        # Current round: 只 [User]（若 current round 不是 R1）
+        if current_num > 1:
+            current_idx = current_num - 2
+            if 0 <= current_idx < len(user_texts):
+                append_msg(data, "user", user_texts[current_idx], round_id=current_round)
+
+        save(path, data)
+        print(f"loaded-context-from-pr-log: {len(data['messages'])} messages, current round {current_round}, summaries found: {list(summaries.keys())}")
 
     elif cmd == "toprompt":
         print(to_prompt(data))
