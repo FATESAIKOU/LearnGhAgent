@@ -1,0 +1,49 @@
+name: Verify Ollama Cloud
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Ollama Cloud model id (e.g. deepseek-v4-flash)"
+        required: false
+        default: "deepseek-v4-flash"
+      prompt:
+        description: "Prompt to send to the model"
+        required: false
+        default: "Reply with exactly: hello world"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+      OPENCODE_MODEL: ollama-cloud/${{ github.event.inputs.model }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install opencode
+        run: |
+          curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+      - name: Show opencode version
+        run: opencode --version
+
+      - name: Run opencode (hello world via Ollama Cloud)
+        run: |
+          opencode run --model "$OPENCODE_MODEL" "${{ github.event.inputs.prompt }}"
+
+      - name: Run opencode with cache-key probe (KV cache hit check)
+        env:
+          OPENCODE_CACHE_PROBE: "1"
+        run: |
+          set -euo pipefail
+          echo "--- First call (cache miss expected) ---"
+          opencode run --model "$OPENCODE_MODEL" "Reply with exactly: hello world"
+          echo "--- Second call (same prefix, cache hit expected) ---"
+          opencode run --model "$OPENCODE_MODEL" "Reply with exactly: hello world"
