@@ -146,7 +146,7 @@ jobs:
 
       - name: Step 1 - Execute (opencode + hard validate + soft validate)
         run: |
-          set -euo pipefail
+          set -uo pipefail
           attempt=0
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
@@ -156,30 +156,23 @@ jobs:
             echo "::endgroup::"
 
             echo "::group::Step 1 - Hard validate"
-            if ./validate.sh step-log-short "${STEP1_LOG}"; then
-              echo "hard validate passed"
-              echo "::endgroup::"
-            else
+            ./validate.sh step-log-short "${STEP1_LOG}"
+            echo "::endgroup::"
+            if [[ $? -ne 0 ]]; then
               echo "hard validate failed, retry"
-              echo "::endgroup::"
               continue
             fi
 
             echo "::group::Step 1 - Soft validate (opencode review)"
             opencode run --model "$OPENCODE_MODEL" --title "step1-review-$attempt" "$(cat /tmp/step1_review_prompt.txt)" || echo "review run failed"
             echo "::endgroup::"
-
-            echo "::group::Step 1 - Check verdict"
-            if grep -q "VERDICT: PASS" "${STEP1_REVIEW}" 2>/dev/null; then
-              echo "soft validate passed"
-              echo "::endgroup::"
-              echo "Step 1 passed on attempt $attempt"
-              exit 0
-            else
+            if ! grep -q "VERDICT: PASS" "${STEP1_REVIEW}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
-              echo "::endgroup::"
               continue
             fi
+
+            echo "Step 1 passed on attempt $attempt"
+            exit 0
           done
           echo "Step 1 failed after $MAX_RETRY attempts"
           exit 1
@@ -225,7 +218,7 @@ jobs:
 
       - name: Step 2 - Execute (opencode + hard validate + soft validate)
         run: |
-          set -euo pipefail
+          set -uo pipefail
           attempt=0
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
@@ -235,30 +228,23 @@ jobs:
             echo "::endgroup::"
 
             echo "::group::Step 2 - Hard validate"
-            if ./validate.sh step-log-long "${STEP2_LOG}"; then
-              echo "hard validate passed"
-              echo "::endgroup::"
-            else
+            ./validate.sh step-log-long "${STEP2_LOG}"
+            echo "::endgroup::"
+            if [[ $? -ne 0 ]]; then
               echo "hard validate failed, retry"
-              echo "::endgroup::"
               continue
             fi
 
             echo "::group::Step 2 - Soft validate (opencode review)"
             opencode run --model "$OPENCODE_MODEL" --title "step2-review-$attempt" "$(cat /tmp/step2_review_prompt.txt)" || echo "review run failed"
             echo "::endgroup::"
-
-            echo "::group::Step 2 - Check verdict"
-            if grep -q "VERDICT: PASS" "${STEP2_REVIEW}" 2>/dev/null; then
-              echo "soft validate passed"
-              echo "::endgroup::"
-              echo "Step 2 passed on attempt $attempt"
-              exit 0
-            else
+            if ! grep -q "VERDICT: PASS" "${STEP2_REVIEW}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
-              echo "::endgroup::"
               continue
             fi
+
+            echo "Step 2 passed on attempt $attempt"
+            exit 0
           done
           echo "Step 2 failed after $MAX_RETRY attempts"
           exit 1
@@ -312,7 +298,7 @@ jobs:
 
       - name: Step 3 - Execute (report + hard validate + soft validate)
         run: |
-          set -euo pipefail
+          set -uo pipefail
           current_round_num="${ROUND_ID#R}"
           attempt=0
           while (( attempt < MAX_RETRY )); do
@@ -327,17 +313,12 @@ jobs:
 
             echo "::group::Step 3 - Hard validate (report)"
             report_file=$(ls output/${PR_NUMBER}_*.md 2>/dev/null | head -1)
-            if [[ -z "$report_file" ]]; then
-              echo "hard validate failed (no report file), retry"
-              echo "::endgroup::"
-              continue
+            if [[ -n "$report_file" ]]; then
+              ./validate.sh report "$report_file"
             fi
-            if ./validate.sh report "$report_file"; then
-              echo "report hard validate passed"
-              echo "::endgroup::"
-            else
-              echo "report hard validate failed, retry"
-              echo "::endgroup::"
+            echo "::endgroup::"
+            if [[ -z "$report_file" || $? -ne 0 ]]; then
+              echo "hard validate failed (report), retry"
               continue
             fi
 
@@ -345,23 +326,21 @@ jobs:
             opencode run --model "$OPENCODE_MODEL" --title "step3-review-$attempt" "$(cat /tmp/step3_review_prompt.txt)" || echo "review run failed"
             echo "::endgroup::"
 
-            echo "::group::Step 3 - Hard validate (step log) + Check verdict"
-            if ! ./validate.sh step-log-medium "${STEP3_LOG}"; then
-              echo "step3 log hard validate failed, retry"
-              echo "::endgroup::"
+            echo "::group::Step 3 - Hard validate (step log)"
+            ./validate.sh step-log-medium "${STEP3_LOG}"
+            echo "::endgroup::"
+            if [[ $? -ne 0 ]]; then
+              echo "hard validate failed (step log), retry"
               continue
             fi
-            if grep -q "VERDICT: PASS" "${STEP3_LOG}" 2>/dev/null; then
-              echo "soft validate passed"
-              echo "::endgroup::"
-              echo "REPORT_FILE=$report_file" >> "$GITHUB_ENV"
-              echo "Step 3 passed on attempt $attempt"
-              exit 0
-            else
+            if ! grep -q "VERDICT: PASS" "${STEP3_LOG}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
-              echo "::endgroup::"
               continue
             fi
+
+            echo "REPORT_FILE=$report_file" >> "$GITHUB_ENV"
+            echo "Step 3 passed on attempt $attempt"
+            exit 0
           done
           echo "Step 3 failed after $MAX_RETRY attempts"
           exit 1
@@ -413,7 +392,7 @@ jobs:
 
       - name: Step 4 - Execute (opencode + hard validate + soft validate)
         run: |
-          set -euo pipefail
+          set -uo pipefail
           attempt=0
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
@@ -423,30 +402,23 @@ jobs:
             echo "::endgroup::"
 
             echo "::group::Step 4 - Hard validate"
-            if ./validate.sh step-log-short "${STEP4_LOG}"; then
-              echo "hard validate passed"
-              echo "::endgroup::"
-            else
+            ./validate.sh step-log-short "${STEP4_LOG}"
+            echo "::endgroup::"
+            if [[ $? -ne 0 ]]; then
               echo "hard validate failed, retry"
-              echo "::endgroup::"
               continue
             fi
 
             echo "::group::Step 4 - Soft validate (opencode review)"
             opencode run --model "$OPENCODE_MODEL" --title "step4-review-$attempt" "$(cat /tmp/step4_review_prompt.txt)" || echo "review run failed"
             echo "::endgroup::"
-
-            echo "::group::Step 4 - Check verdict"
-            if grep -q "VERDICT: PASS" "${STEP4_REVIEW}" 2>/dev/null; then
-              echo "soft validate passed"
-              echo "::endgroup::"
-              echo "Step 4 passed on attempt $attempt"
-              exit 0
-            else
+            if ! grep -q "VERDICT: PASS" "${STEP4_REVIEW}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
-              echo "::endgroup::"
               continue
             fi
+
+            echo "Step 4 passed on attempt $attempt"
+            exit 0
           done
           echo "Step 4 failed after $MAX_RETRY attempts"
           exit 1
