@@ -128,6 +128,7 @@ jobs:
             echo "這是「你自己的動作總結」。格式必須是 4 個 section："
             echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
             echo "注意：你要理解的是「這一輪（${ROUND_ID}）使用者的意圖」。若這是 R2+，使用者可能在追問、質疑或要求補充前幾輪的內容。"
+            echo "檔案長度上限：2000 字。超過會被硬性驗證拒絕，請精簡。"
             echo "直接把檔案內容寫到 ${STEP1_LOG}，不要額外輸出說明文字。"
           } > /tmp/step1_prompt.txt
           {
@@ -157,8 +158,9 @@ jobs:
 
             echo "::group::Step 1 - Hard validate"
             ./validate.sh step-log-short "${STEP1_LOG}"
+            hard_rc=$?
             echo "::endgroup::"
-            if [[ $? -ne 0 ]]; then
+            if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed, retry"
               continue
             fi
@@ -200,6 +202,7 @@ jobs:
             echo "若是 R2+，請針對這輪的意圖執行調研，而非重新做 R1 的事。"
             echo "產出 ${STEP2_LOG}。這是「你自己的動作總結」，格式必須是 4 個 section："
             echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
+            echo "檔案長度上限：6000 字。超過會被硬性驗證拒絕，請精簡。"
             echo "直接把檔案內容寫到 ${STEP2_LOG}。"
           } > /tmp/step2_prompt.txt
           {
@@ -229,8 +232,9 @@ jobs:
 
             echo "::group::Step 2 - Hard validate"
             ./validate.sh step-log-long "${STEP2_LOG}"
+            hard_rc=$?
             echo "::endgroup::"
-            if [[ $? -ne 0 ]]; then
+            if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed, retry"
               continue
             fi
@@ -279,6 +283,7 @@ jobs:
               echo "   報告必須含 4 個必要 section（首次產出無 ## 5. User Q&A）："
               echo "   ## 1. 這個技術解決什麼問題？ / ## 2. 這個問題為什麼會發生？（背景） / ## 3. 這個技術是如何解決該問題的？ / ## 4. 是否存在解決類似問題的其他技術 / 框架 / 思考方式？"
               echo "   詳細格式見 know/AGENTS.md「分析報告格式」。"
+            echo "   報告長度上限：20000 字。超過會被硬性驗證拒絕。"
             else
               echo "   這是 ${ROUND_ID}（R2+），使用者正在追問前幾輪的內容。"
               echo "   請讀取既有報告（output/ 目錄中 ${PR_NUMBER}_*.md 的檔案），把這一輪的 QA 沉澱進報告的 ## 5. User Q&A 章節："
@@ -287,12 +292,14 @@ jobs:
               echo "   - 若需補充 §1-§4 的內容也可更新，但不要刪除既有內容"
               echo "   - 報告檔名保持不變（沿用 R1 的檔名）"
               echo "   詳細格式見 know/AGENTS.md「分析報告格式」的 §5 規則。"
+              echo "   報告總長度上限：20000 字（含既有內容）。超過會被硬性驗證拒絕。"
             fi
             echo ""
             echo "2. 本 step 的 execution log：${STEP3_LOG}"
             echo "   這是「你自己的動作總結」，格式必須是 4 個 section："
             echo "   ## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
             echo "   在「動作結束後的現狀」中必須包含：產出的報告檔名與本輪變更摘要。"
+            echo "   execution log 長度上限：3000 字。超過會被硬性驗證拒絕，請精簡。"
             echo ""
             echo "直接把兩個檔案內容分別寫到對應路徑。"
           } > /tmp/step3_main_prompt.txt
@@ -331,16 +338,18 @@ jobs:
             if [[ -n "$report_file" ]]; then
               ./validate.sh report "$report_file"
             fi
+            hard_rc=$?
             echo "::endgroup::"
-            if [[ -z "$report_file" || $? -ne 0 ]]; then
+            if [[ -z "$report_file" || $hard_rc -ne 0 ]]; then
               echo "hard validate failed (report), retry"
               continue
             fi
 
             echo "::group::Step 3 - Hard validate (step log)"
             ./validate.sh step-log-medium "${STEP3_LOG}"
+            hard_rc=$?
             echo "::endgroup::"
-            if [[ $? -ne 0 ]]; then
+            if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed (step log), retry"
               continue
             fi
@@ -389,6 +398,7 @@ jobs:
             echo "產出 ${STEP4_LOG}。這是「你自己的動作總結」，格式必須是 4 個 section："
             echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
             echo "在「動作結束後的現狀」中必須包含：本輪所有產出檔案清單（report + 各 step log）與待追問方向（若無則寫「無」）。"
+            echo "檔案長度上限：2000 字。超過會被硬性驗證拒絕，請精簡。"
             echo "直接把檔案內容寫到 ${STEP4_LOG}。"
           } > /tmp/step4_prompt.txt
           {
@@ -418,8 +428,9 @@ jobs:
 
             echo "::group::Step 4 - Hard validate"
             ./validate.sh step-log-short "${STEP4_LOG}"
+            hard_rc=$?
             echo "::endgroup::"
-            if [[ $? -ne 0 ]]; then
+            if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed, retry"
               continue
             fi
