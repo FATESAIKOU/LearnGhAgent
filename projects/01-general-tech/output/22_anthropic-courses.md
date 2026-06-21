@@ -82,3 +82,61 @@ anthropics/courses
 - **anthropics/courses** 是唯一由 Anthropic 官方維護、完全免費、且專注於 Claude 模型的系統化教材。與 OpenAI Cookbook 相比，其課程結構更完整（非零散範例），且涵蓋 prompt evaluations 與 tool use 等生產級主題
 - **LangChain 教學** 與 **DeepLearning.AI 課程** 偏向框架層或通用概念層，而 anthropics/courses 直接操作底層 API，讓學員理解 Claude 的原生行為後再考慮是否引入框架
 - **Google Vertex AI 教學** 與 anthropics/courses 的 real_world_prompting 課程有直接合作關係（Vertex 版本分支），但前者綁定 GCP 生態系，後者可獨立於任何雲端平台使用
+
+---
+
+## 5. User Q&A
+
+### Q1：anthropics/courses 是誰？
+
+**A**：`anthropics/courses` 是 **Anthropic 公司官方 GitHub 帳號（anthropics）** 下的一個公開 repo。
+
+- Anthropic 是一家美國 AI 公司（總部舊金山），由前 OpenAI 高階主管 Dario Amodei（CEO）與 Daniela Amodei（President）於 2021 年創立
+- 核心產品為 Claude 系列 LLM（Haiku / Sonnet / Opus）
+- 截至 2026 年 5 月估值約 $9650 億美元，為全球最高估值純 AI 公司
+- 該 repo 的 LICENSE 為 **CC BY-NC 4.0**（非商業用途），禁止商用
+
+| 面向 | 內容 |
+|---|---|
+| 擁有者 | Anthropic PBC（公司官方帳號 `anthropics`） |
+| repo 定位 | "Anthropic's educational courses" |
+| 建立時間 | 2024-05-30 |
+| 授權 | CC BY-NC 4.0（非商業用途） |
+| 課程數量 | 5 門，共約 35+ 個 Jupyter Notebook |
+
+**結論**：這是 Anthropic 官方出品的免費 Claude 教學教材，不是第三方社群專案。
+
+### Q2：可以用在什麼業務？
+
+**A**：該 repo 本身是**教材**，不是可直接部署的產品。它的「業務用途」是**培訓開發團隊**，而非直接服務終端客戶。適用場景如下：
+
+| 業務場景 | 對應課程 | 說明 |
+|---|---|---|
+| 團隊 onboarding 新成員使用 Claude API | API fundamentals | 新進開發者可在 6 個 notebook 內學會 SDK 操作、參數調整、串流、多模態 |
+| 建立內部 prompt 工程標準 | Prompt engineering | 9 章循序漸進，可作為團隊 prompt 撰寫規範的訓練教材 |
+| 開發 LLM 驅動的客服 / 醫療 / 摘要功能 | Real world prompting | 5 個真實案例 walkthrough，可直接參考 prompt 設計模式 |
+| 建立 prompt 品質評估機制（回歸測試） | Prompt evaluations | 9 課含 promptfoo 整合，可導入 CI/CD 做 prompt 回歸測試 |
+| 開發 tool use / function calling 功能 | Tool use | 6 課從單一工具到多工具聊天機器人，適合需要 Claude 呼叫外部 API 的場景 |
+
+**結論**：適用於「需要讓開發團隊系統性學習 Claude API 與提示工程」的組織內部培訓場景。不適用於直接交付客戶的產品。
+
+### Q3：加速還是提升品質？
+
+**A**：**兩者皆有，但主要效果是提升品質，加速是次要效果。**
+
+| 效果維度 | 機制 | 證據 |
+|---|---|---|
+| **提升品質（主要）** | 課程教導 prompt 最佳實務（清晰指令、角色賦予、資料與指令分離、輸出格式控制、逐步思考、避免幻覺），減少 trial-and-error 導致的低品質輸出 | Prompt engineering 課程 9 章中有 6 章直接針對輸出品質；Evaluations 課程 9 課全部針對品質量化 |
+| **加速（次要）** | 結構化教材縮短學習曲線，開發者不需自行摸索 API 行為與提示技巧 | API fundamentals 課程 6 課涵蓋 SDK 所有基礎操作，學完即可上手 |
+| **加速（間接）** | Evaluations 課程整合 promptfoo，可自動化 prompt 回歸測試，減少人工 review 時間 | Evaluations 課程第 5-9 課示範程式化評分流程 |
+
+**反證表**：
+
+| 如果目的是... | 這個 repo 是否適合 | 原因 |
+|---|---|---|
+| 加速現有產品的開發時程 | 部分適合 | 教材本身不提供程式碼片段直接複製貼上，需理解後自行實作 |
+| 提升現有產品的輸出品質 | 適合 | 課程直接教授 prompt 品質控制與評估方法 |
+| 快速 prototyping | 不適合 | 應直接使用 Claude API 文件或 SDK quickstart，而非上完整課程 |
+| 建立團隊的 LLM 開發能力（長期） | 適合 | 5 門課程涵蓋從基礎到生產級的完整知識體系 |
+
+**結論**：主要效果是**提升品質**（透過系統化 prompt 工程與評估方法），次要效果是**加速**（透過結構化教材縮短學習曲線）。若目標是快速出貨，應直接讀 API 文件而非上課。
