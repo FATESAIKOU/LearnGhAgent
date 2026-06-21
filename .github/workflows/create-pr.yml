@@ -86,10 +86,10 @@ jobs:
             --title "[${project_name}] ${issue_title}" \
             --body "$pr_body" \
             --label "project:${project_name}" \
-            --label "agent-exec" 2>&1 | grep -oE '[0-9]+$' | head -1)
+            --label "agent-exec" --json number -q .number)
 
           echo "Created PR #$pr_number for issue #$issue_number (project: $project_name)"
-          echo "pr_number=$pr_number" >> "$GITHUB_ENV"
+          echo "PR_NUMBER=$pr_number" >> "$GITHUB_ENV"
 
       - name: Trigger execute workflow
         if: steps.resolve.outputs.project_name != ''
@@ -98,7 +98,7 @@ jobs:
         run: |
           set -euo pipefail
           project_name="${{ steps.resolve.outputs.project_name }}"
-          pr_number="$PR_NUMBER"
+          pr_number="${PR_NUMBER}"
           # 觸發對應 project 的 execute workflow
           gh workflow run "${project_name}.yml" \
             --ref main \
