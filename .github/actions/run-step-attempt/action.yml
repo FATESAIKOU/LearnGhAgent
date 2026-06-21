@@ -1,0 +1,82 @@
+name: Run Step Attempt
+description: Run opencode + hard validate + soft validate for one step attempt. Returns pass/fail via outputs.
+
+inputs:
+  main-prompt-file:
+    description: Path to the main task prompt file
+    required: true
+  review-prompt-file:
+    description: Path to the review prompt file
+    required: true
+  out-file:
+    description: Path where the step log should be written
+    required: true
+  review-file:
+    description: Path where the review log should be written
+    required: true
+  validate-type:
+    description: validate.sh type for hard validate
+    required: true
+  step-name:
+    description: Step name for opencode title
+    required: true
+
+outputs:
+  pass:
+    description: "true if both hard and soft validate passed, false otherwise"
+    value: ${{ steps.check.outputs.pass }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run opencode (main task)
+      shell: bash
+      working-directory: projects/01-general-tech
+      env:
+        OPENCODE_MODEL: ${{ env.OPENCODE_MODEL }}
+        MAX_RETRY: ${{ env.MAX_RETRY }}
+      run: |
+        rm -f "${{ inputs.out-file }}" "${{ inputs.review-file }}"
+        opencode run --model "$OPENCODE_MODEL" --title "${{ inputs.step-name }}" "$(cat ${{ inputs.main-prompt-file }})" || echo "opencode run failed (will validate)"
+
+    - name: Hard validate
+      id: hard
+      shell: bash
+      working-directory: projects/01-general-tech
+      continue-on-error: true
+      run: |
+        if ./validate.sh "${{ inputs.validate-type }}" "${{ inputs.out-file }}"; then
+          echo "hard_pass=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "hard_pass=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Soft validate (LLM review)
+      id: soft
+      if: steps.hard.outputs.hard_pass == 'true'
+      shell: bash
+      working-directory: projects/01-general-tech
+      env:
+        OPENCODE_MODEL: ${{ env.OPENCODE_MODEL }}
+      continue-on-error: true
+      run: |
+        opencode run --model "$OPENCODE_MODEL" --title "${{ inputs.step-name }}-review" "$(cat ${{ inputs.review-prompt-file }})" || echo "review run failed"
+        if grep -q "VERDICT: PASS" "${{ inputs.review-file }}" 2>/dev/null; then
+          echo "soft_pass=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "soft_pass=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Check pass/fail
+      id: check
+      shell: bash
+      working-directory: projects/01-general-tech
+      run: |
+        hard_pass="${{ steps.hard.outputs.hard_pass }}"
+        soft_pass="${{ steps.soft.outputs.soft_pass }}"
+        echo "hard=$hard_pass soft=$soft_pass"
+        if [[ "$hard_pass" == "true" && "$soft_pass" == "true" ]]; then
+          echo "pass=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "pass=false" >> "$GITHUB_OUTPUT"
+        fi
