@@ -10,6 +10,10 @@ on:
       pr_number:
         description: "PR number to execute"
         required: true
+      max_retry:
+        description: "Max retry attempts per step"
+        required: false
+        default: "3"
   pull_request:
     types: [opened]
   issue_comment:
@@ -68,7 +72,7 @@ jobs:
       OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
       OPENCODE_MODEL: ollama-cloud/${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash' }}
       PROJECT_DIR: projects/01-general-tech
-      MAX_RETRY: "3"
+      MAX_RETRY: ${{ github.event.inputs.max_retry || '3' }}
       CHATLOG: ../../.github/scripts/chatlog.py
       PR_NUMBER: ${{ needs.guard.outputs.pr_number }}
     defaults:
@@ -155,7 +159,7 @@ jobs:
 
       - name: Step 1 - Attempt 2
         id: step1_a2
-        if: steps.step1_a1.outputs.pass != 'true'
+        if: ${{ steps.step1_a1.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 2 }}
         uses: ./.github/actions/run-step-attempt
         with:
           main-prompt-file: /tmp/step1_prompt.txt
@@ -167,7 +171,7 @@ jobs:
 
       - name: Step 1 - Attempt 3
         id: step1_a3
-        if: steps.step1_a2.outputs.pass != 'true'
+        if: ${{ steps.step1_a2.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 3 }}
         uses: ./.github/actions/run-step-attempt
         with:
           main-prompt-file: /tmp/step1_prompt.txt
@@ -177,8 +181,32 @@ jobs:
           validate-type: step-log-short
           step-name: step1-a3
 
+      - name: Step 1 - Attempt 4
+        id: step1_a4
+        if: ${{ steps.step1_a3.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 4 }}
+        uses: ./.github/actions/run-step-attempt
+        with:
+          main-prompt-file: /tmp/step1_prompt.txt
+          review-prompt-file: /tmp/step1_review_prompt.txt
+          out-file: ${{ env.STEP1_LOG }}
+          review-file: ${{ env.STEP1_REVIEW }}
+          validate-type: step-log-short
+          step-name: step1-a4
+
+      - name: Step 1 - Attempt 5
+        id: step1_a5
+        if: ${{ steps.step1_a4.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 5 }}
+        uses: ./.github/actions/run-step-attempt
+        with:
+          main-prompt-file: /tmp/step1_prompt.txt
+          review-prompt-file: /tmp/step1_review_prompt.txt
+          out-file: ${{ env.STEP1_LOG }}
+          review-file: ${{ env.STEP1_REVIEW }}
+          validate-type: step-log-short
+          step-name: step1-a5
+
       - name: Step 1 - Fail check
-        if: steps.step1_a3.outputs.pass != 'true'
+        if: ${{ steps.step1_a1.outputs.pass != 'true' && steps.step1_a2.outputs.pass != 'true' && steps.step1_a3.outputs.pass != 'true' && steps.step1_a4.outputs.pass != 'true' && steps.step1_a5.outputs.pass != 'true' }}
         run: |
           echo "Step 1 failed after $MAX_RETRY attempts"
           exit 1
@@ -236,7 +264,7 @@ jobs:
 
       - name: Step 2 - Attempt 2
         id: step2_a2
-        if: steps.step2_a1.outputs.pass != 'true'
+        if: ${{ steps.step2_a1.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 2 }}
         uses: ./.github/actions/run-step-attempt
         with:
           main-prompt-file: /tmp/step2_prompt.txt
@@ -248,7 +276,7 @@ jobs:
 
       - name: Step 2 - Attempt 3
         id: step2_a3
-        if: steps.step2_a2.outputs.pass != 'true'
+        if: ${{ steps.step2_a2.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 3 }}
         uses: ./.github/actions/run-step-attempt
         with:
           main-prompt-file: /tmp/step2_prompt.txt
@@ -258,8 +286,32 @@ jobs:
           validate-type: step-log-long
           step-name: step2-a3
 
+      - name: Step 2 - Attempt 4
+        id: step2_a4
+        if: ${{ steps.step2_a3.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 4 }}
+        uses: ./.github/actions/run-step-attempt
+        with:
+          main-prompt-file: /tmp/step2_prompt.txt
+          review-prompt-file: /tmp/step2_review_prompt.txt
+          out-file: ${{ env.STEP2_LOG }}
+          review-file: ${{ env.STEP2_REVIEW }}
+          validate-type: step-log-long
+          step-name: step2-a4
+
+      - name: Step 2 - Attempt 5
+        id: step2_a5
+        if: ${{ steps.step2_a4.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 5 }}
+        uses: ./.github/actions/run-step-attempt
+        with:
+          main-prompt-file: /tmp/step2_prompt.txt
+          review-prompt-file: /tmp/step2_review_prompt.txt
+          out-file: ${{ env.STEP2_LOG }}
+          review-file: ${{ env.STEP2_REVIEW }}
+          validate-type: step-log-long
+          step-name: step2-a5
+
       - name: Step 2 - Fail check
-        if: steps.step2_a3.outputs.pass != 'true'
+        if: ${{ steps.step2_a1.outputs.pass != 'true' && steps.step2_a2.outputs.pass != 'true' && steps.step2_a3.outputs.pass != 'true' && steps.step2_a4.outputs.pass != 'true' && steps.step2_a5.outputs.pass != 'true' }}
         run: |
           echo "Step 2 failed after $MAX_RETRY attempts"
           exit 1
@@ -417,7 +469,7 @@ jobs:
 
       - name: Step 4 - Attempt 2
         id: step4_a2
-        if: steps.step4_a1.outputs.pass != 'true'
+        if: ${{ steps.step4_a1.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 2 }}
         uses: ./.github/actions/run-step-attempt
         with:
           main-prompt-file: /tmp/step4_prompt.txt
@@ -429,7 +481,7 @@ jobs:
 
       - name: Step 4 - Attempt 3
         id: step4_a3
-        if: steps.step4_a2.outputs.pass != 'true'
+        if: ${{ steps.step4_a2.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 3 }}
         uses: ./.github/actions/run-step-attempt
         with:
           main-prompt-file: /tmp/step4_prompt.txt
@@ -439,8 +491,32 @@ jobs:
           validate-type: step-log-short
           step-name: step4-a3
 
+      - name: Step 4 - Attempt 4
+        id: step4_a4
+        if: ${{ steps.step4_a3.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 4 }}
+        uses: ./.github/actions/run-step-attempt
+        with:
+          main-prompt-file: /tmp/step4_prompt.txt
+          review-prompt-file: /tmp/step4_review_prompt.txt
+          out-file: ${{ env.STEP4_LOG }}
+          review-file: ${{ env.STEP4_REVIEW }}
+          validate-type: step-log-short
+          step-name: step4-a4
+
+      - name: Step 4 - Attempt 5
+        id: step4_a5
+        if: ${{ steps.step4_a4.outputs.pass != 'true' && fromJSON(env.MAX_RETRY) >= 5 }}
+        uses: ./.github/actions/run-step-attempt
+        with:
+          main-prompt-file: /tmp/step4_prompt.txt
+          review-prompt-file: /tmp/step4_review_prompt.txt
+          out-file: ${{ env.STEP4_LOG }}
+          review-file: ${{ env.STEP4_REVIEW }}
+          validate-type: step-log-short
+          step-name: step4-a5
+
       - name: Step 4 - Fail check
-        if: steps.step4_a3.outputs.pass != 'true'
+        if: ${{ steps.step4_a1.outputs.pass != 'true' && steps.step4_a2.outputs.pass != 'true' && steps.step4_a3.outputs.pass != 'true' && steps.step4_a4.outputs.pass != 'true' && steps.step4_a5.outputs.pass != 'true' }}
         run: |
           echo "Step 4 failed after $MAX_RETRY attempts"
           exit 1
