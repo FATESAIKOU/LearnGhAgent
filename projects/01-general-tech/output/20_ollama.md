@@ -1,104 +1,144 @@
 # Ollama 技術分析報告
 
+> 調研標的：GitHub [ollama/ollama](https://github.com/ollama/ollama)（174,616 stars, MIT license, Go 語言）
+> 建立時間：2023-06-26 | 調研時間：2026-06-21
+
+---
+
 ## 1. 這個技術解決什麼問題？
 
-Ollama 解決的是「在本地端執行大型語言模型（LLM）的門檻過高」的問題。具體而言：
+Ollama 解決的是「**在本地（個人電腦或自有伺服器）上以最低操作成本執行大型語言模型（LLM）**」的問題。
 
-- 使用者需要手動下載模型權重檔案（通常數 GB 至數十 GB）
-- 需要自行處理模型格式轉換（Hugging Face Safetensors → GGUF）
-- 需要自行編譯或配置推論引擎（如 llama.cpp、transformers）
-- 需要自行撰寫 API 層或整合程式碼才能將模型嵌入應用
-- 不同模型有不同的依賴與執行方式，缺乏統一的執行介面
+具體來說，它解決了以下子問題：
 
-Ollama 將上述流程封裝成一個單一的 CLI 工具 + REST API 伺服器，讓使用者只需一條指令（`ollama run <model-name>`）即可下載並執行 LLM。
+| 子問題 | 說明 |
+|---|---|
+| 模型下載與管理 | 使用者不需要手動尋找模型檔案、處理 GGUF 格式、管理版本；Ollama 提供 `ollama pull` / `ollama run` 一鍵下載並執行 |
+| 硬體加速抽象 | 不同 GPU 後端（NVIDIA CUDA、AMD ROCm、Apple Metal、Vulkan、MLX）需要不同的編譯與執行環境；Ollama 統一封裝 |
+| API 標準化 | 每個模型可能有不同的 prompt template、context length、sampling 參數；Ollama 透過 Modelfile 與 REST API 提供統一介面 |
+| 跨平台安裝 | macOS / Windows / Linux / Docker 四種平台，安裝指令統一為 `curl ... \| sh` |
+
+**模糊之處**：Ollama 官方文件未明確定義「支援的模型範圍」。實際上它依賴 llama.cpp 的模型支援能力，理論上任何 GGUF 格式模型都可執行，但官方 library 僅收錄經過驗證的模型。
+
+---
 
 ## 2. 這個問題為什麼會發生？（背景）
 
 ### 文章中明確提到的背景
 
-- LLM 推論需要大量 GPU 運算資源，傳統上依賴雲端 API（OpenAI、Anthropic 等）
-- 雲端 API 有資料隱私、延遲、持續付費等限制
-- llama.cpp 專案（C/C++ 實作）讓消費級硬體（CPU、消費級 GPU）也能執行 LLM，但使用上仍需手動操作
+- llama.cpp 專案（Georgi Gerganov 發起）提供了在消費級硬體上執行 LLM 的 C/C++ 實作，但 llama.cpp 本身是底層函式庫，需要使用者自行處理模型下載、prompt template、GPU 後端選擇等操作
+- 各 GPU 供應商（NVIDIA、AMD、Apple）使用不同的加速框架（CUDA、ROCm、Metal），llama.cpp 雖支援多後端，但編譯與配置門檻高
 
 ### 通用技術背景
 
-- 2023～2024 年間，開源 LLM 數量爆炸成長（Llama 2/3、Mistral、DeepSeek、Phi 等），但缺乏統一的本地執行標準
-- GGUF 格式（llama.cpp 定義的二進位模型格式）逐漸成為開源 LLM 的事實標準，但一般使用者仍需了解 GGUF 與 Safetensors 的差異
-- 量化技術（Q4_K_M、Q5_K_M 等）讓模型體積與記憶體需求大幅降低，但參數選擇對非技術使用者不直觀
-- 各模型對系統提示（system prompt）、對話模板（chat template）的格式要求不同，手動設定容易出錯
+- 2023 年起開源 LLM 大量湧現（Llama、Mistral、Qwen、DeepSeek 等），但這些模型以原始權重或 GGUF 格式釋出，缺乏統一的執行環境
+- 雲端 API（OpenAI、Anthropic）雖然方便，但有資料隱私顧慮、延遲問題、以及持續的 API 費用
+- 消費級 GPU 記憶體（8GB~24GB）已能執行 7B~13B 參數的量化模型，但缺乏一個「安裝即用」的軟體層來降低進入門檻
+
+---
 
 ## 3. 這個技術是如何解決該問題的？
 
 Ollama 的架構分為三層：
 
-```
-┌─────────────────────────────────────────┐
-│  CLI (ollama run/pull/push/create/ls)    │  ← 使用者介面層
-│  REST API (localhost:11434)              │
-├─────────────────────────────────────────┤
-│  Model Store (~/.ollama/models/)         │  ← 模型管理層
-│  Modelfile (自訂模型定義)                │
-├─────────────────────────────────────────┤
-│  llama.cpp (C/C++ 推論引擎)              │  ← 推論執行層
-│  GPU Backend (CUDA/ROCm/Vulkan/Metal)    │
-└─────────────────────────────────────────┘
-```
-
-### 3.1 模型下載與管理
-
-- 使用者執行 `ollama pull <model-name>` 時，Ollama 從官方 registry（ollama.com/library）下載預先量化好的 GGUF 格式模型
-- 模型儲存在 `~/.ollama/models/` 目錄，支援 `ollama ls` 列出已下載模型、`ollama rm` 刪除
-- 模型命名採用 `model-name:tag` 格式（如 `llama3.2:3b`），tag 對應不同大小與量化版本
-
-### 3.2 統一的執行介面
-
-- `ollama run <model-name>`：互動式對話模式，自動載入模型到記憶體
-- `ollama run <model-name> "prompt"`：單次查詢模式
-- REST API `POST /api/chat` 與 `POST /api/generate`：供外部應用整合
-- API 支援串流（streaming）回應，相容 OpenAI API 格式
-
-### 3.3 Modelfile 自訂機制
-
-Modelfile 是 Ollama 的自訂模型定義檔，類似 Dockerfile 的概念：
+### 3.1 執行引擎層（Go + llama.cpp）
 
 ```
-FROM llama3.2:3b          # 基底模型
-PARAMETER temperature 0.7  # 推論參數
-PARAMETER top_p 0.9
-SYSTEM "You are a helpful assistant"  # 系統提示
-TEMPLATE "{{ .Prompt }}"  # 對話模板
-ADAPTER ./my-lora.safetensors  # LoRA 適配器
+┌─────────────────────────────────────────────┐
+│  Ollama CLI / Daemon (Go)                   │
+│  - REST API server (localhost:11434)        │
+│  - 模型生命週期管理（下載/載入/卸載/快取）    │
+│  - Modelfile 解析與模型自訂                  │
+├─────────────────────────────────────────────┤
+│  llama.cpp (C/C++)                          │
+│  - GGUF 模型載入與推理                       │
+│  - GPU 後端抽象層                            │
+│    ├─ CUDA (NVIDIA)                         │
+│    ├─ ROCm (AMD)                            │
+│    ├─ Metal (Apple Silicon)                 │
+│    ├─ Vulkan (跨平台)                        │
+│    └─ MLX (Apple MLX / CUDA)                │
+└─────────────────────────────────────────────┘
 ```
 
-- `ollama create my-model -f ./Modelfile` 建立自訂模型
-- 支援匯入 Safetensors 格式（Hugging Face）與 GGUF 格式
-- 支援量化選項（q4_K_M、q5_K_M、q8_0 等）
+- Go 負責：HTTP API、模型管理、CLI 互動、系統服務
+- llama.cpp 負責：模型推理、GPU 加速、量化支援
+- 兩者透過 CGO 連結
 
-### 3.4 硬體加速
+### 3.2 模型管理機制
 
-- 自動偵測可用 GPU：NVIDIA（CUDA CC 5.0+）、AMD（ROCm）、Apple（Metal）、Vulkan
-- 無 GPU 時自動回退 CPU 執行
-- 支援多 GPU 並行推論
+**Modelfile**：類似 Dockerfile 的模型自訂格式
 
-### 3.5 底層推論引擎
+```
+FROM llama3.2
+SYSTEM "You are a helpful assistant"
+PARAMETER temperature 0.7
+PARAMETER num_ctx 4096
+TEMPLATE """{{ .System }}
+USER: {{ .Prompt }}
+ASSISTANT: """
+```
 
-- 使用 llama.cpp 作為核心推論引擎（C/C++ 實作）
-- 支援 GGUF 格式模型載入
-- 支援 KV cache 快取加速連續對話
-- 支援批次處理（batch processing）提升吞吐量
+支援指令：`FROM`（基底模型）、`PARAMETER`（推理參數）、`TEMPLATE`（prompt 模板）、`SYSTEM`（系統提示詞）、`ADAPTER`（LoRA 適配器）、`LICENSE`、`MESSAGE`（範例對話）、`REQUIRES`（模型需求）
+
+**模型儲存**：以 SHA256 digest 為識別碼的 content-addressable storage，支援分層（layer）管理，類似容器映像檔
+
+### 3.3 API 設計
+
+REST API 位於 `localhost:11434/api`，主要端點：
+
+| 端點 | 功能 |
+|---|---|
+| `POST /api/generate` | 文字補全（completion） |
+| `POST /api/chat` | 對話生成（chat），支援 tool calling |
+| `POST /api/create` | 建立模型（從現有模型 / GGUF / Safetensors） |
+| `POST /api/pull` | 下載模型（支援斷點續傳） |
+| `POST /api/push` | 上傳模型 |
+| `GET /api/tags` | 列出本地模型 |
+| `POST /api/show` | 顯示模型詳細資訊 |
+| `DELETE /api/delete` | 刪除模型 |
+| `POST /api/copy` | 複製模型 |
+
+API 無嚴格版本化（無 `/v1/` 前綴），所有回應含 `total_duration`、`load_duration`、`prompt_eval_count`、`eval_count` 等效能指標。
+
+### 3.4 安裝與整合
+
+- 安裝：單行指令（`curl ... | sh`）或 Docker
+- SDK：官方提供 Python（`ollama` pip package）與 JavaScript（`ollama` npm package）
+- 生態系整合：涵蓋 Chat UI（Open WebUI、Lobe Chat）、IDE（Continue、Cline）、框架（LangChain、LlamaIndex、Haystack）、RAG（RAGFlow、MaxKB）、監控（Langfuse、OpenLIT）等數百個專案
+
+---
 
 ## 4. 是否存在解決類似問題的其他技術 / 框架 / 思考方式？
 
+### 4.1 替代方案 DA 表
+
 | 技術名 | 技術解法 | 技術使用前提 | 技術使用副作用 | 技術使用預期效果 |
 |---|---|---|---|---|
-| **llama.cpp** | 直接使用 C/C++ 推論引擎，手動下載 GGUF 模型並透過 CLI 或 binding 執行 | 需了解 GGUF 格式、模型來源、編譯選項；需自行撰寫整合程式碼 | 無統一模型管理；無內建 API 伺服器；需手動處理對話模板 | 更底層的控制權，無額外抽象層開銷 |
-| **LocalAI** | 提供 OpenAI API 相容的本地 LLM 伺服器，支援多種後端（llama.cpp、transformers、whisper 等） | 需 Docker 或自行編譯；設定檔較複雜（YAML 配置） | 功能範圍較大（含語音、圖片生成），學習曲線較高；資源消耗較重 | 更完整的 OpenAI API 相容性（含 embeddings、whisper、stable diffusion） |
-| **vLLM** | 高效能 LLM 推論伺服器，使用 PagedAttention 最佳化記憶體管理 | 需 NVIDIA GPU（CUDA）；主要支援 Hugging Face 格式（非 GGUF） | 不支援消費級 GPU 量化推論；設定較複雜；無 CLI 互動模式 | 更高的推論吞吐量與記憶體效率，適合生產環境部署 |
-| **GPT4All** | 提供桌面應用 + 本地 LLM 執行環境，強調隱私與離線使用 | 需下載桌面應用；模型選擇受限於其生態系 | 無 REST API（或功能有限）；模型更新較慢；不支援自訂模型匯入 | 最簡單的圖形化操作體驗，非技術使用者友善 |
+| **llama.cpp** | 直接使用 C/C++ 函式庫，透過編譯選項選擇 GPU 後端，以 CLI 或 binding 執行 GGUF 模型 | 需 C/C++ 編譯環境；需手動下載模型檔案；需自行處理 prompt template | 無統一 API；無模型管理功能；需自行撰寫整合程式碼 | 最低 overhead 的推理效能；完全控制底層參數 |
+| **LocalAI** | 以 Docker 為基礎的 LLM 推理伺服器，提供 OpenAI API 相容端點，支援多種後端（llama.cpp、whisper.cpp 等） | 需 Docker 環境；需手動掛載模型目錄；配置檔為 YAML | 容器化增加資源開銷；模型管理不如 Ollama 直覺 | 可直接取代 OpenAI API endpoint；支援多模態（文字+語音+影像） |
+| **vLLM** | 以 PagedAttention 演算法最佳化 LLM 推理吞吐量，專注於高併發場景 | 需 NVIDIA GPU + CUDA；需 Python 環境；主要支援 HuggingFace 格式模型 | 不支援消費級 GPU 量化模型（GGUF）；安裝依賴複雜；資源需求高 | 高吞吐量推理（適合生產部署）；支援 continuous batching |
+| **GPT4All** | 以 C++ 實作的本地 LLM 執行器，強調隱私與離線使用，提供桌面 GUI | 支援 CPU 與少量 GPU 後端；模型格式為 GPT4All 專用格式 | 模型選擇受限（僅支援經過轉換的模型）；GPU 加速支援有限 | 最簡單的離線 LLM 體驗；內建 RAG 與文件問答功能 |
 
-### 切入點差異
+### 4.2 切入點差異分析
 
-- **Ollama vs llama.cpp**：Ollama 是 llama.cpp 的上層封裝，犧牲部分底層控制權換取易用性與模型管理功能
-- **Ollama vs LocalAI**：Ollama 專注 LLM 執行（範圍較窄但深度較高），LocalAI 涵蓋多模態但設定複雜度更高
-- **Ollama vs vLLM**：Ollama 定位個人開發者與消費級硬體，vLLM 定位生產環境與伺服器級 GPU
-- **Ollama vs GPT4All**：Ollama 以 CLI/API 為核心（開發者導向），GPT4All 以桌面 GUI 為核心（一般使用者導向）
+```
+                    ┌── 易用性 ──┐
+                    │            │
+               GPT4All       Ollama
+                    │            │
+                    │            ├── LocalAI
+                    │            │
+                    └── 效能 ──┐  │
+                               │  │
+                          vLLM │  │
+                               │  │
+                          llama.cpp
+                               │
+                    ┌── 底層控制 ──┘
+```
+
+- **Ollama** 位於「易用性」與「效能」的中間地帶：比 GPT4All 支援更多 GPU 後端與模型，比 LocalAI 安裝更簡單，比 vLLM 更適合個人使用
+- **llama.cpp** 是 Ollama 的底層引擎，Ollama 在其上封裝了模型管理與 API 層
+- **vLLM** 與 Ollama 的目標場景不同：vLLM 面向生產環境的高併發推理，Ollama 面向個人開發者的本地實驗與整合
+- **GPT4All** 與 Ollama 最接近，但 GPT4All 的 GPU 支援較弱、模型生態較封閉
