@@ -82,3 +82,78 @@ anthropics/courses
 - **anthropics/courses** 是唯一由 Anthropic 官方維護、完全免費、且專注於 Claude 模型的系統化教材。與 OpenAI Cookbook 相比，其課程結構更完整（非零散範例），且涵蓋 prompt evaluations 與 tool use 等生產級主題
 - **LangChain 教學** 與 **DeepLearning.AI 課程** 偏向框架層或通用概念層，而 anthropics/courses 直接操作底層 API，讓學員理解 Claude 的原生行為後再考慮是否引入框架
 - **Google Vertex AI 教學** 與 anthropics/courses 的 real_world_prompting 課程有直接合作關係（Vertex 版本分支），但前者綁定 GCP 生態系，後者可獨立於任何雲端平台使用
+
+---
+
+## 5. User Q&A
+
+### Q1：anthropics/courses 是誰？
+
+**A**：`anthropics/courses` 是 **Anthropic 公司官方維護的 GitHub 開源教育課程 repo**。
+
+| 面向 | 內容 |
+|---|---|
+| 維護者 | Anthropic（Claude 模型的開發公司），GitHub 組織為 `anthropics` |
+| 定位 | 官方免費教材，非第三方社群專案、非框架、非工具庫 |
+| 內容形式 | 5 門 Jupyter Notebook 課程，從 API 基礎到工具使用 |
+| 授權 | Other（非標準開源授權，但可自由使用於學習目的） |
+| 規模 | 21930 stars, 2325 forks, 59 commits（截至 2026-06-21） |
+
+**結論**：這是一套由 Claude 的開發公司 Anthropic 親自撰寫的官方教學課程，不是第三方整理或社群貢獻的專案。
+
+---
+
+### Q2：可以用在什麼業務？
+
+**A**：該 repo 的 5 門課程各自對應不同的業務場景：
+
+| 課程 | 對應業務場景 | 具體應用 |
+|---|---|---|
+| API fundamentals | 任何需要串接 Claude API 的專案 | 新團隊 onboarding、API 整合開發、SDK 使用教學 |
+| Prompt engineering | 需要設計 LLM prompt 的團隊 | 客服機器人 prompt 設計、內容生成 prompt 優化、結構化輸出控制 |
+| Real world prompting | 垂直領域的 LLM 應用開發 | 醫療問診系統、通話摘要、客戶支援自動化 |
+| Prompt evaluations | 需要量化 prompt 品質的生產環境 | prompt 回歸測試、A/B 測試、上線前品質門檻檢查 |
+| Tool use | 需要 Claude 呼叫外部工具/API 的場景 | 資料庫查詢代理、排程系統、多工具協作機器人 |
+
+**結論**：適用於任何使用 Claude API 的業務場景，從基礎串接到生產級品質管控。不適用於非 Claude 模型（GPT、Gemini）的開發團隊。
+
+---
+
+### Q3：加速還是提升品質？
+
+**A**：兩者兼具，但主要定位是 **提升品質**。
+
+| 面向 | 加速 | 提升品質 |
+|---|---|---|
+| 提供的價值 | 降低學習曲線，開發者不必從零摸索 | 提供 prompt 評估方法、最佳實務、避免幻覺技巧 |
+| 具體機制 | 可複用的 notebook 模板、Example Playground 即時修改 | Prompt evaluations 課程（promptfoo 整合）、Real world prompting 案例 |
+| 證據 | 課程直接提供可執行的程式碼，學員可直接修改執行 | 第 4 門課專門教 prompt 品質評估，第 2 門課教避免幻覺 |
+| 限制 | 僅限 Claude 生態系，非通用加速方案 | 品質提升效果取決於學員是否確實執行評估流程 |
+
+**對照表：加速 vs 品質的課程分布**
+
+| 課程 | 主要貢獻 |
+|---|---|
+| API fundamentals | 加速（快速上手 SDK） |
+| Prompt engineering | 品質（最佳實務） |
+| Real world prompting | 品質（真實案例） |
+| Prompt evaluations | 品質（量化評估） |
+| Tool use | 加速（工具整合模板） |
+
+**結論**：5 門課程中 3 門專注品質、2 門偏向加速。該 repo 的核心價值是「讓開發者寫出更好的 prompt」，而非「讓開發者寫得更快」。
+
+---
+
+### Q4：你沒回答到我的問題——我不太懂所以現在 anthropics/courses 是誰，可以用在什麼業務，加速還是提升品質？
+
+**A**：你的三個子問題已在 §5 Q1-Q3 中完整回答，以下直接對應：
+
+| 你的提問 | 答案位置 | 簡答 |
+|---|---|---|
+| anthropics/courses 是誰 | Q1 | Anthropic 公司官方維護的 Claude 教學課程 repo |
+| 可以用在什麼業務 | Q2 | 5 門課程各自對應：API 串接、提示工程、垂直領域應用、品質評估、工具整合 |
+| 加速還是提升品質 | Q3 | 兩者兼具，3 門偏品質（prompt engineering、real world prompting、evaluations）、2 門偏加速（API fundamentals、tool use） |
+
+**你認為「沒回答到」的可能原因**：R1 報告的 §1-§4 以「技術解決什麼問題」為主軸撰寫，未直接以「是誰 / 業務 / 加速 vs 品質」這三個框架組織內容。但 §5 Q1-Q3 確實已用你提問的框架直接回答。若你未看到 §5，可能是報告結構較長導致被忽略。
+
+**結論**：答案已在 Q1-Q3 中，無需補充調研。若你對任一答案的具體內容有質疑，請指明哪一項你認為不正確或不足。
