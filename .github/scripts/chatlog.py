@@ -17,7 +17,7 @@ chatlog.py — 維護對話陣列的工具，支援基本陣列指令。
   chatlog.py <json-file> append-file <role> <file>         從檔案讀內容 append
   chatlog.py <json-file> append-round <round> <role> <text>  帶 round 標記 append
   chatlog.py <json-file> append-round-file <round> <role> <file>  帶 round + 檔案內容
-  chatlog.py <json-file> load-context-from-pr-log <round>  從 stdin 讀 gh pr view --json body,comments，建對話
+  chatlog.py <json-file> load-context-from-pr-log            從 stdin 讀 gh pr view --json body,comments，建對話並計算 round id
   chatlog.py <json-file> toprompt                          轉成 prompt 字串（交替 user/assistant）
   chatlog.py <json-file> toprompt-from-round <round>       只含指定 round 起（含）的訊息
   chatlog.py <json-file> len                               回傳 message 數
@@ -40,6 +40,7 @@ chatlog.py 會：過濾 bot comments、用 tag 識別 summary、按 createdAt �
 配對 user/assistant 交替、current round 只加 user 不加 assistant。
 """
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -155,18 +156,8 @@ def main() -> int:
         print(f"appended-round-file {args[0]} ({args[1]}): {len(data['messages'])} total")
 
     elif cmd == "load-context-from-pr-log":
-        if len(args) < 1:
-            print("usage: load-context-from-pr-log <round>", file=sys.stderr)
-            return 2
-        current_round = args[0]
-        current_num = int(current_round[1:])
-
         gh_data = json.load(sys.stdin)
         data = {"messages": []}
-
-        # R1: [User] = PR body
-        body = gh_data.get("body", "")
-        append_msg(data, "user", body, round_id="R1")
 
         # 從 comments 抓 summaries（bot comment 含 <!-- chatlog:summary:Rn --> tag）
         # 與 user comments（非 bot author），按 createdAt 排序
@@ -184,6 +175,14 @@ def main() -> int:
                 user_comments.append({"body": cbody, "createdAt": created})
         user_comments.sort(key=lambda c: c["createdAt"])
         user_texts = [c["body"] for c in user_comments]
+
+        # round id = PR body 算第 1 次 + user comments 數
+        current_num = 1 + len(user_texts)
+        current_round = f"R{current_num}"
+
+        # R1: [User] = PR body
+        body = gh_data.get("body", "")
+        append_msg(data, "user", body, round_id="R1")
 
         # R1: [Assistant] = summaries["R1"]（若存在且 R1 不是 current）
         if current_num > 1:
@@ -210,6 +209,10 @@ def main() -> int:
 
         save(path, data)
         print(f"loaded-context-from-pr-log: {len(data['messages'])} messages, current round {current_round}, summaries found: {list(summaries.keys())}")
+        # GITHUB_OUTPUT for workflow
+        gh_out = Path(os.environ.get("GITHUB_OUTPUT", "/dev/null"))
+        with open(gh_out, "a", encoding="utf-8") as f:
+            f.write(f"round_id={current_round}\n")
 
     elif cmd == "toprompt":
         print(to_prompt(data))
