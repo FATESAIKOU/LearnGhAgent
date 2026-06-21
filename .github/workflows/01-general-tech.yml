@@ -92,13 +92,11 @@ jobs:
         run: |
           set -euo pipefail
           # round id = PR body 算第 1 次 + 後續「非 bot 作者」的 comment 次數
-          # bot 作者判定：login 含 "bot" 或以 "github-actions" 開頭 或以 "app/" 開頭
           json=$(gh pr view "$PR_NUMBER" --json comments)
           user_count=1
           comment_count=$(echo "$json" | jq '.comments | length')
           for ((i=0; i<comment_count; i++)); do
             author=$(echo "$json" | jq -r ".comments[$i].author.login")
-            # bot 判定：含 "bot" / 以 github-actions 開頭 / 以 app/ 開頭 / 含 "[bot]"
             if [[ "$author" == *"bot"* ]] || [[ "$author" == "github-actions"* ]] || [[ "$author" == "app/"* ]] || [[ "$author" == *"[bot]"* ]]; then
               continue
             fi
@@ -106,6 +104,64 @@ jobs:
           done
           echo "ROUND_ID=R${user_count}" >> "$GITHUB_ENV"
           echo "round_id=R${user_count}"
+
+      - name: Build conversation context
+        if: steps.labelcheck.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          CHATLOG="../../scripts/chatlog.py"
+          CHATLOG_FILE="/tmp/chatlog.json"
+
+          # 初始化對話陣列
+          python3 "$CHATLOG" "$CHATLOG_FILE" init
+
+          # R1: [User] = PR body
+          pr_body=$(gh pr view "$PR_NUMBER" --json body -q .body)
+          python3 "$CHATLOG" "$CHATLOG_FILE" append-round R1 user "$pr_body"
+
+          # R1: [Assistant] = R1 step4 summary（若存在）
+          if [[ -f "memory/log/${PR_NUMBER}_R1_step4-summary.md" ]]; then
+            python3 "$CHATLOG" "$CHATLOG_FILE" append-round-file R1 assistant "memory/log/${PR_NUMBER}_R1_step4-summary.md"
+          fi
+
+          # 抓所有非 bot 的 user comments（按時間順序）
+          json=$(gh pr view "$PR_NUMBER" --json comments)
+          user_comments=()
+          comment_count=$(echo "$json" | jq '.comments | length')
+          for ((i=0; i<comment_count; i++)); do
+            author=$(echo "$json" | jq -r ".comments[$i].author.login")
+            if [[ "$author" == *"bot"* ]] || [[ "$author" == "github-actions"* ]] || [[ "$author" == "app/"* ]] || [[ "$author" == *"[bot]"* ]]; then
+              continue
+            fi
+            body=$(echo "$json" | jq -r ".comments[$i].body")
+            user_comments+=("$body")
+          done
+
+          # R2..current-1: 交替 [User] = user_comments[i], [Assistant] = 該 round summary
+          current_round="${ROUND_ID#R}"
+          for ((r=2; r<current_round; r++)); do
+            idx=$((r-2))
+            if (( idx < ${#user_comments[@]} )); then
+              python3 "$CHATLOG" "$CHATLOG_FILE" append-round "R${r}" user "${user_comments[$idx]}"
+              if [[ -f "memory/log/${PR_NUMBER}_R${r}_step4-summary.md" ]]; then
+                python3 "$CHATLOG" "$CHATLOG_FILE" append-round-file "R${r}" assistant "memory/log/${PR_NUMBER}_R${r}_step4-summary.md"
+              fi
+            fi
+          done
+
+          # Current round: 只有 [User]，沒有 [Assistant]（尚未執行）
+          if (( current_round == 1 )); then
+            : # R1 的 [User] 已在開頭加過
+          else
+            idx=$((current_round-2))
+            if (( idx < ${#user_comments[@]} )); then
+              python3 "$CHATLOG" "$CHATLOG_FILE" append-round "${ROUND_ID}" user "${user_comments[$idx]}"
+            fi
+          fi
+
+          # 轉成 prompt 字串
+          python3 "$CHATLOG" "$CHATLOG_FILE" toprompt > /tmp/conversation_context.txt
+          echo "conversation context built: $(wc -c < /tmp/conversation_context.txt) chars, $(python3 "$CHATLOG" "$CHATLOG_FILE" len) messages"
 
       - name: Prepare paths
         if: steps.labelcheck.outputs.skip != 'true'
@@ -126,14 +182,12 @@ jobs:
       - name: Step 1.1 - Build prompt
         if: steps.labelcheck.outputs.skip != 'true'
         run: |
-          pr_body=$(gh pr view "$PR_NUMBER" --json body -q .body)
           cat > /tmp/step1_prompt.txt <<EOF
           你是「技術解析助理」。現在執行 Step 1：意圖理解。
 
-          使用者輸入（PR body，自由文字）：
-          ---
-          ${pr_body}
-          ---
+          $(cat /tmp/conversation_context.txt)
+
+          上方是整個對話的 conversation context（之前 round 的 user/assistant 交替 + 這輪的 user 輸入）。
 
           請依 know/AGENTS.md 中 Step 1 的規定，產出 ${STEP1_LOG}。
           這是「你自己的動作總結」，不是 LLM 的詳細產出內容。格式必須是 4 個 section：
@@ -141,6 +195,9 @@ jobs:
           ## 執行的動作與結果
           ## 動作結束後的現狀
           ## 其中的決斷點
+
+          注意：你要理解的是「這一輪（${ROUND_ID}）使用者的意圖」，不是重新理解 R1。
+          若這是 R2+，使用者可能在追問、質疑或要求補充前幾輪的內容。
 
           直接把檔案內容寫到 ${STEP1_LOG}，不要額外輸出說明文字。
           EOF
@@ -180,11 +237,20 @@ jobs:
           cat > /tmp/step2_prompt.txt <<EOF
           你是「技術解析助理」。現在執行 Step 2 的第一個 sub-step C1：取得 repo metadata 與主要文件。
 
-          使用者輸入與你的意圖理解請參考 ${STEP1_LOG}（自行讀取）。
+          $(cat /tmp/conversation_context.txt)
+
+          上方是 conversation context。下方是這一輪（${ROUND_ID}）Step 1 的 execution log：
+
+          === Step 1 execution log (${STEP1_LOG}) ===
+          $(cat ${STEP1_LOG} 2>/dev/null || echo "(尚未產出)")
+          === End of Step 1 log ===
+
           請依 do/skills/document/SKILL.md 的標準調研動作執行：
           1. 若是 GitHub repo，用 gh api / gh repo view 取得 metadata
           2. 擷取 README.md 與關鍵子文件
           3. 補查背景脈絡
+
+          注意：若是 R2+，使用者可能在追問前幾輪的內容，請針對這輪的意圖執行調研，而非重新做 R1 的事。
 
           產出 ${STEP2_LOG}。這是「你自己的動作總結」，不是詳細產出內容。格式必須是 4 個 section：
           ## 狀況理解
@@ -227,22 +293,48 @@ jobs:
       - name: Step 3.1 - Build prompt (report)
         if: steps.labelcheck.outputs.skip != 'true'
         run: |
+          current_round_num="${ROUND_ID#R}"
           cat > /tmp/step3_report_prompt.txt <<EOF
-          你是「技術解析助理」。現在執行 Step 3：基於 Step 2 的調研資料，產出最終分析報告。
+          你是「技術解析助理」。現在執行 Step 3：基於調研資料，產出/更新最終分析報告。
 
-          參考 ${STEP2_LOG} 的調研資料與 ${STEP1_LOG} 的需求（自行讀取）。
+          $(cat /tmp/conversation_context.txt)
 
-          產出分析報告，檔名格式：output/${PR_NUMBER}_<技術名>.md
+          上方是 conversation context。下方是這一輪（${ROUND_ID}）Step 1/2 的 execution log：
+
+          === Step 1 execution log (${STEP1_LOG}) ===
+          $(cat ${STEP1_LOG} 2>/dev/null || echo "(尚未產出)")
+          === End of Step 1 log ===
+
+          === Step 2 execution log (${STEP2_LOG}) ===
+          $(cat ${STEP2_LOG} 2>/dev/null || echo "(尚未產出)")
+          === End of Step 2 log ===
+
+          EOF
+
+          if (( current_round_num == 1 )); then
+            cat >> /tmp/step3_report_prompt.txt <<'EOF'
+          這是 R1，請新建分析報告。檔名格式：output/${PR_NUMBER}_<技術名>.md
           （<技術名> 由你從調研標的自行判斷決定，用簡潔英文，例如 agent-skills、deepseek-v4）
-          報告必須含 4 個必要 section：
+          報告必須含 4 個必要 section（首次產出無 ## 5. User Q&A）：
           ## 1. 這個技術解決什麼問題？
           ## 2. 這個問題為什麼會發生？（背景）
           ## 3. 這個技術是如何解決該問題的？
           ## 4. 是否存在解決類似問題的其他技術 / 框架 / 思考方式？
-          （首次產出無 ## 5. User Q&A）
 
           詳細格式見 know/AGENTS.md「分析報告格式」。直接把檔案內容寫到 output/ 目錄。
           EOF
+          else
+            cat >> /tmp/step3_report_prompt.txt <<EOF
+          這是 ${ROUND_ID}（R2+），使用者正在追問前幾輪的內容。
+          請讀取既有報告（output/ 目錄中 ${PR_NUMBER}_*.md 的檔案），把這一輪的 QA 沉澱進報告的 \`## 5. User Q&A\` 章節：
+          - 將這一輪使用者提問構造化為 QA 條目，追加進 ## 5. User Q&A
+          - 既有 QA 不可刪改，新 QA 按序號遞增接續
+          - 若需補充 §1-§4 的內容也可更新，但不要刪除既有內容
+          - 報告檔名保持不變（沿用 R1 的檔名）
+
+          詳細格式見 know/AGENTS.md「分析報告格式」的 §5 規則。直接更新既有報告檔案。
+          EOF
+          fi
 
       - name: Step 3.2 - Run opencode for report (with retry on hard validate)
         if: steps.labelcheck.outputs.skip != 'true'
@@ -251,12 +343,16 @@ jobs:
           VALIDATE_TYPE: report
         run: |
           set -euo pipefail
+          current_round_num="${ROUND_ID#R}"
           attempt=0
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
             echo "--- Step 3 (report) attempt $attempt/$MAX_RETRY ---"
-            # 清掉本 PR 的 report（避免 opencode 看到「已存在」不重寫）
-            rm -f output/${PR_NUMBER}_*.md
+            # R1 才清掉 report（避免 opencode 看到「已存在」不重寫）
+            # R2+ 不清，讓 agent 讀取既有報告並追加 QA
+            if (( current_round_num == 1 )); then
+              rm -f output/${PR_NUMBER}_*.md
+            fi
             opencode run --model "$OPENCODE_MODEL" --title "${STEP_NAME}-$attempt" "$(cat /tmp/step3_report_prompt.txt)" || {
               echo "opencode run failed, retry"
               continue
@@ -315,11 +411,23 @@ jobs:
           cat > /tmp/step4_prompt.txt <<EOF
           你是「技術解析助理」。現在執行 Step 4：總結本輪產出。
 
-          本輪產出：
-          - 分析報告：${REPORT_FILE}
-          - Step 1 log：${STEP1_LOG}
-          - Step 2 log：${STEP2_LOG}
-          - Step 3 log：${STEP3_LOG}
+          $(cat /tmp/conversation_context.txt)
+
+          上方是 conversation context。下方是這一輪（${ROUND_ID}）所有 step 的 execution log：
+
+          === Step 1 execution log (${STEP1_LOG}) ===
+          $(cat ${STEP1_LOG} 2>/dev/null || echo "(尚未產出)")
+          === End of Step 1 log ===
+
+          === Step 2 execution log (${STEP2_LOG}) ===
+          $(cat ${STEP2_LOG} 2>/dev/null || echo "(尚未產出)")
+          === End of Step 2 log ===
+
+          === Step 3 execution log (${STEP3_LOG}) ===
+          $(cat ${STEP3_LOG} 2>/dev/null || echo "(尚未產出)")
+          === End of Step 3 log ===
+
+          本輪產出的分析報告：${REPORT_FILE}
 
           產出 ${STEP4_LOG}。這是「你自己的動作總結」，格式必須是 4 個 section：
           ## 狀況理解
