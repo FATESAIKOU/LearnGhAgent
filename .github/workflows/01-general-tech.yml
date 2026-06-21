@@ -1,25 +1,29 @@
 name: 01-general-tech
 
 # 觸發條件：
-# 1. workflow_dispatch (input: pr_number) — 由 create-pr workflow 末段或手動觸發
-# 2. issue_comment on PR (user 留言觸發接續工作)
+# 1. workflow_dispatch (input: pr_number) — 手動觸發
+# 2. pull_request opened — PR 一建立就自動執行（與 create-pr 接力）
+# 3. issue_comment on PR — user 在 PR 留言觸發接續工作
 on:
   workflow_dispatch:
     inputs:
       pr_number:
         description: "PR number to execute"
         required: true
+  pull_request:
+    types: [opened]
   issue_comment:
     types: [created]
 
 jobs:
   execute:
-    # workflow_dispatch 一律跑；issue_comment 只在 PR comment 且非 bot 作者且帶 project:01-general-tech label 時跑
+    # workflow_dispatch 一律跑；
+    # pull_request opened 只在帶 project:01-general-tech label 時跑；
+    # issue_comment 只在 PR comment 且非 bot 作者時跑
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issue_comment' &&
-       github.event.issue.pull_request != null &&
-       github.event.comment.author_association != 'OWNER' || github.event.comment.user.login != 'github-actions[bot]')
+      (github.event_name == 'pull_request' && github.event.action == 'opened') ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.user.login != 'github-actions[bot]')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -54,7 +58,10 @@ jobs:
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             pr_number="${{ github.event.inputs.pr_number }}"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            pr_number="${{ github.event.pull_request.number }}"
           else
+            # issue_comment
             pr_number="${{ github.event.issue.number }}"
           fi
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
