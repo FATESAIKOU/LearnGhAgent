@@ -99,4 +99,8 @@
 5. 我來丟github issue測試 4. 的觸發狀況
 6. 建立 root(也就是可以建立 project 的 workflow)
 7. 把 root workflow 丟上 github, 連接上 github issue/github pr new chat 觸發
-5. 我來丟github issue測試 7. 的觸發狀況
+8. 我來丟github issue測試 7. 的觸發狀況
+
+※ 注意 每一步都需要經過我 review 否則不該進下一步
+※ 注意 你不得同時進行多步
+※ 我的 ollama cloud 預期設定放在 myllminfo.md
