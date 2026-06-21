@@ -158,15 +158,16 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         continue-on-error: true
         run: |
+          REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_step1.md"
           {
             python3 "$CHATLOG" /tmp/chatlog.json toprompt
             echo ""
             echo "=== 本次任務 ==="
             echo "你是「技術解析助理」。現在執行 Step 1 的軟性驗證。"
             echo "請讀取 judge/step1-intent.md 取得 review 觀點，再讀取 ${STEP1_LOG}，依觀點做評估。"
-            echo "產出 judge/step1-intent-review.md，格式："
+            echo "產出 ${REVIEW_FILE}，格式："
             echo "## 驗證項目（表格：項目 | 結果 | 備註）/ ## 問題點 / ## 建議"
-            echo "直接把檔案內容寫到 judge/step1-intent-review.md。"
+            echo "直接把檔案內容寫到 ${REVIEW_FILE}。"
           } > /tmp/step1_review_prompt.txt
           opencode run --model "$OPENCODE_MODEL" --title "step1-review" "$(cat /tmp/step1_review_prompt.txt)" || echo "soft validate failed (optional), continue"
 
@@ -224,15 +225,16 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         continue-on-error: true
         run: |
+          REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_step2.md"
           {
             python3 "$CHATLOG" /tmp/chatlog.json toprompt
             echo ""
             echo "=== 本次任務 ==="
             echo "你是「技術解析助理」。現在執行 Step 2 的軟性驗證。"
             echo "請讀取 judge/step2-plan.md 取得 review 觀點，再讀取 ${STEP2_LOG}，依觀點做評估。"
-            echo "產出 judge/step2-plan-review.md，格式："
+            echo "產出 ${REVIEW_FILE}，格式："
             echo "## 驗證項目（表格：項目 | 結果 | 備註）/ ## 問題點 / ## 建議"
-            echo "直接把檔案內容寫到 judge/step2-plan-review.md。"
+            echo "直接把檔案內容寫到 ${REVIEW_FILE}。"
           } > /tmp/step2_review_prompt.txt
           opencode run --model "$OPENCODE_MODEL" --title "step2-review" "$(cat /tmp/step2_review_prompt.txt)" || echo "soft validate failed (optional), continue"
 
@@ -388,15 +390,16 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         continue-on-error: true
         run: |
+          REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_step4.md"
           {
             python3 "$CHATLOG" /tmp/chatlog.json toprompt
             echo ""
             echo "=== 本次任務 ==="
             echo "你是「技術解析助理」。現在執行 Step 4 的軟性驗證。"
             echo "請讀取 judge/step4-summary.md 取得 review 觀點，再讀取 ${STEP4_LOG}，依觀點做評估。"
-            echo "產出 judge/step4-summary-review.md，格式："
+            echo "產出 ${REVIEW_FILE}，格式："
             echo "## 驗證項目（表格：項目 | 結果 | 備註）/ ## 問題點 / ## 建議"
-            echo "直接把檔案內容寫到 judge/step4-summary-review.md。"
+            echo "直接把檔案內容寫到 ${REVIEW_FILE}。"
           } > /tmp/step4_review_prompt.txt
           opencode run --model "$OPENCODE_MODEL" --title "step4-review" "$(cat /tmp/step4_review_prompt.txt)" || echo "soft validate failed (optional), continue"
 
