@@ -255,6 +255,9 @@ jobs:
       - name: Step 3 - Build prompt
         run: |
           current_round_num="${ROUND_ID#R}"
+          REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_step3.md"
+          echo "STEP3_REVIEW=$REVIEW_FILE" >> "$GITHUB_ENV"
+          # 調研 prompt（同時產 report + step3-qa.md）
           {
             python3 "$CHATLOG" /tmp/chatlog.json toprompt
             echo ""
@@ -267,48 +270,60 @@ jobs:
             echo "=== End of Step 2 log ==="
             echo ""
             echo "=== 本次任務 ==="
-            echo "你是「技術解析助理」。現在執行 Step 3：基於調研資料，產出/更新最終分析報告。"
+            echo "你是「技術解析助理」。現在執行 Step 3：基於調研資料，產出/更新最終分析報告，並產出本 step 的 execution log。"
+            echo "你需要產出兩個檔案："
+            echo ""
+            echo "1. 分析報告："
             if (( current_round_num == 1 )); then
-              echo "這是 R1，請新建分析報告。檔名格式：output/${PR_NUMBER}_<技術名>.md"
-              echo "（<技術名> 由你從調研標的自行判斷決定，用簡潔英文）"
-              echo "報告必須含 4 個必要 section（首次產出無 ## 5. User Q&A）："
-              echo "## 1. 這個技術解決什麼問題？ / ## 2. 這個問題為什麼會發生？（背景） / ## 3. 這個技術是如何解決該問題的？ / ## 4. 是否存在解決類似問題的其他技術 / 框架 / 思考方式？"
-              echo "詳細格式見 know/AGENTS.md「分析報告格式」。直接把檔案內容寫到 output/ 目錄。"
+              echo "   檔名格式：output/${PR_NUMBER}_<技術名>.md（<技術名> 由你從調研標的自行判斷決定，用簡潔英文）"
+              echo "   報告必須含 4 個必要 section（首次產出無 ## 5. User Q&A）："
+              echo "   ## 1. 這個技術解決什麼問題？ / ## 2. 這個問題為什麼會發生？（背景） / ## 3. 這個技術是如何解決該問題的？ / ## 4. 是否存在解決類似問題的其他技術 / 框架 / 思考方式？"
+              echo "   詳細格式見 know/AGENTS.md「分析報告格式」。"
             else
-              echo "這是 ${ROUND_ID}（R2+），使用者正在追問前幾輪的內容。"
-              echo "請讀取既有報告（output/ 目錄中 ${PR_NUMBER}_*.md 的檔案），把這一輪的 QA 沉澱進報告的 ## 5. User Q&A 章節："
-              echo "- 將這一輪使用者提問構造化為 QA 條目，追加進 ## 5. User Q&A"
-              echo "- 既有 QA 不可刪改，新 QA 按序號遞增接續"
-              echo "- 若需補充 §1-§4 的內容也可更新，但不要刪除既有內容"
-              echo "- 報告檔名保持不變（沿用 R1 的檔名）"
-              echo "詳細格式見 know/AGENTS.md「分析報告格式」的 §5 規則。直接更新既有報告檔案。"
+              echo "   這是 ${ROUND_ID}（R2+），使用者正在追問前幾輪的內容。"
+              echo "   請讀取既有報告（output/ 目錄中 ${PR_NUMBER}_*.md 的檔案），把這一輪的 QA 沉澱進報告的 ## 5. User Q&A 章節："
+              echo "   - 將這一輪使用者提問構造化為 QA 條目，追加進 ## 5. User Q&A"
+              echo "   - 既有 QA 不可刪改，新 QA 按序號遞增接續"
+              echo "   - 若需補充 §1-§4 的內容也可更新，但不要刪除既有內容"
+              echo "   - 報告檔名保持不變（沿用 R1 的檔名）"
+              echo "   詳細格式見 know/AGENTS.md「分析報告格式」的 §5 規則。"
             fi
-          } > /tmp/step3_report_prompt.txt
+            echo ""
+            echo "2. 本 step 的 execution log：${STEP3_LOG}"
+            echo "   這是「你自己的動作總結」，格式必須是 4 個 section："
+            echo "   ## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
+            echo "   在「動作結束後的現狀」中必須包含：產出的報告檔名與本輪變更摘要。"
+            echo ""
+            echo "直接把兩個檔案內容分別寫到對應路徑。"
+          } > /tmp/step3_main_prompt.txt
+          # review prompt（產出可揮發 review 報告，跟其他 step 一致）
           {
             python3 "$CHATLOG" /tmp/chatlog.json toprompt
             echo ""
             echo "=== 本次任務 ==="
             echo "你是「技術解析助理」。現在執行 Step 3 的軟性驗證。"
             echo "請讀取 judge/step3-qa.md 取得 review 觀點，再讀取產出的分析報告（output/ 目錄中 ${PR_NUMBER}_*.md），依觀點做評估。"
-            echo "產出 ${STEP3_LOG}。這是「你自己的動作總結」，格式必須是 4 個 section："
-            echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
+            echo "產出 ${REVIEW_FILE}，格式："
+            echo "## 驗證項目（表格：項目 | 結果 | 備註）"
+            echo "## 問題點（若無則寫「無」）"
+            echo "## 建議（若無則寫「無」）"
             echo "最後一行必須是 VERDICT: PASS 或 VERDICT: FAIL"
-            echo "直接把檔案內容寫到 ${STEP3_LOG}。"
+            echo "直接把檔案內容寫到 ${REVIEW_FILE}。"
           } > /tmp/step3_review_prompt.txt
 
-      - name: Step 3 - Execute (report + hard validate + soft validate)
+      - name: Step 3 - Execute (opencode + hard validate + soft validate)
         run: |
           set -uo pipefail
           current_round_num="${ROUND_ID#R}"
           attempt=0
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
-            echo "::group::Step 3 - 執行 opencode report (attempt $attempt/$MAX_RETRY)"
-            rm -f "${STEP3_LOG}"
+            echo "::group::Step 3 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
+            rm -f "${STEP3_LOG}" "${STEP3_REVIEW}"
             if (( current_round_num == 1 )); then
               rm -f output/${PR_NUMBER}_*.md
             fi
-            opencode run --model "$OPENCODE_MODEL" --title "step3-report-$attempt" "$(cat /tmp/step3_report_prompt.txt)" || echo "report run failed (will validate)"
+            opencode run --model "$OPENCODE_MODEL" --title "step3-$attempt" "$(cat /tmp/step3_main_prompt.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
 
             echo "::group::Step 3 - Hard validate (report)"
@@ -322,10 +337,6 @@ jobs:
               continue
             fi
 
-            echo "::group::Step 3 - Soft validate (opencode review)"
-            opencode run --model "$OPENCODE_MODEL" --title "step3-review-$attempt" "$(cat /tmp/step3_review_prompt.txt)" || echo "review run failed"
-            echo "::endgroup::"
-
             echo "::group::Step 3 - Hard validate (step log)"
             ./validate.sh step-log-medium "${STEP3_LOG}"
             echo "::endgroup::"
@@ -333,7 +344,11 @@ jobs:
               echo "hard validate failed (step log), retry"
               continue
             fi
-            if ! grep -q "VERDICT: PASS" "${STEP3_LOG}" 2>/dev/null; then
+
+            echo "::group::Step 3 - Soft validate (opencode review)"
+            opencode run --model "$OPENCODE_MODEL" --title "step3-review-$attempt" "$(cat /tmp/step3_review_prompt.txt)" || echo "review run failed"
+            echo "::endgroup::"
+            if ! grep -q "VERDICT: PASS" "${STEP3_REVIEW}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
               continue
             fi
