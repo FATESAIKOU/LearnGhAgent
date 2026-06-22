@@ -93,11 +93,3 @@ jobs:
           echo "Created PR #$pr_number for issue #$issue_number (project: $project_name)"
           echo "PR_NUMBER=$pr_number" >> "$GITHUB_ENV"
 
-      - name: Notify PR created
-        if: steps.resolve.outputs.project_name != ''
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          # execute workflow 會監聽 pull_request: opened 自動觸發，這裡只留通知
-          gh pr comment "$PR_NUMBER" --body "✅ PR 已建立。execute workflow 將自動啟動（監聽 PR opened 事件）。" || echo "comment failed, continue"
