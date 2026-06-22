@@ -33,11 +33,11 @@ jobs:
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     outputs:
-      skip: ${{ steps.check.outputs.skip }}
-      pr_number: ${{ steps.check.outputs.pr_number }}
+      skip: ${{ steps.final.outputs.skip }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
     steps:
-      - name: Resolve PR number + check label
-        id: check
+      - name: Resolve PR number
+        id: resolve
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
@@ -48,11 +48,86 @@ jobs:
             pr_number="${{ github.event.issue.number }}"
           fi
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+
+      - name: Check 1 — token exists
+        id: check_token
+        run: |
+          set -euo pipefail
+          if [[ -z "${{ secrets.OLLAMA_API_KEY }}" ]]; then
+            echo "FAIL: OLLAMA_API_KEY secret is empty"
+            echo "fail=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "OK: token exists"
+            echo "fail=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check 2 — last comment is user (or only body)
+        id: check_last
+        if: steps.check_token.outputs.fail != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          pr_number="${{ steps.resolve.outputs.pr_number }}"
+          # pull_request opened 事件 = 只有 body，算 pass
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "OK: pull_request opened (only body)"
+            echo "fail=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # workflow_dispatch = 手動觸發，直接 pass（由 caller 負責判斷）
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "OK: workflow_dispatch (manual trigger)"
+            echo "fail=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # issue_comment 事件：檢查最後一則非 bot comment 是否為 user
+          # 觸發此 workflow 的 comment 本身就是 user 的（if 條件已過濾 bot）
+          # 但要確認「最後一則 comment 確實是 user 的」（而非 user 留完後 bot 又回了）
+          json=$(gh pr view "$pr_number" --json comments)
+          last_author=$(echo "$json" | jq -r '.comments[-1].author.login // empty')
+          if [[ -z "$last_author" ]]; then
+            echo "FAIL: no comments on PR"
+            echo "fail=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$last_author" == *"bot"* ]] || [[ "$last_author" == "github-actions"* ]] || [[ "$last_author" == "app/"* ]] || [[ "$last_author" == *"[bot]"* ]]; then
+            echo "FAIL: last comment is from bot ($last_author), not user"
+            echo "fail=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "OK: last comment is from user ($last_author)"
+            echo "fail=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check 3 — PR has correct label
+        id: check_label
+        if: steps.check_token.outputs.fail != 'true' && steps.check_last.outputs.fail != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          pr_number="${{ steps.resolve.outputs.pr_number }}"
           labels=$(gh pr view "$pr_number" --json labels -q '.labels[].name' 2>/dev/null || echo "")
           if echo "$labels" | grep -q '^project:01-general-tech$'; then
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "OK: has project:01-general-tech label"
+            echo "fail=false" >> "$GITHUB_OUTPUT"
           else
+            echo "FAIL: missing project:01-general-tech label"
+            echo "fail=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Aggregate — final skip decision
+        id: final
+        if: always()
+        run: |
+          token_fail="${{ steps.check_token.outputs.fail }}"
+          last_fail="${{ steps.check_last.outputs.fail }}"
+          label_fail="${{ steps.check_label.outputs.fail }}"
+          echo "token_fail=$token_fail last_fail=$last_fail label_fail=$label_fail"
+          if [[ "$token_fail" == "true" || "$last_fail" == "true" || "$label_fail" == "true" ]]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
   # ============================================================
