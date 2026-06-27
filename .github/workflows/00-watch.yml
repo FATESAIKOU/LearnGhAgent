@@ -1,0 +1,106 @@
+name: 00-watch
+
+# 觸發：issue opened（即時建 PR）+ schedule（每小時輪詢啟動 project workflow）
+on:
+  issues:
+    types: [opened]
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+    inputs:
+      skip_create:
+        description: "Skip PR creation, only poll existing PRs"
+        required: false
+        default: "false"
+
+concurrency:
+  group: 00-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      # ============================================================
+      # Phase 1: 對新開的 issue 建 PR（issue opened 事件）
+      # ============================================================
+      - name: Create PR for new issue
+        if: github.event_name == 'issues'
+        run: |
+          set -euo pipefail
+          issue_number="${{ github.event.issue.number }}"
+          project_name=$(gh issue view "$issue_number" --json labels -q '.labels[].name' | grep -E '^project:' | head -1 | sed 's/^project://')
+          if [[ -z "$project_name" ]]; then
+            echo "No project:<name> label on issue $issue_number, skip"
+            exit 0
+          fi
+          # 已有對應 branch 就跳過（避免重複建 PR）
+          branch_name="${project_name}_${issue_number}"
+          if gh api repos/$GH_REPO/branches/$branch_name --silent 2>/dev/null; then
+            echo "Branch $branch_name already exists, skip PR creation"
+            exit 0
+          fi
+          issue_json=$(gh issue view "$issue_number" --json title,body)
+          issue_title=$(echo "$issue_json" | jq -r .title)
+          issue_body=$(echo "$issue_json" | jq -r .body)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch_name"
+          git commit --allow-empty -m "Initialize PR branch for issue #$issue_number (project: $project_name)"
+          git push origin "$branch_name"
+          pr_body=$(printf '## Original Issue: #%s\n\n%s\n\n---\n_This PR was auto-created from issue #%s._' "$issue_number" "$issue_body" "$issue_number")
+          gh pr create --base main --head "$branch_name" \
+            --title "[${project_name}] ${issue_title}" \
+            --body "$pr_body" \
+            --label "project:${project_name}" \
+            --label "agent-exec"
+          echo "PR created for issue #$issue_number"
+
+      # ============================================================
+      # Phase 2: 輪詢所有 open PR，啟動需要的 project workflow
+      # ============================================================
+      - name: Poll PRs and launch workflows
+        run: |
+          set -euo pipefail
+          # 列出所有 open PR（帶 label + head ref name）
+          prs_json=$(gh pr list --repo "$GH_REPO" --state open --json number,headRefName,labels,comments --limit 50)
+          echo "$prs_json" | jq -c '.[]' | while read -r pr; do
+            pr_number=$(echo "$pr" | jq -r .number)
+            branch_name=$(echo "$pr" | jq -r .headRefName)
+            project_name=$(echo "$pr" | jq -r '.labels[] | select(.name | startswith("project:")) | .name' | sed 's/^project://' | head -1)
+            if [[ -z "$project_name" ]]; then
+              echo "PR #$pr_number: no project label, skip"
+              continue
+            fi
+            # 判定：最後一則 comment 是否為 user（非 bot）
+            last_author=$(echo "$pr" | jq -r '.comments[-1].author.login // empty')
+            if [[ -n "$last_author" ]] && [[ "$last_author" == *"bot"* || "$last_author" == "github-actions"* || "$last_author" == "app/"* || "$last_author" == *"[bot]"* ]]; then
+              echo "PR #$pr_number: last comment is bot, skip"
+              continue
+            fi
+            # 判定：對應 project workflow 是否有 in-progress 的 run
+            existing_runs=$(gh run list --repo "$GH_REPO" --workflow "${project_name}.yml" --limit 5 --json status,conclusion 2>/dev/null || echo "[]")
+            in_progress=$(echo "$existing_runs" | jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length')
+            if [[ "$in_progress" -gt 0 ]]; then
+              echo "PR #$pr_number: workflow ${project_name}.yml already in progress, skip"
+              continue
+            fi
+            # 啟動 project workflow
+            echo "PR #$pr_number: launching ${project_name}.yml"
+            gh workflow run "${project_name}.yml" --ref main -f pr_number="$pr_number" || echo "Failed to launch ${project_name}.yml for PR #$pr_number"
+          done
+          echo "Poll complete"
