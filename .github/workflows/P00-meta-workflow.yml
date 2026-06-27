@@ -295,15 +295,26 @@ jobs:
       - name: Step 3 - Execute (opencode + hard validate + soft validate)
         run: |
           set -uo pipefail
+          # 用絕對路徑避免 opencode 寫到新建 project 的目錄
+          PROJECT_ROOT="$(git rev-parse --show-toplevel)/projects/P00-meta-workflow"
+          STEP3_LOG_ABS="${PROJECT_ROOT}/${STEP3_LOG}"
+          STEP3_REVIEW_ABS="${PROJECT_ROOT}/${STEP3_REVIEW}"
           attempt=0
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
             echo "::group::Step 3 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
-            rm -f "${STEP3_LOG}" "${STEP3_REVIEW}"
+            rm -f "${STEP3_LOG_ABS}" "${STEP3_REVIEW_ABS}"
             opencode run --model "$OPENCODE_MODEL" --title "step3-$attempt" "$(cat /tmp/step3_main_prompt.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
+            # 若 opencode 寫到相對路徑而非絕對，嘗試搬過來
+            if [[ ! -f "${STEP3_LOG_ABS}" && -f "${STEP3_LOG}" ]]; then
+              cp "${STEP3_LOG}" "${STEP3_LOG_ABS}"
+            fi
+            if [[ ! -f "${STEP3_REVIEW_ABS}" && -f "${STEP3_REVIEW}" ]]; then
+              cp "${STEP3_REVIEW}" "${STEP3_REVIEW_ABS}"
+            fi
             echo "::group::Step 3 - Hard validate (step log)"
-            ./validate.sh step-log-medium "${STEP3_LOG}"
+            ./validate.sh step-log-medium "${STEP3_LOG_ABS}"
             hard_rc=$?
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
@@ -313,7 +324,10 @@ jobs:
             echo "::group::Step 3 - Soft validate (opencode review)"
             opencode run --model "$OPENCODE_MODEL" --title "step3-review-$attempt" "$(cat /tmp/step3_review_prompt.txt)" || echo "review run failed"
             echo "::endgroup::"
-            if ! grep -q "VERDICT: PASS" "${STEP3_REVIEW}" 2>/dev/null; then
+            if [[ ! -f "${STEP3_REVIEW_ABS}" && -f "${STEP3_REVIEW}" ]]; then
+              cp "${STEP3_REVIEW}" "${STEP3_REVIEW_ABS}"
+            fi
+            if ! grep -q "VERDICT: PASS" "${STEP3_REVIEW_ABS}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
               continue
             fi
