@@ -112,7 +112,7 @@ jobs:
               continue
             fi
 
-            # 啟動（01-general-tech.yml 有 concurrency per PR，重複觸發會被 GitHub 擋掉）
+            # 啟動（project workflow 有 concurrency per PR，重複觸發會被 GitHub 擋掉）
             echo "PR #$pr_number: launching ${project}.yml"
             gh workflow run "${project}.yml" --ref main -f pr_number="$pr_number" \
               || echo "Failed to launch ${project}.yml for PR #$pr_number"

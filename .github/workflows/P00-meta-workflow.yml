@@ -1,6 +1,7 @@
-name: 01-general-tech
+name: P00-meta-workflow
 
-# 只接受 workflow_dispatch（由 00-watch.yml 輪詢啟動）
+# 職責：接受 issue，建新 project（harness + workflow）
+# 觸發：只接受 workflow_dispatch（由 W00-watch.yml 輪詢啟動）
 on:
   workflow_dispatch:
     inputs:
@@ -12,7 +13,6 @@ on:
         required: false
         default: "3"
 
-# 確保同一 PR 同時間只有一個 workflow run
 concurrency:
   group: pr-${{ github.event.inputs.pr_number }}
   cancel-in-progress: false
@@ -31,16 +31,8 @@ jobs:
         id: guard
         run: |
           set -uo pipefail
-          # resolve PR number from event payload
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            pr_number="${{ github.event.inputs.pr_number }}"
-          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            pr_number="${{ github.event.pull_request.number }}"
-          else
-            pr_number="${{ github.event.issue.number }}"
-          fi
+          pr_number="${{ github.event.inputs.pr_number }}"
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
-
           # token check: 輕量 chat call，非 200 = 無用量或 token 無效
           http_code=$(curl -sS -o /dev/null -w "%{http_code}" -X POST https://ollama.com/api/chat \
             -H "Authorization: Bearer ${{ secrets.OLLAMA_API_KEY }}" -H "Content-Type: application/json" \
@@ -49,24 +41,19 @@ jobs:
             echo "FAIL: token check (HTTP $http_code)"
             echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
-
           # last comment check: 抓 PR 最後一則 comment author，若是 bot = user 還沒追問
           last_author=$(gh pr view "$pr_number" --json comments -q '.comments[-1].author.login // empty')
           if [[ -n "$last_author" ]] && [[ "$last_author" == *"bot"* || "$last_author" == "github-actions"* || "$last_author" == "app/"* || "$last_author" == *"[bot]"* ]]; then
             echo "FAIL: last comment is bot ($last_author)"
             echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
-
-          # label check: PR 必須帶有 project:01-general-tech label
-          if ! gh pr view "$pr_number" --json labels -q '.labels[].name' | grep -q '^project:01-general-tech$'; then
+          # label check: PR 必須帶有 project:P00-meta-workflow label
+          if ! gh pr view "$pr_number" --json labels -q '.labels[].name' | grep -q '^project:P00-meta-workflow$'; then
             echo "FAIL: missing label"
             echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
-  # ============================================================
-  # Job 2: execute
-  # ============================================================
   execute:
     needs: guard
     if: needs.guard.outputs.skip != 'true'
@@ -80,13 +67,13 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
       OPENCODE_MODEL: ollama-cloud/${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash' }}
-      PROJECT_DIR: projects/01-general-tech
+      PROJECT_DIR: projects/P00-meta-workflow
       MAX_RETRY: ${{ github.event.inputs.max_retry || '3' }}
-      CHATLOG: ../../.github/scripts/chatlog.py
+      CHATLOG: ../../.github/workflows/P00-meta-workflow/scripts/chatlog.py
       PR_NUMBER: ${{ needs.guard.outputs.pr_number }}
     defaults:
       run:
-        working-directory: projects/01-general-tech
+        working-directory: projects/P00-meta-workflow
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -102,7 +89,7 @@ jobs:
 
       - name: Switch to PR branch + build context + round id + paths
         run: |
-          set -euo pipefail
+          set -uo pipefail
           pr_branch=$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName 2>/dev/null || echo "")
           if [[ -n "$pr_branch" ]]; then
             git fetch origin "$pr_branch"
@@ -121,9 +108,7 @@ jobs:
           echo "STEP4_LOG=memory/log/${PR_NUMBER}_${round_line}_step4-summary.md" >> "$GITHUB_ENV"
           echo "context built: $(wc -c < /tmp/conversation_context.txt) chars, round=$round_line"
 
-      # ============================================================
-      # Step 1: 意圖理解
-      # ============================================================
+      # Step 1: 意圖理解 — 從 issue 內容解析要建什麼 project
       - name: Step 1 - Build prompt
         run: |
           REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_step1.md"
@@ -132,11 +117,13 @@ jobs:
             python3 "$CHATLOG" /tmp/chatlog.json toprompt
             echo ""
             echo "=== 本次任務 ==="
-            echo "你是「技術解析助理」。現在執行 Step 1：意圖理解。"
-            echo "請依 know/AGENTS.md 中 Step 1 的規定，產出 ${STEP1_LOG}。"
-            echo "這是「你自己的動作總結」。格式必須是 4 個 section："
+            echo "你是「Meta Workflow 助理」。現在執行 Step 1：意圖理解。"
+            echo "使用者要建立一個新 project。請從 PR body 中解析："
+            echo "- project_name（簡潔英文資料夾名，如 02-news-catchup）"
+            echo "- project_description（一句話描述）"
+            echo "- project_role（agent 角色描述）"
+            echo "產出 ${STEP1_LOG}。格式必須是 4 個 section："
             echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
-            echo "注意：你要理解的是「這一輪（${ROUND_ID}）使用者的意圖」。若這是 R2+，使用者可能在追問、質疑或要求補充前幾輪的內容。"
             echo "檔案長度上限：2000 字。超過會被硬性驗證拒絕，請精簡。"
             echo "直接把檔案內容寫到 ${STEP1_LOG}，不要額外輸出說明文字。"
           } > /tmp/step1_prompt.txt
@@ -144,7 +131,7 @@ jobs:
             python3 "$CHATLOG" /tmp/chatlog.json toprompt
             echo ""
             echo "=== 本次任務 ==="
-            echo "你是「技術解析助理」。現在執行 Step 1 的軟性驗證。"
+            echo "你是「Meta Workflow 助理」。現在執行 Step 1 的軟性驗證。"
             echo "請讀取 judge/step1-intent.md 取得 review 觀點，再讀取 ${STEP1_LOG}，依觀點做評估。"
             echo "產出 ${REVIEW_FILE}，格式："
             echo "## 驗證項目（表格：項目 | 結果 | 備註）"
@@ -164,7 +151,7 @@ jobs:
             rm -f "${STEP1_LOG}" "${STEP1_REVIEW}"
             opencode run --model "$OPENCODE_MODEL" --title "step1-$attempt" "$(cat /tmp/step1_prompt.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
-
+            # token check: 輕量 chat call，非 200 = 無用量或 token 無效
             echo "::group::Step 1 - Hard validate"
             ./validate.sh step-log-short "${STEP1_LOG}"
             hard_rc=$?
@@ -173,7 +160,7 @@ jobs:
               echo "hard validate failed, retry"
               continue
             fi
-
+            # last comment check: 抓 PR 最後一則 comment author，若是 bot = user 還沒追問
             echo "::group::Step 1 - Soft validate (opencode review)"
             opencode run --model "$OPENCODE_MODEL" --title "step1-review-$attempt" "$(cat /tmp/step1_review_prompt.txt)" || echo "review run failed"
             echo "::endgroup::"
@@ -181,16 +168,13 @@ jobs:
               echo "soft validate FAIL, retry"
               continue
             fi
-
             echo "Step 1 passed on attempt $attempt"
             exit 0
           done
           echo "Step 1 failed after $MAX_RETRY attempts"
           exit 1
 
-      # ============================================================
-      # Step 2: 執行計劃 (C1)
-      # ============================================================
+      # Step 2: 執行計劃 — 生成 project 檔案
       - name: Step 2 - Build prompt
         run: |
           REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_step2.md"
@@ -203,13 +187,17 @@ jobs:
             echo "=== End of Step 1 log ==="
             echo ""
             echo "=== 本次任務 ==="
-            echo "你是「技術解析助理」。現在執行 Step 2 的第一個 sub-step C1：取得 repo metadata 與主要文件。"
-            echo "請依 do/skills/document/SKILL.md 的標準調研動作執行："
-            echo "1. 若是 GitHub repo，用 gh api / gh repo view 取得 metadata"
-            echo "2. 擷取 README.md 與關鍵子文件"
-            echo "3. 補查背景脈絡"
-            echo "若是 R2+，請針對這輪的意圖執行調研，而非重新做 R1 的事。"
-            echo "產出 ${STEP2_LOG}。這是「你自己的動作總結」，格式必須是 4 個 section："
+            echo "你是「Meta Workflow 助理」。現在執行 Step 2：根據 Step 1 的意圖理解，生成新 project 的檔案。"
+            echo "請在 projects/ 目錄下建立新 project 資料夾（名稱從 Step 1 解析），包含："
+            echo "1. know/AGENTS.md — project 的 agent 角色定義 + 4 step 執行流程（參考 projects/P01-general-tech/know/AGENTS.md 的格式）"
+            echo "2. know/我.md — 使用者 persona（可從 projects/P01-general-tech/know/我.md 複製）"
+            echo "3. opencode.json — LLM 設定（可從 projects/P01-general-tech/opencode.json 複製，改 instructions 路徑）"
+            echo "4. validate.sh — 硬性驗證腳本（從 projects/P01-general-tech/validate.sh 複製）"
+            echo "5. judge/ — review 觀點（step1-intent.md ~ step4-summary.md，根據 project 特性調整）"
+            echo "6. memory/log/.gitkeep, output/.gitkeep, guardrail/.gitkeep"
+            echo "7. do/skills/ — 根據 project 需求建立 skill"
+            echo "同時在 .github/workflows/ 建立 P<project_name>.yml（從 P01-general-tech.yml 複製，改 name + label + PROJECT_DIR + CHATLOG 路徑）。"
+            echo "產出 ${STEP2_LOG}。格式必須是 4 個 section："
             echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
             echo "檔案長度上限：6000 字。超過會被硬性驗證拒絕，請精簡。"
             echo "直接把檔案內容寫到 ${STEP2_LOG}。"
@@ -218,7 +206,7 @@ jobs:
             python3 "$CHATLOG" /tmp/chatlog.json toprompt
             echo ""
             echo "=== 本次任務 ==="
-            echo "你是「技術解析助理」。現在執行 Step 2 的軟性驗證。"
+            echo "你是「Meta Workflow 助理」。現在執行 Step 2 的軟性驗證。"
             echo "請讀取 judge/step2-plan.md 取得 review 觀點，再讀取 ${STEP2_LOG}，依觀點做評估。"
             echo "產出 ${REVIEW_FILE}，格式："
             echo "## 驗證項目（表格：項目 | 結果 | 備註）"
@@ -238,7 +226,6 @@ jobs:
             rm -f "${STEP2_LOG}" "${STEP2_REVIEW}"
             opencode run --model "$OPENCODE_MODEL" --title "step2-$attempt" "$(cat /tmp/step2_prompt.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
-
             echo "::group::Step 2 - Hard validate"
             ./validate.sh step-log-long "${STEP2_LOG}"
             hard_rc=$?
@@ -247,7 +234,6 @@ jobs:
               echo "hard validate failed, retry"
               continue
             fi
-
             echo "::group::Step 2 - Soft validate (opencode review)"
             opencode run --model "$OPENCODE_MODEL" --title "step2-review-$attempt" "$(cat /tmp/step2_review_prompt.txt)" || echo "review run failed"
             echo "::endgroup::"
@@ -255,22 +241,18 @@ jobs:
               echo "soft validate FAIL, retry"
               continue
             fi
-
             echo "Step 2 passed on attempt $attempt"
             exit 0
           done
           echo "Step 2 failed after $MAX_RETRY attempts"
           exit 1
 
-      # ============================================================
-      # Step 3: 品質保證 (產報告 + 軟性驗證)
-      # ============================================================
+      # Step 3: 品質保證 — 驗證產出的檔案
       - name: Step 3 - Build prompt
         run: |
-          current_round_num="${ROUND_ID#R}"
           REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_step3.md"
           echo "STEP3_REVIEW=$REVIEW_FILE" >> "$GITHUB_ENV"
-          # 調研 prompt（同時產 report + step3-qa.md）
+          current_round_num="${ROUND_ID#R}"
           {
             python3 "$CHATLOG" /tmp/chatlog.json toprompt
             echo ""
@@ -283,42 +265,25 @@ jobs:
             echo "=== End of Step 2 log ==="
             echo ""
             echo "=== 本次任務 ==="
-            echo "你是「技術解析助理」。現在執行 Step 3：基於調研資料，產出/更新最終分析報告，並產出本 step 的 execution log。"
-            echo "你需要產出兩個檔案："
-            echo ""
-            echo "1. 分析報告："
-            if (( current_round_num == 1 )); then
-              echo "   檔名格式：output/${PR_NUMBER}_<技術名>.md（<技術名> 由你從調研標的自行判斷決定，用簡潔英文）"
-              echo "   報告必須含 4 個必要 section（首次產出無 ## 5. User Q&A）："
-              echo "   ## 1. 這個技術解決什麼問題？ / ## 2. 這個問題為什麼會發生？（背景） / ## 3. 這個技術是如何解決該問題的？ / ## 4. 是否存在解決類似問題的其他技術 / 框架 / 思考方式？"
-              echo "   詳細格式見 know/AGENTS.md「分析報告格式」。"
-            echo "   報告長度上限：50000 字。超過會被硬性驗證拒絕。"
-            else
-              echo "   這是 ${ROUND_ID}（R2+），使用者正在追問前幾輪的內容。"
-              echo "   請讀取既有報告（output/ 目錄中 ${PR_NUMBER}_*.md 的檔案），把這一輪的 QA 沉澱進報告的 ## 5. User Q&A 章節："
-              echo "   - 將這一輪使用者提問構造化為 QA 條目，追加進 ## 5. User Q&A"
-              echo "   - 既有 QA 不可刪改，新 QA 按序號遞增接續"
-              echo "   - 若需補充 §1-§4 的內容也可更新，但不要刪除既有內容"
-              echo "   - 報告檔名保持不變（沿用 R1 的檔名）"
-              echo "   詳細格式見 know/AGENTS.md「分析報告格式」的 §5 規則。"
-              echo "   報告總長度上限：50000 字（含既有內容）。超過會被硬性驗證拒絕。"
-            fi
-            echo ""
-            echo "2. 本 step 的 execution log：${STEP3_LOG}"
-            echo "   這是「你自己的動作總結」，格式必須是 4 個 section："
-            echo "   ## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
-            echo "   在「動作結束後的現狀」中必須包含：產出的報告檔名與本輪變更摘要。"
-            echo "   execution log 長度上限：3000 字。超過會被硬性驗證拒絕，請精簡。"
-            echo ""
-            echo "直接把兩個檔案內容分別寫到對應路徑。"
+            echo "你是「Meta Workflow 助理」。現在執行 Step 3：驗證 Step 2 產出的 project 檔案是否完整且正確。"
+            echo "檢查項目："
+            echo "1. projects/ 下有新建的 project 資料夾"
+            echo "2. know/AGENTS.md 存在且含 4 step 流程定義"
+            echo "3. .github/workflows/ 下有對應的 P<name>.yml"
+            echo "4. opencode.json + validate.sh 存在"
+            echo "5. judge/ 有 4 個 review 觀點檔"
+            echo "產出 ${STEP3_LOG}。格式必須是 4 個 section："
+            echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
+            echo "execution log 長度上限：3000 字。超過會被硬性驗證拒絕，請精簡。"
+            echo "最後一行必須是 VERDICT: PASS 或 VERDICT: FAIL"
+            echo "直接把檔案內容寫到 ${STEP3_LOG}。"
           } > /tmp/step3_main_prompt.txt
-          # review prompt（產出可揮發 review 報告，跟其他 step 一致）
           {
             python3 "$CHATLOG" /tmp/chatlog.json toprompt
             echo ""
             echo "=== 本次任務 ==="
-            echo "你是「技術解析助理」。現在執行 Step 3 的軟性驗證。"
-            echo "請讀取 judge/step3-qa.md 取得 review 觀點，再讀取產出的分析報告（output/ 目錄中 ${PR_NUMBER}_*.md），依觀點做評估。"
+            echo "你是「Meta Workflow 助理」。現在執行 Step 3 的軟性驗證。"
+            echo "請讀取 judge/step3-qa.md 取得 review 觀點，再讀取 ${STEP3_LOG}，依觀點做評估。"
             echo "產出 ${REVIEW_FILE}，格式："
             echo "## 驗證項目（表格：項目 | 結果 | 備註）"
             echo "## 問題點（若無則寫「無」）"
@@ -330,30 +295,13 @@ jobs:
       - name: Step 3 - Execute (opencode + hard validate + soft validate)
         run: |
           set -uo pipefail
-          current_round_num="${ROUND_ID#R}"
           attempt=0
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
             echo "::group::Step 3 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
             rm -f "${STEP3_LOG}" "${STEP3_REVIEW}"
-            if (( current_round_num == 1 )); then
-              rm -f output/${PR_NUMBER}_*.md
-            fi
             opencode run --model "$OPENCODE_MODEL" --title "step3-$attempt" "$(cat /tmp/step3_main_prompt.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
-
-            echo "::group::Step 3 - Hard validate (report)"
-            report_file=$(ls output/${PR_NUMBER}_*.md 2>/dev/null | head -1)
-            if [[ -n "$report_file" ]]; then
-              ./validate.sh report "$report_file"
-            fi
-            hard_rc=$?
-            echo "::endgroup::"
-            if [[ -z "$report_file" || $hard_rc -ne 0 ]]; then
-              echo "hard validate failed (report), retry"
-              continue
-            fi
-
             echo "::group::Step 3 - Hard validate (step log)"
             ./validate.sh step-log-medium "${STEP3_LOG}"
             hard_rc=$?
@@ -362,7 +310,6 @@ jobs:
               echo "hard validate failed (step log), retry"
               continue
             fi
-
             echo "::group::Step 3 - Soft validate (opencode review)"
             opencode run --model "$OPENCODE_MODEL" --title "step3-review-$attempt" "$(cat /tmp/step3_review_prompt.txt)" || echo "review run failed"
             echo "::endgroup::"
@@ -370,17 +317,13 @@ jobs:
               echo "soft validate FAIL, retry"
               continue
             fi
-
-            echo "REPORT_FILE=$report_file" >> "$GITHUB_ENV"
             echo "Step 3 passed on attempt $attempt"
             exit 0
           done
           echo "Step 3 failed after $MAX_RETRY attempts"
           exit 1
 
-      # ============================================================
       # Step 4: 總結
-      # ============================================================
       - name: Step 4 - Build prompt
         run: |
           REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_step4.md"
@@ -400,13 +343,11 @@ jobs:
             cat ${STEP3_LOG} 2>/dev/null || echo "(尚未產出)"
             echo "=== End of Step 3 log ==="
             echo ""
-            echo "本輪產出的分析報告：${REPORT_FILE}"
-            echo ""
             echo "=== 本次任務 ==="
-            echo "你是「技術解析助理」。現在執行 Step 4：總結本輪產出。"
-            echo "產出 ${STEP4_LOG}。這是「你自己的動作總結」，格式必須是 4 個 section："
+            echo "你是「Meta Workflow 助理」。現在執行 Step 4：總結本輪產出。"
+            echo "產出 ${STEP4_LOG}。格式必須是 4 個 section："
             echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
-            echo "在「動作結束後的現狀」中必須包含：本輪所有產出檔案清單（report + 各 step log）與待追問方向（若無則寫「無」）。"
+            echo "在「動作結束後的現狀」中必須包含：新建的 project 名稱與檔案清單。"
             echo "檔案長度上限：2000 字。超過會被硬性驗證拒絕，請精簡。"
             echo "直接把檔案內容寫到 ${STEP4_LOG}。"
           } > /tmp/step4_prompt.txt
@@ -414,7 +355,7 @@ jobs:
             python3 "$CHATLOG" /tmp/chatlog.json toprompt
             echo ""
             echo "=== 本次任務 ==="
-            echo "你是「技術解析助理」。現在執行 Step 4 的軟性驗證。"
+            echo "你是「Meta Workflow 助理」。現在執行 Step 4 的軟性驗證。"
             echo "請讀取 judge/step4-summary.md 取得 review 觀點，再讀取 ${STEP4_LOG}，依觀點做評估。"
             echo "產出 ${REVIEW_FILE}，格式："
             echo "## 驗證項目（表格：項目 | 結果 | 備註）"
@@ -434,7 +375,6 @@ jobs:
             rm -f "${STEP4_LOG}" "${STEP4_REVIEW}"
             opencode run --model "$OPENCODE_MODEL" --title "step4-$attempt" "$(cat /tmp/step4_prompt.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
-
             echo "::group::Step 4 - Hard validate"
             ./validate.sh step-log-short "${STEP4_LOG}"
             hard_rc=$?
@@ -443,7 +383,6 @@ jobs:
               echo "hard validate failed, retry"
               continue
             fi
-
             echo "::group::Step 4 - Soft validate (opencode review)"
             opencode run --model "$OPENCODE_MODEL" --title "step4-review-$attempt" "$(cat /tmp/step4_review_prompt.txt)" || echo "review run failed"
             echo "::endgroup::"
@@ -451,43 +390,35 @@ jobs:
               echo "soft validate FAIL, retry"
               continue
             fi
-
             echo "Step 4 passed on attempt $attempt"
             exit 0
           done
           echo "Step 4 failed after $MAX_RETRY attempts"
           exit 1
 
-      # ============================================================
-      # Final: Commit + Post logs to PR chat
-      # ============================================================
+      # Final: Commit + Post logs
       - name: Commit & push
         working-directory: .
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add projects/01-general-tech/memory projects/01-general-tech/output
-          git commit -m "tech-analysis: PR #${PR_NUMBER} ${ROUND_ID}" || echo "nothing to commit"
+          git add projects/ .github/workflows/P*.yml
+          git commit -m "meta-workflow: PR #${PR_NUMBER} ${ROUND_ID}" || echo "nothing to commit"
           git pull --rebase origin "$(git rev-parse --abbrev-ref HEAD)" || echo "pull rebase skipped"
           git push --force-with-lease
 
       - name: Post logs to PR chat (in order)
         run: |
-          set -euo pipefail
+          set -uo pipefail
           post_log() {
             local label="$1"
             local file="$2"
             local tag="$3"
-            if [[ ! -f "$file" ]]; then
-              echo "skip: $file not found"
-              return
-            fi
+            if [[ ! -f "$file" ]]; then echo "skip: $file not found"; return; fi
             local content
             content="$(cat "$file")"
             local prefix=""
-            if [[ -n "$tag" ]]; then
-              prefix="<!-- chatlog:${tag} -->\n"
-            fi
+            if [[ -n "$tag" ]]; then prefix="<!-- chatlog:${tag} -->\n"; fi
             local max=60000
             if (( ${#content} <= max )); then
               gh pr comment "$PR_NUMBER" --body "$(printf "${prefix}### [%s]\n\n\`\`\`markdown\n%s\n\`\`\`\n" "$label" "$content")"
@@ -505,4 +436,3 @@ jobs:
           post_log "Step 2 - 執行計劃 C1" "$STEP2_LOG" ""
           post_log "Step 3 - 品質保證" "$STEP3_LOG" ""
           post_log "Step 4 - 總結" "$STEP4_LOG" "summary:${ROUND_ID}"
-          post_log "分析報告" "$REPORT_FILE" ""
