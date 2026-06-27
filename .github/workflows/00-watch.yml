@@ -113,9 +113,9 @@ jobs:
             fi
 
             # 判定：project workflow 有 in-progress run → 跳過
-            runs=$(gh run list --repo "$GH_REPO" --workflow "${project}.yml" --limit 5 --json status 2>/dev/null || echo "[]")
-            active=$(echo "$runs" | jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length')
-            if [[ "$active" -gt 0 ]]; then
+            active=$(gh run list --repo "$GH_REPO" --workflow "${project}.yml" --status in_progress --json status 2>/dev/null | jq 'length')
+            queued=$(gh run list --repo "$GH_REPO" --workflow "${project}.yml" --status queued --json status 2>/dev/null | jq 'length')
+            if [[ "$((active + queued))" -gt 0 ]]; then
               echo "PR #$pr_number: ${project}.yml already running, skip"
               continue
             fi

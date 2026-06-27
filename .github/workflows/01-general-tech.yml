@@ -12,6 +12,11 @@ on:
         required: false
         default: "3"
 
+# 確保同一 PR 同時間只有一個 workflow run
+concurrency:
+  group: pr-${{ github.event.inputs.pr_number }}
+  cancel-in-progress: false
+
 jobs:
   guard:
     runs-on: ubuntu-latest
