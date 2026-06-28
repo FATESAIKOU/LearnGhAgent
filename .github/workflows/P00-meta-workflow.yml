@@ -144,27 +144,31 @@ jobs:
       - name: Step 1 - Execute (opencode + hard validate + soft validate)
         run: |
           set -uo pipefail
+          PROJECT_ROOT="$(git rev-parse --show-toplevel)/projects/P00-meta-workflow"
+          STEP1_LOG_ABS="${PROJECT_ROOT}/${STEP1_LOG}"
+          STEP1_REVIEW_ABS="${PROJECT_ROOT}/${STEP1_REVIEW}"
           attempt=0
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
             echo "::group::Step 1 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
-            rm -f "${STEP1_LOG}" "${STEP1_REVIEW}"
+            rm -f "${STEP1_LOG_ABS}" "${STEP1_REVIEW_ABS}" "${STEP1_LOG}" "${STEP1_REVIEW}"
             opencode run --model "$OPENCODE_MODEL" --title "step1-$attempt" "$(cat /tmp/step1_prompt.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
-            # token check: 輕量 chat call，非 200 = 無用量或 token 無效
+            if [[ ! -f "${STEP1_LOG_ABS}" && -f "${STEP1_LOG}" ]]; then cp "${STEP1_LOG}" "${STEP1_LOG_ABS}"; fi
+            if [[ ! -f "${STEP1_REVIEW_ABS}" && -f "${STEP1_REVIEW}" ]]; then cp "${STEP1_REVIEW}" "${STEP1_REVIEW_ABS}"; fi
             echo "::group::Step 1 - Hard validate"
-            ./validate.sh step-log-short "${STEP1_LOG}"
+            ./validate.sh step-log-short "${STEP1_LOG_ABS}"
             hard_rc=$?
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed, retry"
               continue
             fi
-            # last comment check: 抓 PR 最後一則 comment author，若是 bot = user 還沒追問
             echo "::group::Step 1 - Soft validate (opencode review)"
             opencode run --model "$OPENCODE_MODEL" --title "step1-review-$attempt" "$(cat /tmp/step1_review_prompt.txt)" || echo "review run failed"
             echo "::endgroup::"
-            if ! grep -q "VERDICT: PASS" "${STEP1_REVIEW}" 2>/dev/null; then
+            if [[ ! -f "${STEP1_REVIEW_ABS}" && -f "${STEP1_REVIEW}" ]]; then cp "${STEP1_REVIEW}" "${STEP1_REVIEW_ABS}"; fi
+            if ! grep -q "VERDICT: PASS" "${STEP1_REVIEW_ABS}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
               continue
             fi
@@ -219,15 +223,20 @@ jobs:
       - name: Step 2 - Execute (opencode + hard validate + soft validate)
         run: |
           set -uo pipefail
+          PROJECT_ROOT="$(git rev-parse --show-toplevel)/projects/P00-meta-workflow"
+          STEP2_LOG_ABS="${PROJECT_ROOT}/${STEP2_LOG}"
+          STEP2_REVIEW_ABS="${PROJECT_ROOT}/${STEP2_REVIEW}"
           attempt=0
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
             echo "::group::Step 2 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
-            rm -f "${STEP2_LOG}" "${STEP2_REVIEW}"
+            rm -f "${STEP2_LOG_ABS}" "${STEP2_REVIEW_ABS}" "${STEP2_LOG}" "${STEP2_REVIEW}"
             opencode run --model "$OPENCODE_MODEL" --title "step2-$attempt" "$(cat /tmp/step2_prompt.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
+            if [[ ! -f "${STEP2_LOG_ABS}" && -f "${STEP2_LOG}" ]]; then cp "${STEP2_LOG}" "${STEP2_LOG_ABS}"; fi
+            if [[ ! -f "${STEP2_REVIEW_ABS}" && -f "${STEP2_REVIEW}" ]]; then cp "${STEP2_REVIEW}" "${STEP2_REVIEW_ABS}"; fi
             echo "::group::Step 2 - Hard validate"
-            ./validate.sh step-log-long "${STEP2_LOG}"
+            ./validate.sh step-log-long "${STEP2_LOG_ABS}"
             hard_rc=$?
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
@@ -237,7 +246,8 @@ jobs:
             echo "::group::Step 2 - Soft validate (opencode review)"
             opencode run --model "$OPENCODE_MODEL" --title "step2-review-$attempt" "$(cat /tmp/step2_review_prompt.txt)" || echo "review run failed"
             echo "::endgroup::"
-            if ! grep -q "VERDICT: PASS" "${STEP2_REVIEW}" 2>/dev/null; then
+            if [[ ! -f "${STEP2_REVIEW_ABS}" && -f "${STEP2_REVIEW}" ]]; then cp "${STEP2_REVIEW}" "${STEP2_REVIEW_ABS}"; fi
+            if ! grep -q "VERDICT: PASS" "${STEP2_REVIEW_ABS}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
               continue
             fi
@@ -382,15 +392,20 @@ jobs:
       - name: Step 4 - Execute (opencode + hard validate + soft validate)
         run: |
           set -uo pipefail
+          PROJECT_ROOT="$(git rev-parse --show-toplevel)/projects/P00-meta-workflow"
+          STEP4_LOG_ABS="${PROJECT_ROOT}/${STEP4_LOG}"
+          STEP4_REVIEW_ABS="${PROJECT_ROOT}/${STEP4_REVIEW}"
           attempt=0
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
             echo "::group::Step 4 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
-            rm -f "${STEP4_LOG}" "${STEP4_REVIEW}"
+            rm -f "${STEP4_LOG_ABS}" "${STEP4_REVIEW_ABS}" "${STEP4_LOG}" "${STEP4_REVIEW}"
             opencode run --model "$OPENCODE_MODEL" --title "step4-$attempt" "$(cat /tmp/step4_prompt.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
+            if [[ ! -f "${STEP4_LOG_ABS}" && -f "${STEP4_LOG}" ]]; then cp "${STEP4_LOG}" "${STEP4_LOG_ABS}"; fi
+            if [[ ! -f "${STEP4_REVIEW_ABS}" && -f "${STEP4_REVIEW}" ]]; then cp "${STEP4_REVIEW}" "${STEP4_REVIEW_ABS}"; fi
             echo "::group::Step 4 - Hard validate"
-            ./validate.sh step-log-short "${STEP4_LOG}"
+            ./validate.sh step-log-short "${STEP4_LOG_ABS}"
             hard_rc=$?
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
@@ -400,7 +415,8 @@ jobs:
             echo "::group::Step 4 - Soft validate (opencode review)"
             opencode run --model "$OPENCODE_MODEL" --title "step4-review-$attempt" "$(cat /tmp/step4_review_prompt.txt)" || echo "review run failed"
             echo "::endgroup::"
-            if ! grep -q "VERDICT: PASS" "${STEP4_REVIEW}" 2>/dev/null; then
+            if [[ ! -f "${STEP4_REVIEW_ABS}" && -f "${STEP4_REVIEW}" ]]; then cp "${STEP4_REVIEW}" "${STEP4_REVIEW_ABS}"; fi
+            if ! grep -q "VERDICT: PASS" "${STEP4_REVIEW_ABS}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
               continue
             fi
@@ -426,6 +442,7 @@ jobs:
       - name: Post logs to PR chat (in order)
         run: |
           set -uo pipefail
+          PROJECT_ROOT="$(git rev-parse --show-toplevel)/projects/P00-meta-workflow"
           post_log() {
             local label="$1"
             local file="$2"
@@ -448,7 +465,7 @@ jobs:
               done
             fi
           }
-          post_log "Step 1 - 意圖理解" "$STEP1_LOG" ""
-          post_log "Step 2 - 執行計劃 C1" "$STEP2_LOG" ""
-          post_log "Step 3 - 品質保證" "$STEP3_LOG" ""
-          post_log "Step 4 - 總結" "$STEP4_LOG" "summary:${ROUND_ID}"
+          post_log "Step 1 - 意圖理解" "${PROJECT_ROOT}/${STEP1_LOG}" ""
+          post_log "Step 2 - 執行計劃 C1" "${PROJECT_ROOT}/${STEP2_LOG}" ""
+          post_log "Step 3 - 品質保證" "${PROJECT_ROOT}/${STEP3_LOG}" ""
+          post_log "Step 4 - 總結" "${PROJECT_ROOT}/${STEP4_LOG}" "summary:${ROUND_ID}"
