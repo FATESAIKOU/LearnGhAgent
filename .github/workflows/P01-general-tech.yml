@@ -86,7 +86,7 @@ jobs:
       OPENCODE_MODEL: ollama-cloud/${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash' }}
       PROJECT_DIR: projects/P01-general-tech
       MAX_RETRY: ${{ github.event.inputs.max_retry || '3' }}
-      CHATLOG: ../../.github/workflows/P01-general-tech/scripts/chatlog.py
+      CHATLOG: ../../.github/workflows/scripts/chatlog.py
       PR_NUMBER: ${{ needs.guard.outputs.pr_number }}
     defaults:
       run:
@@ -112,6 +112,8 @@ jobs:
             git fetch origin "$pr_branch"
             git checkout "$pr_branch"
           fi
+          # 確保 chatlog.py 是最新版（PR branch 可能落後 main）
+          git checkout origin/main -- .github/workflows/scripts/chatlog.py 2>/dev/null || true
           mkdir -p memory/log output
           gh pr view "$PR_NUMBER" --json body,comments,reviews > /tmp/pr_data.json
           python3 "$CHATLOG" /tmp/chatlog.json load-context-from-pr-log < /tmp/pr_data.json > /tmp/load_output.txt 2>&1
@@ -170,7 +172,7 @@ jobs:
             echo "::endgroup::"
 
             echo "::group::Step 1 - Hard validate"
-            ./validate.sh step-log-short "${STEP1_LOG}"
+            ./judge/validate-step1.sh "${STEP1_LOG}"
             hard_rc=$?
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
@@ -244,7 +246,7 @@ jobs:
             echo "::endgroup::"
 
             echo "::group::Step 2 - Hard validate"
-            ./validate.sh step-log-long "${STEP2_LOG}"
+            ./judge/validate-step2.sh "${STEP2_LOG}"
             hard_rc=$?
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
@@ -349,7 +351,7 @@ jobs:
             echo "::group::Step 3 - Hard validate (report)"
             report_file=$(ls output/${PR_NUMBER}_*.md 2>/dev/null | head -1)
             if [[ -n "$report_file" ]]; then
-              ./validate.sh report "$report_file"
+              ./judge/validate-report.sh "$report_file"
             fi
             hard_rc=$?
             echo "::endgroup::"
@@ -359,7 +361,7 @@ jobs:
             fi
 
             echo "::group::Step 3 - Hard validate (step log)"
-            ./validate.sh step-log-medium "${STEP3_LOG}"
+            ./judge/validate-step3.sh "${STEP3_LOG}"
             hard_rc=$?
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
@@ -440,7 +442,7 @@ jobs:
             echo "::endgroup::"
 
             echo "::group::Step 4 - Hard validate"
-            ./validate.sh step-log-short "${STEP4_LOG}"
+            ./judge/validate-step4.sh "${STEP4_LOG}"
             hard_rc=$?
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
