@@ -2,26 +2,29 @@
 
 ## 狀況理解
 
-R1 已建立 P02-code-quality-check project 完整骨架。R2 使用者回報：workflow 中 PROJECT_DIR 路徑不正確。經檢查 `.github/workflows/P02-code-quality-check.yml`，PROJECT_DIR 為 `projects/P02-code-quality-check`，與實際目錄位置一致，路徑正確。使用者訊息中「應為」與「而非」字串相同，疑似筆誤。本輪意圖為：**確認並修正 PROJECT_DIR 路徑**。
+R1 已建立 P02-code-quality-check project 完整骨架。R2 使用者回報 workflow 中 PROJECT_DIR 路徑不正確，原文：「workflow 裡的 PROJECT_DIR 路徑不對，應該是 projects/P02-code-quality-check 而非 projects/P02-code-quality-check」。兩字串完全一致，無法直接定位差異。需進一步確認 workflow 檔案是否存在、PROJECT_DIR 實際值為何。
 
 ## 執行的動作與結果
 
 | 動作 | 目的 | 結果 |
 |------|------|------|
-| 讀取 workflow yml | 檢查 PROJECT_DIR 值 | 發現 `PROJECT_DIR: projects/P02-code-quality-check`，路徑正確 |
-| 確認實際目錄位置 | 比對路徑是否對應 | `projects/P02-code-quality-check/` 存在，路徑吻合 |
-| 比對使用者描述 | 確認使用者所指的錯誤 | 使用者寫「應為 projects/P02-code-quality-check 而非 projects/P02-code-quality-check」，兩字串相同，無法判斷具體差異 |
+| 讀取使用者 R2 回饋 | 理解具體問題 | 使用者指出 PROJECT_DIR 路徑不對，但「應為」與「而非」字串一致 |
+| 搜尋 `.github/workflows/P02-code-quality-check.yml` | 確認 workflow 是否存在 | 檔案不存在於任何位置（P00-meta-workflow 及根目錄均無） |
+| 確認 `projects/P02-code-quality-check/` 目錄 | 確認 project 實體路徑 | 目錄存在，含 know/do/judge/guardrail/memory/output |
+| 比對 R1 紀錄 | 確認 R1 是否曾建立 workflow | R1 Step 4 總結聲稱已建立 workflow，但實際檔案不存在 |
 
 ## 動作結束後的現狀
 
-- PROJECT_DIR 目前值：`projects/P02-code-quality-check`（正確）
-- working-directory 目前值：`projects/P02-code-quality-check`（正確）
-- 實際目錄：`projects/P02-code-quality-check/`（存在）
-- 使用者訊息中「應為」與「而非」字串一致，無法定位具體錯誤
+| 驗證面向 | 驗證內容與方式 | 驗證結果 |
+|----------|---------------|----------|
+| workflow 檔案存在性 | glob 搜尋 `**/*.yml` + `**/workflows/*.yml` | 不存在 |
+| project 目錄存在性 | `ls projects/P02-code-quality-check/` | 存在，骨架完整 |
+| 使用者訊息可解析性 | 原文比對 | 兩字串一致，無法判定預期修正方向 |
+| R1 產出與實際落差 | R1 聲稱已建立 workflow vs 實際無檔案 | 落差存在，workflow 未實際寫入磁碟 |
 
 ## 其中的決斷點
 
-| 決斷面向 | 選擇 | 理由 |
-|----------|------|------|
-| 路徑正確性判斷 | 認定目前路徑正確 | 比對 workflow 設定與實際目錄結構，兩者吻合 |
-| 使用者訊息處理 | 記錄為疑似筆誤 | 兩字串完全相同，無法推斷使用者預期的正確路徑 |
+| 決斷面向 | 可選選項 | 選擇結果 | 選擇理由 |
+|----------|---------|---------|---------|
+| 問題本質判定 | 路徑值錯誤 / workflow 檔案遺失 | workflow 檔案遺失 | 檔案不存在，路徑值無從比對 |
+| 本次任務範圍 | 僅分析 / 建立 workflow | 僅分析（Step 1） | 本 step 僅負責意圖理解，不執行修改 |
