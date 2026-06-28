@@ -154,7 +154,49 @@ function Form() {
 | **互動性** | 需等待 hydration 完成 | Server Components 無互動性，由 Client Components 處理 |
 | **適用場景** | 改善 FCP，不減少 JS 傳輸量 | 減少 JS 傳輸量 + 改善資料獲取效率 |
 
-### 3.5 與傳統 CSR 的差異
+### 3.5 RSC vs Streaming SSR 量化效能對比
+
+Streaming SSR（React 18 `renderToPipeableStream` + Suspense）與 RSC 共享串流能力，但在 bundle 體積、hydration 範圍、記憶體使用等維度有根本差異。以下數據來自真實案例與 React 18 架構分析：
+
+#### 3.5.1 量化指標對照表
+
+| 效能指標 | 傳統 SSR（`renderToString`） | Streaming SSR（`renderToPipeableStream`） | RSC（React 19） | 數據來源 |
+|---|---|---|---|---|
+| **初始 JS bundle** | 100%（所有元件） | 100%（所有元件） | Server Component 部分 0%；僅 Client Component bundle | Vercel blog、Josh Comeau 圖解 |
+| **hydration 範圍** | 全部 DOM 節點 | 全部 DOM 節點（但可 selective） | 僅 Client Component 對應的 DOM 節點 | React 18 架構討論 #37 |
+| **FCP** | 改善（早期 HTML 輸出） | 改善（串流 HTML，Suspense boundary 可提前 flush） | 改善（串流 RSC Payload，但需轉換為 HTML） | Josh Comeau 時序分析 |
+| **TTI** | 等於 FCP + 完整 JS 載入 + hydration | 等於 FCP + 完整 JS 載入 + hydration（selective hydration 可部分提前） | 等於 FCP + Client Component JS 載入 + 部分 hydration | React 18 架構討論 #37 |
+| **LCP** | 依賴完整頁面渲染完成 | 串流可提前顯示關鍵內容 | 真實案例：4.5s → 220ms（20x 改善） | Dagster dbt docs 遷移報告 |
+| **記憶體使用** | 高（客戶端需維持完整元件樹） | 中高（串流減少部分記憶體） | 真實案例：350MB → 16MB（20x 改善） | Dagster dbt docs 遷移報告 |
+| **First Byte 延遲** | 低（直接輸出 HTML） | 低（直接輸出 HTML） | 較高（需序列化為 RSC Payload 格式） | 推估：RSC Payload 序列化開銷 |
+| **資料獲取瀑布** | 存在（需先 fetch → render → hydrate） | 部分消除（fetch → stream HTML） | 消除（async component 直接 await DB） | React 18 架構討論 #37 |
+| **blocking time** | 高（完整 hydration 阻塞主執行緒） | 中（selective hydration 可分散） | 真實案例：profiler 顯示 blocking time 歸零 | Dagster dbt docs 遷移報告 |
+
+#### 3.5.2 時序差異（Josh Comeau 網路請求圖分析）
+
+```
+傳統 SSR:
+  DB query ──→ renderToString ──→ HTML ──→ load JS ──→ hydrate ──→ interactive
+  [server]       [server]        [network]  [client]    [client]
+
+Streaming SSR:
+  DB query ──→ renderToPipeableStream ──→ HTML chunks ──→ load JS ──→ selective hydrate
+  [server]       [server streaming]      [network]       [client]    [client]
+
+RSC:
+  DB query ──→ render Server Components ──→ RSC Payload ──→ reconcile → interactive
+  [server]       [server]                   [network]        [client]
+  (無需 client round-trip，無需完整 hydration)
+```
+
+#### 3.5.3 關鍵差異總結
+
+- **Bundle 體積**：Streaming SSR 不減少 bundle 大小，RSC 可消除 Server Component 全部 bundle。這是兩者最根本的量化差異。
+- **Hydration 範圍**：Streaming SSR 的 selective hydration 僅改變 hydration 的時序（先 hydrate 可見區域），不改變總 hydration 量。RSC 從根本上減少需 hydration 的元件數量。
+- **記憶體**：RSC 的真實案例（Dagster）顯示 20x 記憶體改善，來自 Server Component 的 JS 物件與 closure 完全不在客戶端建立。
+- **First Byte 延遲**：RSC 的序列化格式（非 HTML）引入額外開銷，在極低延遲場景（< 100ms）可能劣於 Streaming SSR。但此開銷在真實案例中被 bundle 減少與瀑布消除的效益覆蓋。
+
+### 3.6 與傳統 CSR 的差異
 
 | 面向 | CSR | RSC |
 |---|---|---|
@@ -214,7 +256,41 @@ function Form() {
 
 ---
 
-## 5. 附錄：關鍵名詞對照
+## 5. User Q&A
+
+### Q1：RSC 與 Streaming SSR 的效能對比數據為何不足？
+
+**A**：R1 報告 §3.4 僅提供功能面對照（輸出格式、bundle 大小、hydration 範圍等），未包含量化效能指標。本輪補上 §3.5 的量化對照表，涵蓋 9 個維度。
+
+| 維度 | R1 涵蓋 | R2 補充 |
+|---|---|---|
+| bundle 大小 | 功能描述（減少 vs 不減少） | 量化：Server Component 0% vs 100% |
+| hydration | 功能描述（完整 vs 部分） | 量化：全部 DOM vs 僅 Client Component DOM |
+| FCP/TTI/LCP | 無 | 時序圖 + 真實案例數據（LCP 4.5s→220ms） |
+| 記憶體 | 無 | 真實案例（350MB→16MB） |
+| First Byte 延遲 | 無 | 推估：RSC 序列化開銷較高 |
+| blocking time | 無 | 真實案例：profiler 顯示歸零 |
+
+**結論**：R1 報告缺少量化數據，R2 以真實案例（Dagster dbt docs 20x 改善）與 React 18 架構分析補足 9 維度對照。
+
+### Q2：Streaming SSR 與 RSC 的效能差異根源是什麼？
+
+**A**：兩者的效能差異根源在於「Streaming SSR 不改變 bundle 體積與 hydration 總量，僅改變傳輸時序；RSC 從根本上消除 Server Component 的 bundle 與 hydration 需求」。
+
+| 面向 | Streaming SSR | RSC |
+|---|---|---|
+| 解決的問題 | 改善 FCP（提前顯示 HTML） | 減少 JS 傳輸量 + 消除資料獲取瀑布 |
+| 機制 | 串流 HTML chunks + selective hydration | 序列化 RSC Payload + reconciliation |
+| bundle 影響 | 無（所有 JS 仍須下載） | Server Component 0 bundle |
+| hydration 影響 | 總量不變，時序分散 | 總量減少，僅 Client Component |
+| 資料獲取 | 仍需要 API endpoint | 直接 await DB/FS |
+| 客戶端狀態 | 每次 navigation 遺失 | reconciliation 保留 |
+
+**結論**：Streaming SSR 是傳輸層最佳化（改善 FCP），RSC 是架構層變革（消除 bundle + 消除 API endpoint）。兩者非取代關係，RSC 可疊加在 Streaming SSR 之上（Next.js App Router 即為此組合）。
+
+---
+
+## 6. 附錄：關鍵名詞對照
 
 | 名詞 | 說明 |
 |---|---|
