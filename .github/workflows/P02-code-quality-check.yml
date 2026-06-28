@@ -1,0 +1,505 @@
+name: P02-code-quality-check
+
+# 只接受 workflow_dispatch（由 00-watch.yml 輪詢啟動）
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to execute"
+        required: true
+      max_retry:
+        description: "Max retry attempts per step (1-5)"
+        required: false
+        default: "3"
+
+# 確保同一 PR 同時間只有一個 workflow run
+concurrency:
+  group: pr-${{ github.event.inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      skip: ${{ steps.guard.outputs.skip }}
+      pr_number: ${{ steps.guard.outputs.pr_number }}
+    steps:
+      - name: Guard
+        id: guard
+        run: |
+          set -uo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            pr_number="${{ github.event.inputs.pr_number }}"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            pr_number="${{ github.event.pull_request.number }}"
+          else
+            pr_number="${{ github.event.issue.number }}"
+          fi
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+
+          http_code=$(curl -sS -o /dev/null -w "%{http_code}" -X POST https://ollama.com/api/chat \
+            -H "Authorization: Bearer ${{ secrets.OLLAMA_API_KEY }}" -H "Content-Type: application/json" \
+            -d '{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}],"stream":false}' --max-time 30)
+          if [[ "$http_code" != "200" ]]; then
+            echo "FAIL: token check (HTTP $http_code)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          last_author=$(gh pr view "$pr_number" --json comments,reviews -q '
+            ([.comments[]? | {author: .author.login, time: .createdAt}] +
+             [.reviews[]? | select(.state == "COMMENTED") | {author: .author.login, time: .submittedAt}])
+            | sort_by(.time) | last.author // empty
+          ')
+          if [[ -n "$last_author" ]] && [[ "$last_author" == *"bot"* || "$last_author" == "github-actions"* || "$last_author" == "app/"* || "$last_author" == *"[bot]"* ]]; then
+            echo "FAIL: last message is bot ($last_author)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          if ! gh pr view "$pr_number" --json labels -q '.labels[].name' | grep -q '^project:P02-code-quality-check$'; then
+            echo "FAIL: missing label"
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+  # ============================================================
+  # Job 2: execute
+  # ============================================================
+  execute:
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+      OPENCODE_MODEL: ollama-cloud/${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash' }}
+      PROJECT_DIR: projects/P02-code-quality-check
+      MAX_RETRY: ${{ github.event.inputs.max_retry || '3' }}
+      CHATLOG: ../../.github/workflows/scripts/chatlog.py
+      PR_NUMBER: ${{ needs.guard.outputs.pr_number }}
+    defaults:
+      run:
+        working-directory: projects/P02-code-quality-check
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Install opencode
+        working-directory: .
+        run: |
+          curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+      - name: Switch to PR branch + build context + round id + paths
+        run: |
+          set -euo pipefail
+          pr_branch=$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName 2>/dev/null || echo "")
+          if [[ -n "$pr_branch" ]]; then
+            git fetch origin "$pr_branch"
+            git checkout "$pr_branch"
+          fi
+          git checkout origin/main -- .github/workflows/scripts/chatlog.py 2>/dev/null || true
+          mkdir -p memory/log output
+          gh pr view "$PR_NUMBER" --json body,comments,reviews > /tmp/pr_data.json
+          python3 "$CHATLOG" /tmp/chatlog.json load-context-from-pr-log < /tmp/pr_data.json > /tmp/load_output.txt 2>&1
+          cat /tmp/load_output.txt
+          round_line=$(grep -oE 'current round R[0-9]+' /tmp/load_output.txt | grep -oE 'R[0-9]+')
+          echo "ROUND_ID=$round_line" >> "$GITHUB_ENV"
+          python3 "$CHATLOG" /tmp/chatlog.json toprompt > /tmp/conversation_context.txt
+          echo "STEP1_LOG=memory/log/${PR_NUMBER}_${round_line}_step1-intent.md" >> "$GITHUB_ENV"
+          echo "STEP2_LOG=memory/log/${PR_NUMBER}_${round_line}_step2-plan_C1.md" >> "$GITHUB_ENV"
+          echo "STEP3_LOG=memory/log/${PR_NUMBER}_${round_line}_step3-qa.md" >> "$GITHUB_ENV"
+          echo "STEP4_LOG=memory/log/${PR_NUMBER}_${round_line}_step4-summary.md" >> "$GITHUB_ENV"
+          echo "context built: $(wc -c < /tmp/conversation_context.txt) chars, round=$round_line"
+
+      # ============================================================
+      # Step 1: 意圖理解
+      # ============================================================
+      - name: Step 1 - Build prompt
+        run: |
+          REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_step1.md"
+          echo "STEP1_REVIEW=$REVIEW_FILE" >> "$GITHUB_ENV"
+          {
+            python3 "$CHATLOG" /tmp/chatlog.json toprompt
+            echo ""
+            echo "=== 本次任務 ==="
+            echo "你是「程式碼品質審查員」。現在執行 Step 1：意圖理解。"
+            echo "請依 know/AGENTS.md 中 Step 1 的規定，產出 ${STEP1_LOG}。"
+            echo "這是「你自己的動作總結」。格式必須是 4 個 section："
+            echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
+            echo "注意：你要理解的是「這一輪（${ROUND_ID}）使用者的意圖」。若這是 R2+，使用者可能在追問、質疑或要求補充前幾輪的內容。"
+            echo "檔案長度上限：2000 字。超過會被硬性驗證拒絕，請精簡。"
+            echo "直接把檔案內容寫到 ${STEP1_LOG}，不要額外輸出說明文字。"
+          } > /tmp/step1_prompt.txt
+          {
+            python3 "$CHATLOG" /tmp/chatlog.json toprompt
+            echo ""
+            echo "=== 本次任務 ==="
+            echo "你是「程式碼品質審查員」。現在執行 Step 1 的軟性驗證。"
+            echo "請讀取 judge/step1-intent.md 取得 review 觀點，再讀取 ${STEP1_LOG}，依觀點做評估。"
+            echo "產出 ${REVIEW_FILE}，格式："
+            echo "## 驗證項目（表格：項目 | 結果 | 備註）"
+            echo "## 問題點（若無則寫「無」）"
+            echo "## 建議（若無則寫「無」）"
+            echo "最後一行必須是 VERDICT: PASS 或 VERDICT: FAIL"
+            echo "直接把檔案內容寫到 ${REVIEW_FILE}。"
+          } > /tmp/step1_review_prompt.txt
+
+      - name: Step 1 - Execute (opencode + hard validate + soft validate)
+        run: |
+          set -uo pipefail
+          attempt=0
+          while (( attempt < MAX_RETRY )); do
+            attempt=$((attempt+1))
+            echo "::group::Step 1 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
+            rm -f "${STEP1_LOG}" "${STEP1_REVIEW}"
+            opencode run --model "$OPENCODE_MODEL" --title "step1-$attempt" "$(cat /tmp/step1_prompt.txt)" || echo "opencode run failed (will validate)"
+            echo "::endgroup::"
+
+            echo "::group::Step 1 - Hard validate"
+            ./judge/validate-step1.sh "${STEP1_LOG}"
+            hard_rc=$?
+            echo "::endgroup::"
+            if [[ $hard_rc -ne 0 ]]; then
+              echo "hard validate failed, retry"
+              continue
+            fi
+
+            echo "::group::Step 1 - Soft validate (opencode review)"
+            opencode run --model "$OPENCODE_MODEL" --title "step1-review-$attempt" "$(cat /tmp/step1_review_prompt.txt)" || echo "review run failed"
+            echo "::endgroup::"
+            if ! grep -q "VERDICT: PASS" "${STEP1_REVIEW}" 2>/dev/null; then
+              echo "soft validate FAIL, retry"
+              continue
+            fi
+
+            echo "Step 1 passed on attempt $attempt"
+            exit 0
+          done
+          echo "Step 1 failed after $MAX_RETRY attempts"
+          exit 1
+
+      # ============================================================
+      # Step 2: 執行計劃 (C1)
+      # ============================================================
+      - name: Step 2 - Build prompt
+        run: |
+          REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_step2.md"
+          echo "STEP2_REVIEW=$REVIEW_FILE" >> "$GITHUB_ENV"
+          {
+            python3 "$CHATLOG" /tmp/chatlog.json toprompt
+            echo ""
+            echo "=== 這一輪（${ROUND_ID}）Step 1 的 execution log ==="
+            cat ${STEP1_LOG} 2>/dev/null || echo "(尚未產出)"
+            echo "=== End of Step 1 log ==="
+            echo ""
+            echo "=== 本次任務 ==="
+            echo "你是「程式碼品質審查員」。現在執行 Step 2 的第一個 sub-step C1：執行品質檢查。"
+            echo "請依 do/skills/quality-check.md 的標準檢查動作執行："
+            echo "1. 檢查專案設定檔，判斷要執行哪些檢查"
+            echo "2. 執行 ESLint（若有設定）"
+            echo "3. 執行 Prettier（若有設定）"
+            echo "4. 執行 TypeScript 型別檢查（若有設定）"
+            echo "5. 執行測試覆蓋率（若有設定）"
+            echo "若是 R2+，請針對這輪的意圖執行檢查，而非重新做 R1 的事。"
+            echo "產出 ${STEP2_LOG}。這是「你自己的動作總結」，格式必須是 4 個 section："
+            echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
+            echo "檔案長度上限：6000 字。超過會被硬性驗證拒絕，請精簡。"
+            echo "直接把檔案內容寫到 ${STEP2_LOG}。"
+          } > /tmp/step2_prompt.txt
+          {
+            python3 "$CHATLOG" /tmp/chatlog.json toprompt
+            echo ""
+            echo "=== 本次任務 ==="
+            echo "你是「程式碼品質審查員」。現在執行 Step 2 的軟性驗證。"
+            echo "請讀取 judge/step2-plan.md 取得 review 觀點，再讀取 ${STEP2_LOG}，依觀點做評估。"
+            echo "產出 ${REVIEW_FILE}，格式："
+            echo "## 驗證項目（表格：項目 | 結果 | 備註）"
+            echo "## 問題點（若無則寫「無」）"
+            echo "## 建議（若無則寫「無」）"
+            echo "最後一行必須是 VERDICT: PASS 或 VERDICT: FAIL"
+            echo "直接把檔案內容寫到 ${REVIEW_FILE}。"
+          } > /tmp/step2_review_prompt.txt
+
+      - name: Step 2 - Execute (opencode + hard validate + soft validate)
+        run: |
+          set -uo pipefail
+          attempt=0
+          while (( attempt < MAX_RETRY )); do
+            attempt=$((attempt+1))
+            echo "::group::Step 2 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
+            rm -f "${STEP2_LOG}" "${STEP2_REVIEW}"
+            opencode run --model "$OPENCODE_MODEL" --title "step2-$attempt" "$(cat /tmp/step2_prompt.txt)" || echo "opencode run failed (will validate)"
+            echo "::endgroup::"
+
+            echo "::group::Step 2 - Hard validate"
+            ./judge/validate-step2.sh "${STEP2_LOG}"
+            hard_rc=$?
+            echo "::endgroup::"
+            if [[ $hard_rc -ne 0 ]]; then
+              echo "hard validate failed, retry"
+              continue
+            fi
+
+            echo "::group::Step 2 - Soft validate (opencode review)"
+            opencode run --model "$OPENCODE_MODEL" --title "step2-review-$attempt" "$(cat /tmp/step2_review_prompt.txt)" || echo "review run failed"
+            echo "::endgroup::"
+            if ! grep -q "VERDICT: PASS" "${STEP2_REVIEW}" 2>/dev/null; then
+              echo "soft validate FAIL, retry"
+              continue
+            fi
+
+            echo "Step 2 passed on attempt $attempt"
+            exit 0
+          done
+          echo "Step 2 failed after $MAX_RETRY attempts"
+          exit 1
+
+      # ============================================================
+      # Step 3: 品質保證 (產報告 + 軟性驗證)
+      # ============================================================
+      - name: Step 3 - Build prompt
+        run: |
+          current_round_num="${ROUND_ID#R}"
+          REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_step3.md"
+          echo "STEP3_REVIEW=$REVIEW_FILE" >> "$GITHUB_ENV"
+          {
+            python3 "$CHATLOG" /tmp/chatlog.json toprompt
+            echo ""
+            echo "=== 這一輪（${ROUND_ID}）Step 1 的 execution log ==="
+            cat ${STEP1_LOG} 2>/dev/null || echo "(尚未產出)"
+            echo "=== End of Step 1 log ==="
+            echo ""
+            echo "=== 這一輪（${ROUND_ID}）Step 2 的 execution log ==="
+            cat ${STEP2_LOG} 2>/dev/null || echo "(尚未產出)"
+            echo "=== End of Step 2 log ==="
+            echo ""
+            echo "=== 本次任務 ==="
+            echo "你是「程式碼品質審查員」。現在執行 Step 3：基於檢查結果，產出/更新最終品質報告，並產出本 step 的 execution log。"
+            echo "你需要產出兩個檔案："
+            echo ""
+            echo "1. 品質報告："
+            if (( current_round_num == 1 )); then
+              echo "   檔名格式：output/${PR_NUMBER}_${ROUND_ID}_quality-report.md"
+              echo "   報告必須含 5 個必要 section（首次產出無 ## 6. User Q&A）："
+              echo "   ## 1. 檢查摘要 / ## 2. ESLint 結果 / ## 3. Prettier 結果 / ## 4. TypeScript 型別檢查結果 / ## 5. 測試覆蓋率結果"
+              echo "   詳細格式見 know/AGENTS.md「品質報告格式」。"
+              echo "   報告長度上限：20000 字。超過會被硬性驗證拒絕。"
+            else
+              echo "   這是 ${ROUND_ID}（R2+），使用者正在追問前幾輪的內容。"
+              echo "   請讀取既有報告（output/ 目錄中 ${PR_NUMBER}_*.md 的檔案），把這一輪的 QA 沉澱進報告的 ## 6. User Q&A 章節"
+              echo "   報告檔名保持不變（沿用 R1 的檔名）"
+              echo "   報告總長度上限：20000 字（含既有內容）。超過會被硬性驗證拒絕。"
+            fi
+            echo ""
+            echo "2. 本 step 的 execution log：${STEP3_LOG}"
+            echo "   格式必須是 4 個 section："
+            echo "   ## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
+            echo "   在「動作結束後的現狀」中必須包含：產出的報告檔名與本輪變更摘要。"
+            echo "   execution log 長度上限：3000 字。超過會被硬性驗證拒絕，請精簡。"
+            echo ""
+            echo "直接把兩個檔案內容分別寫到對應路徑。"
+          } > /tmp/step3_main_prompt.txt
+          {
+            python3 "$CHATLOG" /tmp/chatlog.json toprompt
+            echo ""
+            echo "=== 本次任務 ==="
+            echo "你是「程式碼品質審查員」。現在執行 Step 3 的軟性驗證。"
+            echo "請讀取 judge/step3-qa.md 取得 review 觀點，再讀取產出的品質報告（output/ 目錄中 ${PR_NUMBER}_*.md），依觀點做評估。"
+            echo "產出 ${REVIEW_FILE}，格式："
+            echo "## 驗證項目（表格：項目 | 結果 | 備註）"
+            echo "## 問題點（若無則寫「無」）"
+            echo "## 建議（若無則寫「無」）"
+            echo "最後一行必須是 VERDICT: PASS 或 VERDICT: FAIL"
+            echo "直接把檔案內容寫到 ${REVIEW_FILE}。"
+          } > /tmp/step3_review_prompt.txt
+
+      - name: Step 3 - Execute (opencode + hard validate + soft validate)
+        run: |
+          set -uo pipefail
+          current_round_num="${ROUND_ID#R}"
+          attempt=0
+          while (( attempt < MAX_RETRY )); do
+            attempt=$((attempt+1))
+            echo "::group::Step 3 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
+            rm -f "${STEP3_LOG}" "${STEP3_REVIEW}"
+            if (( current_round_num == 1 )); then
+              rm -f output/${PR_NUMBER}_*.md
+            fi
+            opencode run --model "$OPENCODE_MODEL" --title "step3-$attempt" "$(cat /tmp/step3_main_prompt.txt)" || echo "opencode run failed (will validate)"
+            echo "::endgroup::"
+
+            echo "::group::Step 3 - Hard validate (report)"
+            report_file=$(ls output/${PR_NUMBER}_*.md 2>/dev/null | head -1)
+            if [[ -n "$report_file" ]]; then
+              ./judge/validate-report.sh "$report_file"
+            fi
+            hard_rc=$?
+            echo "::endgroup::"
+            if [[ -z "$report_file" || $hard_rc -ne 0 ]]; then
+              echo "hard validate failed (report), retry"
+              continue
+            fi
+
+            echo "::group::Step 3 - Hard validate (step log)"
+            ./judge/validate-step3.sh "${STEP3_LOG}"
+            hard_rc=$?
+            echo "::endgroup::"
+            if [[ $hard_rc -ne 0 ]]; then
+              echo "hard validate failed (step log), retry"
+              continue
+            fi
+
+            echo "::group::Step 3 - Soft validate (opencode review)"
+            opencode run --model "$OPENCODE_MODEL" --title "step3-review-$attempt" "$(cat /tmp/step3_review_prompt.txt)" || echo "review run failed"
+            echo "::endgroup::"
+            if ! grep -q "VERDICT: PASS" "${STEP3_REVIEW}" 2>/dev/null; then
+              echo "soft validate FAIL, retry"
+              continue
+            fi
+
+            echo "REPORT_FILE=$report_file" >> "$GITHUB_ENV"
+            echo "Step 3 passed on attempt $attempt"
+            exit 0
+          done
+          echo "Step 3 failed after $MAX_RETRY attempts"
+          exit 1
+
+      # ============================================================
+      # Step 4: 總結
+      # ============================================================
+      - name: Step 4 - Build prompt
+        run: |
+          REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_step4.md"
+          echo "STEP4_REVIEW=$REVIEW_FILE" >> "$GITHUB_ENV"
+          {
+            python3 "$CHATLOG" /tmp/chatlog.json toprompt
+            echo ""
+            echo "=== 這一輪（${ROUND_ID}）Step 1 的 execution log ==="
+            cat ${STEP1_LOG} 2>/dev/null || echo "(尚未產出)"
+            echo "=== End of Step 1 log ==="
+            echo ""
+            echo "=== 這一輪（${ROUND_ID}）Step 2 的 execution log ==="
+            cat ${STEP2_LOG} 2>/dev/null || echo "(尚未產出)"
+            echo "=== End of Step 2 log ==="
+            echo ""
+            echo "=== 這一輪（${ROUND_ID}）Step 3 的 execution log ==="
+            cat ${STEP3_LOG} 2>/dev/null || echo "(尚未產出)"
+            echo "=== End of Step 3 log ==="
+            echo ""
+            echo "本輪產出的品質報告：${REPORT_FILE}"
+            echo ""
+            echo "=== 本次任務 ==="
+            echo "你是「程式碼品質審查員」。現在執行 Step 4：總結本輪產出。"
+            echo "產出 ${STEP4_LOG}。這是「你自己的動作總結」，格式必須是 4 個 section："
+            echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
+            echo "在「動作結束後的現狀」中必須包含：本輪所有產出檔案清單（報告 + 各 step log）與待追問方向（若無則寫「無」）。"
+            echo "檔案長度上限：2000 字。超過會被硬性驗證拒絕，請精簡。"
+            echo "直接把檔案內容寫到 ${STEP4_LOG}。"
+          } > /tmp/step4_prompt.txt
+          {
+            python3 "$CHATLOG" /tmp/chatlog.json toprompt
+            echo ""
+            echo "=== 本次任務 ==="
+            echo "你是「程式碼品質審查員」。現在執行 Step 4 的軟性驗證。"
+            echo "請讀取 judge/step4-summary.md 取得 review 觀點，再讀取 ${STEP4_LOG}，依觀點做評估。"
+            echo "產出 ${REVIEW_FILE}，格式："
+            echo "## 驗證項目（表格：項目 | 結果 | 備註）"
+            echo "## 問題點（若無則寫「無」）"
+            echo "## 建議（若無則寫「無」）"
+            echo "最後一行必須是 VERDICT: PASS 或 VERDICT: FAIL"
+            echo "直接把檔案內容寫到 ${REVIEW_FILE}。"
+          } > /tmp/step4_review_prompt.txt
+
+      - name: Step 4 - Execute (opencode + hard validate + soft validate)
+        run: |
+          set -uo pipefail
+          attempt=0
+          while (( attempt < MAX_RETRY )); do
+            attempt=$((attempt+1))
+            echo "::group::Step 4 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
+            rm -f "${STEP4_LOG}" "${STEP4_REVIEW}"
+            opencode run --model "$OPENCODE_MODEL" --title "step4-$attempt" "$(cat /tmp/step4_prompt.txt)" || echo "opencode run failed (will validate)"
+            echo "::endgroup::"
+
+            echo "::group::Step 4 - Hard validate"
+            ./judge/validate-step4.sh "${STEP4_LOG}"
+            hard_rc=$?
+            echo "::endgroup::"
+            if [[ $hard_rc -ne 0 ]]; then
+              echo "hard validate failed, retry"
+              continue
+            fi
+
+            echo "::group::Step 4 - Soft validate (opencode review)"
+            opencode run --model "$OPENCODE_MODEL" --title "step4-review-$attempt" "$(cat /tmp/step4_review_prompt.txt)" || echo "review run failed"
+            echo "::endgroup::"
+            if ! grep -q "VERDICT: PASS" "${STEP4_REVIEW}" 2>/dev/null; then
+              echo "soft validate FAIL, retry"
+              continue
+            fi
+
+            echo "Step 4 passed on attempt $attempt"
+            exit 0
+          done
+          echo "Step 4 failed after $MAX_RETRY attempts"
+          exit 1
+
+      # ============================================================
+      # Final: Commit + Post logs to PR chat
+      # ============================================================
+      - name: Commit & push
+        working-directory: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add projects/P02-code-quality-check/memory projects/P02-code-quality-check/output
+          git commit -m "code-quality: PR #${PR_NUMBER} ${ROUND_ID}" || echo "nothing to commit"
+          git pull --rebase origin "$(git rev-parse --abbrev-ref HEAD)" || echo "pull rebase skipped"
+          git push --force-with-lease
+
+      - name: Post logs to PR chat (in order)
+        run: |
+          set -euo pipefail
+          post_log() {
+            local label="$1"
+            local file="$2"
+            local tag="$3"
+            if [[ ! -f "$file" ]]; then
+              echo "skip: $file not found"
+              return
+            fi
+            local content
+            content="$(cat "$file")"
+            local prefix=""
+            if [[ -n "$tag" ]]; then
+              prefix="<!-- chatlog:${tag} -->\n"
+            fi
+            local max=60000
+            if (( ${#content} <= max )); then
+              gh pr comment "$PR_NUMBER" --body "$(printf "${prefix}### [%s]\n\n\`\`\`markdown\n%s\n\`\`\`\n" "$label" "$content")"
+            else
+              local idx=1
+              while (( ${#content} > 0 )); do
+                local chunk="${content:0:$max}"
+                content="${content:$max}"
+                gh pr comment "$PR_NUMBER" --body "$(printf "${prefix}### [%s part %d]\n\n\`\`\`markdown\n%s\n\`\`\`\n" "$label" "$idx" "$chunk")"
+                idx=$((idx+1))
+              done
+            fi
+          }
+          post_log "Step 1 - 意圖理解" "$STEP1_LOG" ""
+          post_log "Step 2 - 執行計劃 C1" "$STEP2_LOG" ""
+          post_log "Step 3 - 品質保證" "$STEP3_LOG" ""
+          post_log "Step 4 - 總結" "$STEP4_LOG" "summary:${ROUND_ID}"
+          post_log "品質報告" "$REPORT_FILE" ""
