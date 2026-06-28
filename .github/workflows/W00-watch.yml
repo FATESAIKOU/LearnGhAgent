@@ -93,8 +93,8 @@ jobs:
             [[ "$login" == *"bot"* || "$login" == "github-actions"* || "$login" == "app/"* || "$login" == *"[bot]"* ]]
           }
 
-          # 取所有 open PR
-          prs=$(gh pr list --repo "$GH_REPO" --state open --json number,labels,comments --limit 50)
+          # 取所有 open PR（含 reviews）
+          prs=$(gh pr list --repo "$GH_REPO" --state open --json number,labels,comments,reviews --limit 50)
 
           echo "$prs" | jq -c '.[]' | while read -r pr; do
             pr_number=$(echo "$pr" | jq -r .number)
@@ -105,10 +105,15 @@ jobs:
               continue
             fi
 
-            # 判定：最後一則 comment author 是 bot → user 還沒追問，跳過
-            last_author=$(echo "$pr" | jq -r '.comments[-1].author.login // empty')
+            # 判定：最後一則 comment/review author 是 bot → user 還沒追問，跳過
+            # 合併 comments + reviews 按時間排序，取最後一則非 bot 的
+            last_author=$(echo "$pr" | jq -r '
+              ([.comments[]? | {author: .author.login, time: .createdAt}] +
+               [.reviews[]? | select(.state == "COMMENTED") | {author: .author.login, time: .submittedAt}])
+              | sort_by(.time) | last.author // empty
+            ')
             if [[ -n "$last_author" ]] && is_bot "$last_author"; then
-              echo "PR #$pr_number: last comment is bot, skip"
+              echo "PR #$pr_number: last message is bot, skip"
               continue
             fi
 

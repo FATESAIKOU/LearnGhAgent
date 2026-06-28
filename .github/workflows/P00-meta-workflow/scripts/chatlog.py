@@ -25,18 +25,22 @@ chatlog.py — 維護對話陣列的工具，支援基本陣列指令。
   chatlog.py <json-file> clear                             清空
   chatlog.py <json-file> rounds                            列出所有 round
 
-load-context-from-pr-log 的 stdin 格式（gh pr view --json body,comments 原始輸出）：
+load-context-from-pr-log 的 stdin 格式（gh pr view --json body,comments,reviews 原始輸出）：
 {
   "body": "PR body 原文",
   "comments": [
     {"author": {"login": "..."}, "body": "<!-- chatlog:summary:R1 -->...", "createdAt": "..."},
     {"author": {"login": "FATESAIKOU"}, "body": "user comment", "createdAt": "..."},
     ...
+  ],
+  "reviews": [
+    {"author": {"login": "FATESAIKOU"}, "body": "NG\n請修正", "state": "COMMENTED", "submittedAt": "..."},
+    ...
   ]
 }
 
 bot comment 透過 body 內的 <!-- chatlog:summary:R1 --> HTML comment tag 標記為 summary。
-chatlog.py 會：過濾 bot comments、用 tag 識別 summary、按 createdAt 排序 user comments、
+chatlog.py 會：過濾 bot comments/reviews、用 tag 識別 summary、按 createdAt/submittedAt 排序 user 訊息、
 配對 user/assistant 交替、current round 只加 user 不加 assistant。
 """
 import json
@@ -163,7 +167,7 @@ def main() -> int:
         # 與 user comments（非 bot author），按 createdAt 排序
         comments = gh_data.get("comments", [])
         summaries: dict[str, str] = {}
-        user_comments: list[dict] = []
+        user_messages: list[dict] = []
         for c in comments:
             login = c.get("author", {}).get("login", "")
             cbody = c.get("body", "")
@@ -172,9 +176,20 @@ def main() -> int:
             if tag_type == "summary" and tag_round:
                 summaries[tag_round] = strip_tag(cbody)
             elif not is_bot(login):
-                user_comments.append({"body": cbody, "createdAt": created})
-        user_comments.sort(key=lambda c: c["createdAt"])
-        user_texts = [c["body"] for c in user_comments]
+                user_messages.append({"body": cbody, "createdAt": created})
+
+        # 也從 reviews 抓 user 訊息（PR review comment，非一般 comment）
+        reviews = gh_data.get("reviews", [])
+        for r in reviews:
+            login = r.get("author", {}).get("login", "")
+            rbody = r.get("body", "")
+            submitted = r.get("submittedAt", "")
+            state = r.get("state", "")
+            if not is_bot(login) and rbody.strip() and state == "COMMENTED":
+                user_messages.append({"body": rbody, "createdAt": submitted})
+
+        user_messages.sort(key=lambda c: c["createdAt"])
+        user_texts = [c["body"] for c in user_messages]
 
         # round id = PR body 算第 1 次 + user comments 數
         current_num = 1 + len(user_texts)

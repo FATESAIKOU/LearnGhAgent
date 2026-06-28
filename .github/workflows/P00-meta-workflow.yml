@@ -41,10 +41,14 @@ jobs:
             echo "FAIL: token check (HTTP $http_code)"
             echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          # last comment check: 抓 PR 最後一則 comment author，若是 bot = user 還沒追問
-          last_author=$(gh pr view "$pr_number" --json comments -q '.comments[-1].author.login // empty')
+          # last message check: 合併 comments + reviews，取最後一則非 bot 的 author
+          last_author=$(gh pr view "$pr_number" --json comments,reviews -q '
+            ([.comments[]? | {author: .author.login, time: .createdAt}] +
+             [.reviews[]? | select(.state == "COMMENTED") | {author: .author.login, time: .submittedAt}])
+            | sort_by(.time) | last.author // empty
+          ')
           if [[ -n "$last_author" ]] && [[ "$last_author" == *"bot"* || "$last_author" == "github-actions"* || "$last_author" == "app/"* || "$last_author" == *"[bot]"* ]]; then
-            echo "FAIL: last comment is bot ($last_author)"
+            echo "FAIL: last message is bot ($last_author)"
             echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           # label check: PR 必須帶有 project:P00-meta-workflow label
@@ -96,7 +100,7 @@ jobs:
             git checkout "$pr_branch"
           fi
           mkdir -p memory/log output
-          gh pr view "$PR_NUMBER" --json body,comments > /tmp/pr_data.json
+          gh pr view "$PR_NUMBER" --json body,comments,reviews > /tmp/pr_data.json
           python3 "$CHATLOG" /tmp/chatlog.json load-context-from-pr-log < /tmp/pr_data.json > /tmp/load_output.txt 2>&1
           cat /tmp/load_output.txt
           round_line=$(grep -oE 'current round R[0-9]+' /tmp/load_output.txt | grep -oE 'R[0-9]+')
