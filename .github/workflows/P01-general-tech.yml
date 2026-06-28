@@ -117,7 +117,7 @@ jobs:
             git checkout "$pr_branch"
           fi
           # 確保 scripts 是最新版（PR branch 可能落後 main）
-          git checkout origin/main -- .github/workflows/scripts/ 2>/dev/null || true
+          git -C "$(git rev-parse --show-toplevel)" checkout origin/main -- .github/workflows/scripts/ 2>/dev/null || true
           mkdir -p memory/log output
           gh pr view "$PR_NUMBER" --json body,comments > /tmp/pr_data.json
           gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews" --jq '[.[] | {id, author: {login: .user.login}, body, state, submitted_at}]' > /tmp/reviews.json
