@@ -73,7 +73,7 @@ jobs:
       OPENCODE_MODEL: ollama-cloud/${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash' }}
       PROJECT_DIR: projects/P00-meta-workflow
       MAX_RETRY: ${{ github.event.inputs.max_retry || '3' }}
-      CHATLOG: ../../.github/workflows/P00-meta-workflow/scripts/chatlog.py
+      CHATLOG: ../../.github/workflows/scripts/chatlog.py
       PR_NUMBER: ${{ needs.guard.outputs.pr_number }}
     defaults:
       run:
@@ -99,6 +99,8 @@ jobs:
             git fetch origin "$pr_branch"
             git checkout "$pr_branch"
           fi
+          # 確保 chatlog.py 是最新版（PR branch 可能落後 main）
+          git checkout origin/main -- .github/workflows/scripts/chatlog.py 2>/dev/null || true
           mkdir -p memory/log output
           gh pr view "$PR_NUMBER" --json body,comments,reviews > /tmp/pr_data.json
           python3 "$CHATLOG" /tmp/chatlog.json load-context-from-pr-log < /tmp/pr_data.json > /tmp/load_output.txt 2>&1
@@ -158,7 +160,7 @@ jobs:
             opencode run --model "$OPENCODE_MODEL" --title "step1-$attempt" "$(cat /tmp/step1_prompt.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
             echo "::group::Step 1 - Hard validate"
-            ./validate.sh step-log-short "${STEP1_LOG}"
+            ./judge/validate-step1.sh "${STEP1_LOG}"
             hard_rc=$?
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
@@ -196,11 +198,11 @@ jobs:
             echo "1. know/AGENTS.md — project 的 agent 角色定義 + 4 step 執行流程（參考 ../../projects/P01-general-tech/know/AGENTS.md 的格式）"
             echo "2. know/我.md — 使用者 persona（可從 ../../projects/P01-general-tech/know/我.md 複製）"
             echo "3. opencode.json — LLM 設定（可從 ../../projects/P01-general-tech/opencode.json 複製，改 instructions 路徑）"
-            echo "4. validate.sh — 硬性驗證腳本（從 ../../projects/P01-general-tech/validate.sh 複製）"
+            echo "4. judge/validate-step1.sh ~ validate-step4.sh — 硬性驗證腳本（從 ../../projects/P01-general-tech/judge/ 複製）"
             echo "5. judge/ — review 觀點（step1-intent.md ~ step4-summary.md，根據 project 特性調整）"
             echo "6. memory/log/.gitkeep, output/.gitkeep, guardrail/.gitkeep"
             echo "7. do/skills/ — 根據 project 需求建立 skill"
-            echo "同時在 ../../.github/workflows/ 建立 <project_name>.yml（從 ../../.github/workflows/P01-general-tech.yml 複製，改 name + label + PROJECT_DIR + CHATLOG 路徑）。"
+            echo "同時在 ../../.github/workflows/ 建立 <project_name>.yml（從 ../../.github/workflows/P01-general-tech.yml 複製，改 name + label + PROJECT_DIR。CHATLOG 路徑已統一為 ../../.github/workflows/scripts/chatlog.py，不需修改）。"
             echo "產出 ${STEP2_LOG}。格式必須是 4 個 section："
             echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
             echo "檔案長度上限：6000 字。超過會被硬性驗證拒絕，請精簡。"
@@ -231,7 +233,7 @@ jobs:
             opencode run --model "$OPENCODE_MODEL" --title "step2-$attempt" "$(cat /tmp/step2_prompt.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
             echo "::group::Step 2 - Hard validate"
-            ./validate.sh step-log-long "${STEP2_LOG}"
+            ./judge/validate-step2.sh "${STEP2_LOG}"
             hard_rc=$?
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
@@ -274,7 +276,7 @@ jobs:
             echo "1. projects/ 下有新建的 project 資料夾"
             echo "2. know/AGENTS.md 存在且含 4 step 流程定義"
             echo "3. .github/workflows/ 下有對應的 <project_name>.yml"
-            echo "4. opencode.json + validate.sh 存在"
+            echo "4. opencode.json + judge/validate-step*.sh 存在"
             echo "5. judge/ 有 4 個 review 觀點檔"
             echo "產出 ${STEP3_LOG}。格式必須是 4 個 section："
             echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
@@ -307,7 +309,7 @@ jobs:
             opencode run --model "$OPENCODE_MODEL" --title "step3-$attempt" "$(cat /tmp/step3_main_prompt.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
             echo "::group::Step 3 - Hard validate (step log)"
-            ./validate.sh step-log-medium "${STEP3_LOG}"
+            ./judge/validate-step3.sh "${STEP3_LOG}"
             hard_rc=$?
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
@@ -381,7 +383,7 @@ jobs:
             opencode run --model "$OPENCODE_MODEL" --title "step4-$attempt" "$(cat /tmp/step4_prompt.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
             echo "::group::Step 4 - Hard validate"
-            ./validate.sh step-log-short "${STEP4_LOG}"
+            ./judge/validate-step4.sh "${STEP4_LOG}"
             hard_rc=$?
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
