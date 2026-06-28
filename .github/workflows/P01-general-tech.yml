@@ -57,8 +57,12 @@ jobs:
             | sort_by(.time) | last.author // empty
           ')
           if [[ -n "$last_author" ]] && [[ "$last_author" == *"bot"* || "$last_author" == "github-actions"* || "$last_author" == "app/"* || "$last_author" == *"[bot]"* ]]; then
-            echo "FAIL: last message is bot ($last_author)"
-            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+            rc_count=$(gh api "repos/${{ github.repository }}/pulls/$pr_number/comments" --jq '[.[] | select(.user.login | test("bot|github-actions|app/|\\[bot\\]") | not)] | length' 2>/dev/null || echo 0)
+            if [[ "$rc_count" -eq 0 ]]; then
+              echo "FAIL: last message is bot ($last_author), no new review comments"
+              echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+            echo "found $rc_count non-bot review comments, proceeding"
           fi
 
           # label check: PR 必須帶有 project:P01-general-tech label
@@ -116,7 +120,8 @@ jobs:
           git checkout origin/main -- .github/workflows/scripts/chatlog.py 2>/dev/null || true
           mkdir -p memory/log output
           gh pr view "$PR_NUMBER" --json body,comments,reviews > /tmp/pr_data.json
-          python3 "$CHATLOG" /tmp/chatlog.json load-context-from-pr-log < /tmp/pr_data.json > /tmp/load_output.txt 2>&1
+          gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER/comments" --jq '[.[] | {pull_request_review_id, user: {login: .user.login}, path, line, body, created_at}]' > /tmp/review_comments.json
+          python3 "$CHATLOG" /tmp/chatlog.json load-context-from-pr-log /tmp/review_comments.json < /tmp/pr_data.json > /tmp/load_output.txt 2>&1
           cat /tmp/load_output.txt
           round_line=$(grep -oE 'current round R[0-9]+' /tmp/load_output.txt | grep -oE 'R[0-9]+')
           echo "ROUND_ID=$round_line" >> "$GITHUB_ENV"
