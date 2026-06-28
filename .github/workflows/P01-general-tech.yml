@@ -61,8 +61,8 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
 
-          # label check: PR 必須帶有 project:01-general-tech label
-          if ! gh pr view "$pr_number" --json labels -q '.labels[].name' | grep -q '^project:01-general-tech$'; then
+          # label check: PR 必須帶有 project:P01-general-tech label
+          if ! gh pr view "$pr_number" --json labels -q '.labels[].name' | grep -q '^project:P01-general-tech$'; then
             echo "FAIL: missing label"
             echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
