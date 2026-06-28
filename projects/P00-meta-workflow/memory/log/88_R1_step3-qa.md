@@ -2,28 +2,24 @@
 
 ## 狀況理解
 
-Step 2 已產出 P02-news-catchup 所有骨架檔案。本 step 逐一驗證 5 項必要產出是否完整且正確。
+Step 2 已產出 P02-news-catchup 所有骨架檔案。Step 3 需驗證 5 項檢查項目是否全部通過。
 
 ## 執行的動作與結果
 
-| 驗證項目 | 驗證方式 | 結果 |
-|----------|----------|------|
-| projects/ 下有 P02-news-catchup | `ls projects/` | ✅ 存在 |
-| know/AGENTS.md 含 4 step 流程 | 檢查檔案存在 + grep 4 step 關鍵字 | ✅ 存在，含 Step 1~4 定義 |
-| .github/workflows/ 有 P02-news-catchup.yml | `ls` 確認 | ✅ 存在 |
-| opencode.json + validate.sh | `ls` 確認 | ✅ 兩者皆存在 |
-| judge/ 有 4 個 review 觀點檔 | `ls judge/` | ✅ step1-intent / step2-plan / step3-qa / step4-summary 共 4 檔 |
+| 檢查項目 | 驗證方式 | 結果 |
+|---|---|---|
+| 1. projects/ 下有 P02-news-catchup | `ls projects/P02-news-catchup/` | ✅ 存在，含 do/ guardrail/ judge/ know/ memory/ opencode.json output/ validate.sh |
+| 2. know/AGENTS.md 含 4 step 流程 | `grep -c "Step [1-4]"` | ✅ 6 次匹配（含標題與說明），4 step 完整定義 |
+| 3. .github/workflows/P02-news-catchup.yml | `ls` | ✅ 存在 |
+| 4. opencode.json + validate.sh | `ls` + `wc -c` | ✅ opencode.json (658B)、validate.sh (2348B) 皆非空 |
+| 5. judge/ 有 4 個 review 觀點檔 | `ls judge/*.md \| wc -l` | ✅ 4 個：step1-intent.md、step2-plan.md、step3-qa.md、step4-summary.md |
 
 ## 動作結束後的現狀
 
-| 驗證面向 | 結果 |
-|----------|------|
-| 5 項必要產出 | 全部通過 |
-| 檔案完整性 | 無缺失 |
-| 命名慣例一致性 | 與 P01 一致 |
+5 項檢查全部通過。P02-news-catchup 骨架完整，無缺失。
 
 ## 其中的決斷點
 
-無。5 項驗證全數 PASS，無需決斷。
+無。本 step 為純驗證，無需決斷。
 
 VERDICT: PASS
