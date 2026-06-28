@@ -113,8 +113,13 @@ jobs:
               | sort_by(.time) | last.author // empty
             ')
             if [[ -n "$last_author" ]] && is_bot "$last_author"; then
-              echo "PR #$pr_number: last message is bot, skip"
-              continue
+              # 最後一則是 bot，但可能還有 review_comments（file-level）沒被 gh pr list 涵蓋
+              rc_count=$(gh api "repos/$GH_REPO/pulls/$pr_number/comments" --jq '[.[] | select(.user.login | test("bot|github-actions|app/|\\[bot\\]") | not)] | length' 2>/dev/null || echo 0)
+              if [[ "$rc_count" -eq 0 ]]; then
+                echo "PR #$pr_number: last message is bot, skip"
+                continue
+              fi
+              echo "PR #$pr_number: found $rc_count non-bot review comments, proceeding"
             fi
 
             # 啟動（project workflow 有 concurrency per PR，重複觸發會被 GitHub 擋掉）
