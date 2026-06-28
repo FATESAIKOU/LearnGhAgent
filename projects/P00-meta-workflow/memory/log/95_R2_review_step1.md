@@ -1,14 +1,12 @@
-# 95_R2_review_step1.md
-
 ## 驗證項目
 
 | 項目 | 結果 | 備註 |
 |------|------|------|
-| 標的明確性 | PASS | 正確辨識標的為 P02-code-quality-check workflow 的 PROJECT_DIR 路徑問題 |
-| 意圖完整度 | PASS | 不僅理解使用者要求修正路徑，還發現更深層問題：workflow 檔案實際不存在 |
-| 條件列舉 | PASS | 窮舉 4 個驗證面向：檔案存在性、目錄存在性、訊息可解析性、R1 產出落差 |
-| 缺乏資訊識別 | PASS | 指出使用者原文「應為」與「而非」字串一致，無法判定預期修正方向 |
-| log 格式合規 | PASS | 4 個 section 齊全、順序正確，長度約 1500 字（上限 2000） |
+| 標的明確性 | PASS | 正確辨識標的為 P02-code-quality-check 的 workflow 中 PROJECT_DIR 路徑，具體可修正 |
+| 意圖完整度 | PASS | 完整理解使用者要求修正路徑，且正確判斷為修正輪（R2）而非新建 project |
+| 條件列舉 | PASS | 窮舉關鍵條件：PROJECT_DIR 應為 `projects/P02-code-quality-check`，僅修正 workflow |
+| 缺乏資訊識別 | PASS | 使用者 feedback 明確完整，無資訊缺口 |
+| log 格式合規 | PASS | 4 個 section 齊全且順序正確，長度在 2000 字限制內 |
 
 ## 問題點
 

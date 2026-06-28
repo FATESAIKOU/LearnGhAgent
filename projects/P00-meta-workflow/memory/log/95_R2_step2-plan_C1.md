@@ -2,30 +2,28 @@
 
 ## 狀況理解
 
-R1 已建立 P02-code-quality-check project 完整骨架（know/do/judge/guardrail/memory/output + workflow）。R2 使用者回報 workflow 中 PROJECT_DIR 路徑不正確，原文：「應該是 projects/P02-code-quality-check 而非 projects/P02-code-quality-check」。兩字串完全一致，無法判定差異。經實際檢查，workflow 中 PROJECT_DIR 值為 `projects/P02-code-quality-check`，與 project 實際路徑一致，無需修正。
+本輪（R2）為 P02-code-quality-check 的修正輪。使用者回報 R1 產出的 workflow 中 `PROJECT_DIR` 路徑錯誤。經檢查，`.github/workflows/P02-code-quality-check.yml` 中 `PROJECT_DIR` 與 `working-directory` 均已設為 `projects/P02-code-quality-check`，與 project 實際路徑一致。使用者訊息中「應為 A 而非 A」兩者字串相同，推測為複製貼上筆誤。本輪無需修改任何檔案，僅產出 Step 2 log 記錄此狀況。
 
 ## 執行的動作與結果
 
-| 動作 | 目的 | 結果 |
-|------|------|------|
-| 讀取 `.github/workflows/P02-code-quality-check.yml` | 確認 PROJECT_DIR 實際值 | 值為 `projects/P02-code-quality-check`，與目錄結構一致 |
-| 確認 `projects/P02-code-quality-check/` 存在 | 確認 project 實體路徑 | 目錄存在，骨架完整 |
-| 比對 P01 workflow 的 PROJECT_DIR | 確認路徑格式慣例 | P01 也是 `projects/P01-general-tech`，格式一致 |
-| 檢查所有 P02 骨架檔案 | 確認 R1 產出完整性 | know/AGENTS.md、opencode.json、judge/、do/skills/、workflow 全部就緒 |
+| 動作 | 目的 | 預期達成效果 | 實際的結果 |
+|------|------|-------------|------------|
+| 讀取 `.github/workflows/P02-code-quality-check.yml` | 確認 `PROJECT_DIR` 現值 | 確認路徑是否正確 | `PROJECT_DIR: projects/P02-code-quality-check`，與 project 路徑一致 |
+| 讀取 `projects/P02-code-quality-check/` 目錄 | 確認 project 實際路徑 | 確認目錄存在 | 目錄存在，含 know/do/judge/guardrail/memory/output |
+| 比對使用者回報與實際內容 | 判斷是否需要修正 | 確認差異 | 使用者訊息中「應為」與「而非」字串相同，無實際差異可修正 |
 
 ## 動作結束後的現狀
 
 | 驗證面向 | 驗證內容與方式 | 驗證結果 |
 |----------|---------------|----------|
-| PROJECT_DIR 值 | `projects/P02-code-quality-check` | 正確，與實際目錄一致 |
-| workflow 檔案存在性 | `.github/workflows/P02-code-quality-check.yml` | 存在，505 行 |
-| P02 骨架完整性 | know/do/judge/guardrail/memory/output | 完整，含 9 個 judge 檔案 + 1 個 skill |
-| 使用者訊息可解析性 | 原文兩字串一致 | 無法判定預期修正方向，可能為 copy-paste 錯誤 |
+| `PROJECT_DIR` 正確性 | 讀取 workflow line 83 | `projects/P02-code-quality-check`，正確 |
+| `working-directory` 正確性 | 讀取 workflow line 89 | `projects/P02-code-quality-check`，正確 |
+| project 目錄存在性 | `ls projects/P02-code-quality-check/` | 目錄存在，結構完整 |
+| 使用者訊息一致性 | 比對「應為」與「而非」字串 | 兩者完全相同，無法判定實際差異 |
 
 ## 其中的決斷點
 
 | 決斷面向 | 可選選項 | 選擇結果 | 選擇理由 |
 |----------|---------|---------|---------|
-| 是否修改 PROJECT_DIR | 修改 / 不修改 | 不修改 | 當前值 `projects/P02-code-quality-check` 正確，與目錄一致 |
-| 是否修改其他檔案 | 修改 / 不修改 | 不修改 | 所有骨架檔案已就緒，無需變更 |
-| 是否回報使用者 | 回報 / 不回報 | 不回報（Step 2 不負責回報） | Step 4 總結時會涵蓋 |
+| 是否修改 workflow | 修改 / 不修改 | 不修改 | 現有路徑已正確，使用者訊息兩側字串相同，無實際差異可修正 |
+| 是否新建 project | 新建 / 不新建 | 不新建 | P02 已存在且結構完整，本輪僅為修正輪 |

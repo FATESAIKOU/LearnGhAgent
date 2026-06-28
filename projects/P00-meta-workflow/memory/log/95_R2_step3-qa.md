@@ -2,27 +2,28 @@
 
 ## 狀況理解
 
-R2 Step 2 判定 PROJECT_DIR 值正確、無需修改。本 step 驗證 P02-code-quality-check project 所有骨架檔案是否完整且正確。
+本輪（R2）為 P02-code-quality-check 的修正輪。使用者回報 R1 產出的 workflow 中 `PROJECT_DIR` 路徑錯誤。Step 2 經檢查確認現有路徑已正確（`projects/P02-code-quality-check`），無需修改。本 Step 3 驗證 Step 2 的結論是否正確，以及 project 檔案結構是否完整。
 
 ## 執行的動作與結果
 
-| 檢查項目 | 方式 | 結果 |
-|----------|------|------|
-| 1. `projects/P02-code-quality-check/` 存在 | `ls` | PASS：含 know/do/judge/guardrail/memory/output |
-| 2. `know/AGENTS.md` 存在且含 4 step 流程 | `test -f` + `grep` | PASS：檔案存在，含 Step 1-4 定義 |
-| 3. `.github/workflows/P02-code-quality-check.yml` 存在 | `test -f` | PASS：檔案存在 |
-| 4. `opencode.json` + `judge/validate-step*.sh` 存在 | `test -f` + `glob` | PASS：opencode.json 存在，validate-step1~4.sh 共 4 個 |
-| 5. `judge/` 有 4 個 review 觀點檔 | `glob` | PASS：step1-intent.md、step2-plan.md、step3-qa.md、step4-summary.md |
+| 驗證項目 | 驗證方式 | 結果 |
+|----------|---------|------|
+| `projects/P02-code-quality-check/` 存在 | `ls` | PASS：目錄存在，含 know/do/judge/guardrail/memory/output |
+| `know/AGENTS.md` 存在且含 4 step 流程 | 檔案存在 + grep "Step [1-4]" | PASS：檔案存在，含 6 處 Step 定義 |
+| `.github/workflows/P02-code-quality-check.yml` 存在 | `test -f` | PASS |
+| `opencode.json` + `judge/validate-step*.sh` 存在 | `test -f` + `ls` | PASS：opencode.json 存在，validate-step1~4.sh 共 4 個 |
+| `judge/` 有 4 個 review 觀點檔 | `ls judge/step*.md` | PASS：step1-intent / step2-plan / step3-qa / step4-summary |
+| `PROJECT_DIR` 值正確 | 讀取 workflow line 83 | PASS：`projects/P02-code-quality-check`，與實際路徑一致 |
 
 ## 動作結束後的現狀
 
-全部 5 項檢查 PASS。P02-code-quality-check 骨架完整，無需修正。
+所有 5 項檢查項目 + 1 項路徑正確性檢查均 PASS。P02-code-quality-check 結構完整，無需修正。
 
 ## 其中的決斷點
 
 | 決斷面向 | 選擇 | 理由 |
 |----------|------|------|
-| 是否接受 Step 2 不修改的結論 | 接受 | 所有檢查項目均 PASS，PROJECT_DIR 值正確 |
-| 是否需額外修正 | 不需要 | 骨架完整，無遺漏檔案 |
+| 是否修改 workflow | 不修改 | 現有路徑已正確，使用者訊息兩側字串相同，無實際差異 |
+| 是否新建 project | 不新建 | P02 已存在且結構完整 |
 
 VERDICT: PASS
