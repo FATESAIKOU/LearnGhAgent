@@ -8,9 +8,8 @@ chatlog.py — 維護對話陣列的工具。
   chatlog.py <json-file> append-file <role> <file>
   chatlog.py <json-file> append-round <round> <role> <text>
   chatlog.py <json-file> append-round-file <round> <role> <file>
-  chatlog.py <json-file> load-context-from-pr-log [review_comments.json]
-        從 stdin 讀 gh pr view --json body,comments,reviews 輸出。
-        可選參數: review_comments.json (gh api /pulls/N/comments 輸出)。
+  chatlog.py <json-file> load-context-from-pr-log
+        從 stdin 讀合併後的 PR data（含 body, comments, reviews, review_comments）。
   chatlog.py <json-file> toprompt
   chatlog.py <json-file> toprompt-from-round <round>
   chatlog.py <json-file> len / get <idx> / clear / rounds
@@ -113,14 +112,12 @@ def main() -> int:
         gh_data = json.load(sys.stdin)
         data = {"messages": []}
 
-        # 可選: review_comments file
+        # review_comments 按 review_id 分組
         rc_by_review: dict[int, list[dict]] = {}
-        if args:
-            rc_list = json.loads(Path(args[0]).read_text(encoding="utf-8"))
-            for rc in rc_list:
-                rid = rc.get("pull_request_review_id")
-                if rid:
-                    rc_by_review.setdefault(rid, []).append(rc)
+        for rc in gh_data.get("review_comments", []):
+            rid = rc.get("pull_request_review_id")
+            if rid:
+                rc_by_review.setdefault(rid, []).append(rc)
 
         # comments → summaries + user messages
         summaries: dict[str, str] = {}
