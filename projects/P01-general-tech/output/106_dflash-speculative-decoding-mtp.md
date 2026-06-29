@@ -1,6 +1,6 @@
 # DFlash / Speculative Decoding / Multi-Token Prediction (MTP)
 
-> 本報告解析三個相互關聯的 LLM 推論加速技術：speculative decoding（上層框架）、DFlash（基於 block diffusion 的實作）、MTP（基於多頭預測的實作）。
+> 本報告針對 R3 使用者 4 個具體提問重新組織，以提問為綱，逐一回答。
 
 ---
 
@@ -8,29 +8,11 @@
 
 **LLM 自回歸解碼（autoregressive decoding）的推論速度瓶頸。**
 
-LLM 生成文字時，一次只能產生一個 token，且每個 token 都需要完整執行一次 forward pass。這導致：
+LLM 生成文字時，一次只能產生一個 token，每個 token 都需要完整執行一次 forward pass。這導致：
 - 輸出延遲與輸出長度成正比
 - GPU 計算利用率低落（memory-bound，而非 compute-bound）
-- 即時應用（chat、code completion）的用戶體驗受限
 
 Speculative decoding、DFlash、MTP 三者的共同目標：**在不降低生成品質的前提下，減少 LLM 解碼所需的 forward pass 次數**。
-
-### 三者關係總覽
-
-```
-上層框架：Speculative Decoding（草稿 → 驗證）
-  ├── 實作方案 A：DFlash
-  │     Draft 機制：外部 block diffusion 模型（非自回歸，平行）
-  │     Verify 機制：target LLM 一次 forward pass（平行）
-  │
-  └── 實作方案 B：MTP（Multi-Token Prediction）
-        Draft 機制：模型自身的 MTP heads（多頭平行預測）
-        Verify 機制：target LLM 一次 forward pass（平行）
-```
-
-- **Speculative decoding** 是上層框架，定義了「先快速產生草稿 → 再平行驗證」的兩階段流程
-- **DFlash** 與 **MTP** 都是 speculative decoding 框架下的具體實作，差異僅在「draft 階段用什麼機制產生草稿」
-- 不存在「DFlash 包含 MTP」或「MTP 包含 DFlash」的關係，兩者是 sibling（兄弟）關係，上層是 speculative decoding
 
 ---
 
@@ -44,10 +26,9 @@ LLM（decoder-only Transformer）的生成過程是逐 token 進行的：
 給定 prompt "The capital of France is"
 Step 1: 計算 P(paris | "The capital of France is") → 輸出 "paris"
 Step 2: 計算 P(. | "The capital of France is paris") → 輸出 "."
-...
 ```
 
-每一步都依賴上一步的輸出，無法平行化。這不是實作問題，而是**演算法層面的序列依賴**。
+每一步都依賴上一步的輸出，無法平行化。
 
 ### 2.2 GPU 計算特性 mismatch
 
@@ -55,183 +36,212 @@ Step 2: 計算 P(. | "The capital of France is paris") → 輸出 "."
 - 單 token 生成時，計算量小但權重讀取量大，GPU 利用率極低（通常 < 10%）
 - 若能一次處理多個 token，計算/記憶體存取比提升，利用率隨之上升
 
-### 2.3 文章明確提到的背景
-
-- Speculative decoding 的理論基礎由 Leviathan & Chen (2023) 與 Stern et al. (2018) 建立
-- DFlash 論文（arXiv 2602.06036）明確指出「自回歸解碼的序列瓶頸」為其要解決的問題
-- Meta 的 MTP 論文（arXiv 2404.19737）提出 MTP 最初作為訓練階段的 auxiliary task，後續研究將其延伸至推論加速
-
 ---
 
 ## 3. 這個技術是如何解決該問題的？
 
-### 3.1 Speculative Decoding（上層框架）
+### Q1：speculative decoding / dflash / mtp 到底誰是誰的上層概念？
 
-**核心機制：draft-then-verify（草稿 → 驗證）**
-
-```
-輸入: prompt
-  │
-  ▼
-┌─────────────────────────────────────┐
-│  Stage 1: Draft（草稿生成）          │
-│  使用一個較小的 draft model（如 1B）   │
-│  快速產生 γ 個候選 token              │
-│  例如: ["Paris", "is", "a", "city"]  │
-└─────────────────────────────────────┘
-  │
-  ▼
-┌─────────────────────────────────────┐
-│  Stage 2: Verify（平行驗證）          │
-│  使用 target LLM（如 70B）一次 forward │
-│  pass 計算所有候選 token 的機率        │
-│  保留符合 rejection sampling 條件的   │
-│  最長前綴                             │
-└─────────────────────────────────────┘
-  │
-  ▼
-輸出: 一次接受多個 token（平均 > 1）
-```
-
-**關鍵特性：**
-- **lossless**：輸出的機率分布與原始 target LLM 完全一致（rejection sampling 保證）
-- **draft model 可任意選擇**：可以是小模型、n-gram、或任何能快速產生 token 的機制
-- **加速倍率**：通常 2x-3x，取決於 draft model 與 target model 的吻合度
-
-**虛擬碼：**
+**Speculative decoding 是上層框架，DFlash 與 MTP 是該框架下的兩種實作方案。**
 
 ```
-def speculative_decoding(target_model, draft_model, prompt, gamma=5):
-    # Stage 1: Draft
-    draft_tokens = draft_model.generate(prompt, n_tokens=gamma)
+上層框架：Speculative Decoding（定義「先快速產生草稿 → 再平行驗證」的兩階段流程）
+  │
+  ├── 實作方案 A：DFlash
+  │     Draft 機制：外部 block diffusion 模型（非自回歸，平行）
+  │     Verify 機制：target LLM 一次 forward pass（平行）
+  │
+  └── 實作方案 B：MTP（Multi-Token Prediction）
+        Draft 機制：模型自身的 MTP heads（多頭平行預測）
+        Verify 機制：target LLM 一次 forward pass（平行）
+```
 
-    # Stage 2: Verify
-    target_logits = target_model.forward(prompt + draft_tokens)
+- **Speculative decoding** 是上層框架，定義了「先快速產生草稿 → 再平行驗證」的兩階段流程
+- **DFlash** 與 **MTP** 都是 speculative decoding 框架下的具體實作，差異僅在「draft 階段用什麼機制產生草稿」
+- 不存在「DFlash 包含 MTP」或「MTP 包含 DFlash」的關係，兩者是 sibling（兄弟）關係，上層是 speculative decoding
 
-    # Rejection sampling
-    accepted = []
-    for i in range(gamma):
-        q = draft_model.p(draft_tokens[i] | prompt + accepted)
-        p = target_logits[i]
-        if random() < min(1, p / q):
-            accepted.append(draft_tokens[i])
-        else:
-            accepted.append(sample_from_corrected(p, q))
-            break
+**類比（工程師用語）：**
 
-    return accepted  # 平均長度 > 1
+| 概念 | 類比 |
+|---|---|
+| Speculative decoding | 一個 **interface**（定義了 `draft()` + `verify()` 兩個方法） |
+| DFlash | 一個 **class** 實作了這個 interface，`draft()` 用 block diffusion |
+| MTP | 另一個 **class** 實作了這個 interface，`draft()` 用多頭預測 heads |
+
+---
+
+### Q2：這三個概念各自解決甚麼問題？如何解決問題？
+
+| 概念 | 解決的問題 | 如何解決 | 核心機制 |
+|---|---|---|---|
+| **Speculative decoding**（框架） | 自回歸解碼的序列瓶頸 | 定義「快速草稿 → 平行驗證」兩階段流程，減少 target LLM 的 forward pass 次數 | Draft model 產生 γ 個候選 token → target LLM 一次 forward 驗證全部 → rejection sampling 保證 lossless |
+| **DFlash**（實作） | 傳統 speculative decoding 的 draft 階段仍為自回歸（小 LLM 仍需逐 token 生成） | 用 block diffusion 模型一次平行產生整段候選 token，draft 階段從 O(γ) 降為 O(1) | 從雜訊開始，經 4-8 步去噪（每步平行處理所有位置），一次輸出 γ 個 token |
+| **MTP**（實作） | 傳統 speculative decoding 需要載入額外的外部 draft model（增加記憶體開銷） | 在 LLM 自身疊加多個 prediction heads，讓模型自身具備一次預測多個 token 的能力 | 訓練時加入 auxiliary heads 預測未來 token；推論時用這些 heads 產生草稿，無需外部模型 |
+
+**三者的加速原理對比：**
+
+```
+傳統自回歸（無加速）：
+  Step 1: forward → token A
+  Step 2: forward → token B
+  Step 3: forward → token C
+  Step 4: forward → token D
+  總計：4 次 forward pass，4 個 token
+
+Speculative decoding（通用框架）：
+  Step 1: draft model 快速產生 [A', B', C', D']（草稿）
+  Step 2: target LLM 一次 forward 驗證全部 → 接受 [A, B, C]（丟棄 D'）
+  總計：1 次 target forward + 1 次 draft，3 個 token
+
+DFlash（draft 用 diffusion）：
+  Step 1: block diffusion 一次平行產生 [A', B', C', D']（非自回歸）
+  Step 2: target LLM 一次 forward 驗證全部
+  總計：1 次 target forward + 1 次 diffusion（4-8 步但可平行），3-4 個 token
+
+MTP（draft 用自身 heads）：
+  Step 1: target LLM 產生 token A
+  Step 2: MTP head 1 預測 B', head 2 預測 C', head 3 預測 D'（平行）
+  Step 3: target LLM 一次 forward 驗證 [B', C', D']
+  總計：2 次 target forward，3-4 個 token
 ```
 
 ---
 
-### 3.2 DFlash（基於 Block Diffusion 的 Speculative Decoding）
+### Q3：dflash 聽起來是 diffusion 應用，感覺跟字串不一樣吧？
 
-**核心機制：使用輕量 block diffusion 模型取代傳統 draft model，一次產生整段候選 token。**
+**正確。DFlash 的 block diffusion 不是在字串（token 序列）上操作，而是在連續向量空間（continuous embedding space）上操作。**
 
-DFlash 是 speculative decoding 框架下的一個具體實作，其創新在於 draft 階段的設計：
-
-```
-傳統 speculative decoding:
-  draft model (小 LLM) → 逐 token 產生 γ 個候選
-  └─ 仍為自回歸，只是模型較小
-
-DFlash:
-  block diffusion model → 一次產生整段 γ 個候選
-  └─ 非自回歸，完全平行
-```
-
-**DFlash 的 block diffusion 如何運作：**
+這是理解 DFlash 最關鍵的一點。以下是 token 在 DFlash 中的完整資料流：
 
 ```
-Step 1: 從純雜訊開始（γ 個 token 的 noise）
-  [noise, noise, noise, noise, noise]
+階段 1：Token → Embedding（離散 → 連續）
+  token 序列 ["Paris", "is", "a", "city"]
+  → lookup embedding table
+  → 連續向量矩陣 [[0.23, -0.45, ...], [0.12, 0.67, ...], ...]
+  → shape: (γ, d_model)
 
-Step 2: 迭代去噪（通常 4-8 步）
-  [noise, noise, noise, noise, noise]
-  → [t1,   noise, noise, noise, noise]  (step 1)
-  → [t1,   t2,    noise, noise, noise]  (step 2)
-  → [t1,   t2,    t3,    noise, noise]  (step 3)
-  → [t1,   t2,    t3,    t4,    noise]  (step 4)
-  → [t1,   t2,    t3,    t4,    t5]     (step 5, 完成)
+階段 2：Block Diffusion（在連續空間中操作）
+  初始：純雜訊矩陣（高斯 noise），shape 同為 (γ, d_model)
+  去噪 step 1: noise → 接近目標的向量
+  去噪 step 2: 更接近
+  ...
+  去噪 step 4-8: 得到最終連續向量矩陣
 
-Step 3: 送入 target LLM 平行驗證（同 standard speculative decoding）
+階段 3：Embedding → Token（連續 → 離散）
+  連續向量矩陣 → 與 embedding table 做 nearest neighbor search
+  → 離散 token 序列 ["Paris", "is", "a", "city"]
 ```
 
-**關鍵特性：**
-- **draft 階段完全平行**：diffusion 的每步去噪可平行處理所有位置
-- **輕量模型**：block diffusion 模型參數量遠小於 target LLM（~300M vs 70B）
-- **lossless**：驗證階段使用 rejection sampling，保證分布一致
-- **宣稱加速**：6x lossless acceleration（論文 arXiv 2602.06036）
-- **支援框架**：vLLM、SGLang、Transformers、MLX
+**Python 虛擬碼展示：**
 
-**DFlash 與傳統 speculative decoding 的差異：**
+```python
+# DFlash 的 block diffusion 流程（簡化）
 
-| 面向 | 傳統 Speculative Decoding | DFlash |
-|---|---|---|
-| Draft 模型類型 | 小 LLM（自回歸） | Block Diffusion（非自回歸） |
-| Draft 階段計算 | γ 次 forward pass | 4-8 次 diffusion step（可平行） |
-| Draft 速度 | O(γ) | O(1)（平行） |
-| 典型加速倍率 | 2x-3x | 4x-6x |
-| 模型大小 | 通常 target 的 1/10 | 可更小（~300M） |
-| 支援硬體 | 任何 GPU | 任何 GPU |
+# 詞彙表大小 V，embedding 維度 d
+embedding_table = nn.Embedding(V, d)  # 將 token ID 映射到連續向量
+
+# === 階段 1：將 prompt 的最後 γ 個 token 轉為 embedding ===
+prompt_tokens = tokenizer("The capital of France is")  # [101, 205, 512, ...]
+context_embed = embedding_table(prompt_tokens[-1])  # shape: (d,)
+
+# === 階段 2：Block Diffusion（在連續空間操作）===
+# 初始化：γ 個高斯雜訊向量
+noise = torch.randn(gamma, d)  # shape: (γ, d)
+
+# 迭代去噪（4-8 步），每一步平行處理所有 γ 個位置
+x = noise
+for step in range(4):
+    # 條件：以 context_embed 為條件，預測雜訊
+    predicted_noise = block_diffusion_model(x, context_embed)
+    # 去噪：x = x - predicted_noise
+    x = x - predicted_noise
+    # x 的 shape 始終為 (γ, d)，所有位置同時更新
+
+# x 現在是 γ 個連續向量，每個向量應接近某個 token 的 embedding
+# shape: (γ, d)
+
+# === 階段 3：將連續向量離散化為 token ID ===
+# 對每個位置，找 embedding table 中最近的向量
+draft_token_ids = []
+for i in range(gamma):
+    # x[i] shape: (d,)
+    # embedding_table.weight shape: (V, d)
+    distances = cosine_similarity(x[i], embedding_table.weight)  # shape: (V,)
+    nearest_token_id = argmax(distances)
+    draft_token_ids.append(nearest_token_id)
+
+# draft_token_ids = [512, 103, 789, 456]  # 對應 ["Paris", "is", "a", "city"]
+```
+
+**關鍵結論：**
+
+| 面向 | 說明 |
+|---|---|
+| Diffusion 操作的對象 | 連續向量（embedding），**不是**離散 token 字串 |
+| 為什麼可以平行 | 因為 diffusion 的每一步可以同時對所有 γ 個位置的向量做去噪，沒有序列依賴 |
+| 為什麼 diffusion 步驟少（4-8 步） | 因為 block diffusion 只需要產生「夠好的草稿」即可，不需要像 image diffusion 那樣高品質 |
+| 與 image diffusion 的差異 | Image diffusion 在像素空間操作（連續），DFlash 在 embedding 空間操作（也是連續），本質相同 |
 
 ---
 
-### 3.3 Multi-Token Prediction (MTP)
+### Q4：這三個方法平行化跟串列化的地方都一樣？
 
-**核心機制：讓 LLM 自身具備一次預測多個 token 的能力，用於訓練與推論。**
-
-MTP 有兩個不同的應用階段，需明確區分：
-
-#### 3.3.1 訓練階段的 MTP（Meta 2024 原始提案）
+**不一樣。以下是三者在「哪些環節平行、哪些環節串列」的完整對照：**
 
 ```
-傳統 LLM 訓練：
-  "The capital of France is Paris"
-  輸入: "The capital of France is"
-  目標: "Paris"（只預測下一個 token）
+傳統自回歸（無加速）：
+  [串列] token 1 → token 2 → token 3 → token 4
+  無任何平行化
 
-MTP 訓練（n=3）：
-  輸入: "The capital of France is"
-  目標 1: "Paris"    (head 1, 標準 next-token)
-  目標 2: " is"      (head 2, 預測下下個)
-  目標 3: " beautiful" (head 3, 預測下下下個)
+Speculative decoding（通用框架）：
+  [串列] draft model 逐 token 產生草稿（仍是自回歸）
+  [平行] target LLM 一次 forward 驗證所有候選 token
+  瓶頸：draft 階段仍為串列
+
+DFlash：
+  [平行] block diffusion 一次產生整段草稿（非自回歸）
+  [平行] target LLM 一次 forward 驗證所有候選 token
+  兩階段皆平行
+
+MTP：
+  [串列] target LLM 先產生第一個 token（自回歸）
+  [平行] MTP heads 同時預測第 2, 3, ..., γ 個 token
+  [平行] target LLM 一次 forward 驗證所有候選 token
+  第一階段部分串列（1 個 token），其餘平行
 ```
 
-- 在 Transformer 頂部疊加 n 個獨立的 prediction heads
-- 每個 head 負責預測不同偏移量的未來 token
-- 總 loss = main loss + λ * auxiliary losses
-- **效果**：提升樣本效率，模型學到更長程的語意表徵
-
-#### 3.3.2 推論階段的 MTP（用於 Speculative Decoding）
-
-MTP heads 在推論時可取代外部 draft model：
+**流程圖對照：**
 
 ```
-Step 1: target LLM 產生 token t1
-Step 2: MTP head 1 預測 t2（平行於 main head）
-Step 3: MTP head 2 預測 t3
-Step 4: MTP head 3 預測 t4
-...
-Step γ: 得到 γ 個候選 token
-Step γ+1: target LLM 一次 forward 驗證所有候選
+傳統自回歸：
+  t1 ──→ t2 ──→ t3 ──→ t4
+  全部串列，4 次 forward
+
+Speculative Decoding（傳統，用小 LLM 做 draft）：
+  draft:  t1' ──→ t2' ──→ t3' ──→ t4'    （串列，小模型 4 次 forward）
+  verify:        一次驗證全部 ──→ [t1, t2, t3]  （平行，大模型 1 次 forward）
+  總計：小模型 4 次（串列）+ 大模型 1 次（平行）
+
+DFlash：
+  draft:  [t1', t2', t3', t4'] 一次產生     （平行，diffusion 4-8 步但每步平行）
+  verify: 一次驗證全部 ──→ [t1, t2, t3, t4]  （平行，大模型 1 次 forward）
+  總計：diffusion 1 次（平行）+ 大模型 1 次（平行）
+
+MTP：
+  step 1: target LLM 產生 t1                    （串列，1 次 forward）
+  step 2: MTP heads 同時預測 t2', t3', t4'       （平行，無需 forward）
+  step 3: target LLM 一次驗證 [t2', t3', t4']    （平行，1 次 forward）
+  總計：大模型 2 次 forward（1 次串列 + 1 次平行）
 ```
 
-**關鍵特性：**
-- **無需外部 draft model**：使用模型自身的 MTP heads
-- **訓練與推論一致**：MTP heads 在訓練時已學到如何預測未來 token
-- **記憶體節省**：不需載入第二個模型
-- **實作**：DeepSeek V2/V3 使用 MTP 作為其 speculative decoding 方案
+**平行化程度排名：**
 
-**MTP vs DFlash 的 draft 方式對比：**
-
-| 面向 | DFlash | MTP |
-|---|---|---|
-| Draft 來源 | 外部 block diffusion 模型 | 模型自身的 MTP heads |
-| Draft 方式 | 非自回歸（diffusion） | 自回歸（但多 head 平行） |
-| 額外參數 | 完整 diffusion 模型（~300M） | 數個 linear heads（~幾 M） |
-| 訓練需求 | 需額外訓練 draft model | 需在預訓練時加入 MTP loss |
-| 適用場景 | 已部署的 LLM（無需重新訓練） | 從頭訓練或 fine-tune 的 LLM |
+| 方法 | Draft 階段 | Verify 階段 | 總 forward 次數（γ=4） | 理論加速 |
+|---|---|---|---|---|
+| 傳統自回歸 | 串列 | 串列 | 4 次 | 1x（baseline） |
+| 傳統 SD（小 LLM draft） | 串列（小模型） | 平行 | 小模型 4 次 + 大模型 1 次 | 2-3x |
+| MTP | 部分串列（1 token）+ 平行（heads） | 平行 | 大模型 2 次 | 2-3x |
+| DFlash | 完全平行 | 平行 | 大模型 1 次 + diffusion 1 次 | 4-6x |
 
 ---
 
@@ -278,3 +288,79 @@ Step γ+1: target LLM 一次 forward 驗證所有候選
 | 是否 lossless | 全部都是（rejection sampling 保證） | — |
 | 實作複雜度 | Prompt Lookup（最低）→ DFlash（中等）→ MTP（高，需訓練） | — |
 | 加速倍率上限 | DFlash（6x）> MTP/Medusa（3x）> Prompt Lookup（3x）> 傳統 SD（2x） | — |
+
+---
+
+## 5. User Q&A
+
+### Q1：speculative decoding / dflash / mtp 到底誰是誰的上層概念？
+
+**A**：Speculative decoding 是上層框架，DFlash 與 MTP 是該框架下的兩種實作方案。
+
+| 層級 | 角色 | 類比 |
+|---|---|---|
+| Speculative decoding | 上層框架（定義 `draft()` + `verify()` 介面） | Java interface |
+| DFlash | 實作方案 A（`draft()` 用 block diffusion） | 實作該 interface 的 class A |
+| MTP | 實作方案 B（`draft()` 用多頭預測 heads） | 實作該 interface 的 class B |
+
+- 不存在「DFlash 包含 MTP」或「MTP 包含 DFlash」的關係
+- 兩者是 sibling（兄弟）關係，上層是 speculative decoding
+
+**結論**：Speculative decoding 是框架，DFlash 與 MTP 是該框架下的兩種實作。
+
+---
+
+### Q2：這三個概念各自解決甚麼問題？如何解決問題？請做表比較
+
+**A**：
+
+| 概念 | 解決的問題 | 如何解決 | 核心機制 |
+|---|---|---|---|
+| **Speculative decoding**（框架） | 自回歸解碼的序列瓶頸 | 定義「快速草稿 → 平行驗證」兩階段流程 | Draft model 產生 γ 個候選 → target LLM 一次 forward 驗證 → rejection sampling |
+| **DFlash**（實作） | 傳統 SD 的 draft 階段仍為自回歸 | 用 block diffusion 一次平行產生整段草稿 | 在 embedding space 做 4-8 步去噪，draft 從 O(γ) 降為 O(1) |
+| **MTP**（實作） | 傳統 SD 需要載入外部 draft model | 用模型自身的 MTP heads 產生草稿 | 訓練時加入 auxiliary heads，推論時用 heads 預測未來 token |
+
+**結論**：三者目標相同（減少 forward pass 次數），差異在 draft 階段的實作方式。
+
+---
+
+### Q3：dflash 聽起來是 diffusion 應用，感覺跟字串不一樣吧？
+
+**A**：正確。DFlash 的 block diffusion 不是在字串（token 序列）上操作，而是在連續向量空間（continuous embedding space）上操作。
+
+```
+Token 序列（離散）           Embedding 空間（連續）          Token 序列（離散）
+["Paris", "is", ...]  ──→  [[0.23, -0.45, ...],    ──→  ["Paris", "is", ...]
+                            [0.12, 0.67, ...], ...]
+                            ↑ diffusion 在此空間操作 ↑
+```
+
+| 面向 | 說明 |
+|---|---|
+| Diffusion 操作的對象 | 連續向量（embedding），**不是**離散 token 字串 |
+| 為什麼可以平行 | 因為 diffusion 的每一步可以同時對所有 γ 個位置的向量做去噪，沒有序列依賴 |
+| 與 image diffusion 的差異 | Image diffusion 在像素空間（連續），DFlash 在 embedding 空間（也是連續），本質相同 |
+
+**結論**：DFlash 的 diffusion 在連續 embedding 空間操作，與 image diffusion 在本質上相同，只是操作的對象從像素換成 token embedding。
+
+---
+
+### Q4：這三個方法平行化跟串列化的地方都一樣？
+
+**A**：不一樣。以下是三者在「哪些環節平行、哪些環節串列」的完整對照：
+
+| 方法 | Draft 階段 | Verify 階段 | 總 forward 次數（γ=4） | 理論加速 |
+|---|---|---|---|---|
+| 傳統自回歸 | 串列 | 串列 | 4 次 | 1x（baseline） |
+| 傳統 SD（小 LLM draft） | 串列（小模型） | 平行 | 小模型 4 次 + 大模型 1 次 | 2-3x |
+| MTP | 部分串列（1 token）+ 平行（heads） | 平行 | 大模型 2 次 | 2-3x |
+| DFlash | 完全平行 | 平行 | 大模型 1 次 + diffusion 1 次 | 4-6x |
+
+```
+傳統自回歸：  t1 ──→ t2 ──→ t3 ──→ t4                   全部串列
+傳統 SD：     draft: t1'─→t2'─→t3'─→t4'  verify: 一次驗證  draft 串列，verify 平行
+MTP：         t1 → heads 平行預測 t2',t3',t4' → 一次驗證  部分串列，其餘平行
+DFlash：      draft: 一次產生全部  verify: 一次驗證        全部平行
+```
+
+**結論**：三者的平行化程度不同。DFlash 是唯一 draft 與 verify 兩階段皆完全平行的方法；MTP 需先串列產生第一個 token；傳統 SD 的 draft 階段仍為串列。
