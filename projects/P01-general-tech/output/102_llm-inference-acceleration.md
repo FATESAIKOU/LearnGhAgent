@@ -410,3 +410,151 @@ Verify（三者相同，平行）：
 - Draft 階段：傳統 SD 是**串列**，DFlash 與 MTP 是**平行**（但平行方式不同：DFlash 靠 diffusion 一次產生，MTP 靠多頭同時預測）
 - Verify 階段：三者完全相同，都是**平行**（一次 forward pass 驗證所有候選）
 - 三者的加速倍率差異主要來自 draft 階段的平行化程度
+
+---
+
+### Q5：speculative decoding / dflash / mtp 到底誰是誰的上層概念？（R2 追問，換角度解釋）
+
+**A**：先從問題出發，不要從名詞出發。
+
+```
+問題：LLM 一次只能產生 1 個 token，太慢
+  │
+  └─ 解法框架：Speculative Decoding
+       核心想法：先快速猜一串（draft），再一起檢查（verify）
+       不規定「怎麼猜」，只規定「怎麼檢查」
+       │
+       ├─ 實作 A：DFlash
+       │     「怎麼猜」→ 用一個小 diffusion 模型一次猜整串
+       │     「怎麼檢查」→ 跟 SD 框架一樣
+       │
+       └─ 實作 B：MTP
+             「怎麼猜」→ 用 LLM 自己的多個 prediction heads 同時猜
+             「怎麼檢查」→ 跟 SD 框架一樣
+```
+
+| 你想知道的 | 答案 |
+|---|---|
+| SD 是 DFlash 的上層嗎？ | 是。SD 定義流程，DFlash 實作其中的 draft 階段 |
+| SD 是 MTP 的上層嗎？ | 是。SD 定義流程，MTP 實作其中的 draft 階段 |
+| DFlash 和 MTP 誰大誰小？ | 一樣大。兩者是兄弟（sibling），都是 SD 的實作 |
+| 能不能三個一起用？ | 不能。一次推論只能選一種 draft 機制 |
+
+**結論**：Speculative decoding 是「流程框架」，DFlash 和 MTP 是「該流程的兩種實作方式」。就像「排序演算法」是框架，「QuickSort」和「MergeSort」是實作。
+
+---
+
+### Q6：這三個概念各自解決什麼問題？如何解決問題？（R2 追問，精簡比較表）
+
+**A**：三者解決的是同一問題鏈上的不同環節。
+
+| 技術 | 它解決的具體問題 | 它的解法 | 關鍵限制 |
+|---|---|---|---|
+| **Speculative Decoding**（框架） | LLM 一次只能產 1 token，GPU 利用率低 | 用小模型快速猜一串，大模型一次驗證全部 | draft 階段仍為自回歸（串列），猜越長越慢 |
+| **DFlash**（SD 實作） | 上述框架的 draft 階段太慢（隨 γ 線性成長） | 用 block diffusion 一次猜整串，draft 成本 O(1) | 需要額外載入一個 diffusion 模型（~300M 參數） |
+| **MTP**（SD 實作） | 上述框架需要額外載入一個 draft 模型，佔記憶體 | 讓 LLM 自己長出多個 prediction heads，不用外部模型 | 需要在訓練時就加入 MTP loss，無法套用已部署的模型 |
+
+**一句話總結**：
+- SD 說「我們可以猜了再驗證」
+- DFlash 說「我用 diffusion 一次猜完，比逐個猜快」
+- MTP 說「我不用外部模型，LLM 自己就能猜」
+
+---
+
+### Q7：dflash 聽起來是 diffusion 應用，感覺跟字串不一樣吧？（R2 追問，數值範例）
+
+**A**：你的直覺正確。DFlash 的 diffusion 不是在「字串」上操作，而是在「字串的數學表示（embedding）」上操作。
+
+**具體數值範例（假設 embedding 維度 = 4，vocab 只有 3 個 token）：**
+
+```
+詞彙表：{"Paris": [1.0, 0.0, 0.0, 0.0], "is": [0.0, 1.0, 0.0, 0.0], "a": [0.0, 0.0, 1.0, 0.0]}
+
+Step 1: Embedding（離散 → 連續）
+  離散 token: ["Paris", "is", "a"]
+  連續向量: [[1.0,0.0,0.0,0.0], [0.0,1.0,0.0,0.0], [0.0,0.0,1.0,0.0]]
+  加雜訊後: [[0.3,0.1,0.8,0.2], [0.9,0.4,0.1,0.7], [0.2,0.6,0.5,0.3]]
+  ↑ 此時已經是連續數值，跟 pixel 值 [128, 255, 64] 沒有本質差別
+
+Step 2: Block Diffusion（在連續空間去噪）
+  輸入: [[0.3,0.1,0.8,0.2], [0.9,0.4,0.1,0.7], [0.2,0.6,0.5,0.3]]
+  去噪後: [[0.95,0.02,0.01,0.02], [0.01,0.97,0.01,0.01], [0.02,0.01,0.96,0.01]]
+  ↑ 去噪讓向量更接近某個 token 的 embedding
+
+Step 3: LM Head（連續 → 離散）
+  去噪向量 → 計算與 vocab 中每個 token embedding 的相似度
+  [0.95,0.02,0.01,0.02] → 最接近 "Paris" (cosine sim = 0.95)
+  [0.01,0.97,0.01,0.01] → 最接近 "is" (cosine sim = 0.97)
+  [0.02,0.01,0.96,0.01] → 最接近 "a" (cosine sim = 0.96)
+  輸出: ["Paris", "is", "a"]
+```
+
+**虛擬碼：**
+
+```python
+# DFlash block diffusion 的核心邏輯（簡化版）
+def dflash_draft(target_model, draft_model, prompt, block_size=16):
+    # 1. 從 target model 提取 hidden features（連續向量）
+    target_hidden = target_model.extract_hidden(prompt)  # shape: [hidden_dim]
+    
+    # 2. 初始化雜訊（在連續空間）
+    noise = torch.randn(block_size, embedding_dim)  # 純隨機連續數值
+    
+    # 3. Block diffusion：一次 forward 去噪（在連續空間）
+    denoised = draft_model.forward(noise, condition=target_hidden)
+    # denoised.shape = [block_size, embedding_dim]
+    # 此時 denoised 是連續向量，不是離散 token
+    
+    # 4. LM head：連續 → 離散
+    logits = target_model.lm_head(denoised)  # [block_size, vocab_size]
+    draft_tokens = logits.argmax(dim=-1)     # [block_size] ← 離散 token IDs
+    
+    return draft_tokens
+```
+
+**結論**：DFlash 的 diffusion 操作的是「token 的連續數學表示（embedding 向量）」，不是「字串本身」。去噪完成後再透過 LM head 映射回離散 token。這跟影像 diffusion 操作 pixel 的連續數值、最後 clamp 到 [0,255] 的邏輯完全相同。
+
+---
+
+### Q8：這三個方法平行化跟串列化的地方都一樣？（R2 追問，量化對比）
+
+**A**：draft 階段的平行/串列特性完全不同。用「計算量公式」最能看出本質差異。
+
+**draft 階段的計算量：**
+
+```
+傳統 SD（串列）：
+  計算量 = γ × (draft model 一次 forward 的成本)
+  因為要逐 token 產生：t1 → t2 → t3 → ... → tγ
+  如果 γ=16，就要跑 16 次 forward
+  公式：O(γ)
+
+DFlash（平行）：
+  計算量 = 1 × (draft model 一次 forward 的成本)
+  因為 block diffusion 一次 forward 就產生全部 γ 個 token
+  如果 γ=16，還是只跑 1 次 forward
+  公式：O(1)
+
+MTP（平行）：
+  計算量 ≈ 1 × (target model 一次 forward 的成本)
+  因為 MTP heads 共用 target model 的 hidden state
+  所有 head 同時輸出，不增加 forward 次數
+  公式：O(1)
+```
+
+**具體數值對比（假設 γ=16）：**
+
+| 階段 | 傳統 SD | DFlash | MTP |
+|---|---|---|---|
+| Draft forward 次數 | 16 次 | 1 次 | 1 次（共用 target forward） |
+| Draft 總計算量 | 16 × C_draft | 1 × C_diffusion | 1 × C_target（heads 成本可忽略） |
+| Verify forward 次數 | 1 次 | 1 次 | 1 次 |
+| 總 forward 次數 | 17 次 | 2 次 | 2 次 |
+
+**關鍵洞察**：
+- 傳統 SD 的 draft 次數 = γ（隨草稿長度線性成長）
+- DFlash 的 draft 次數 = 1（與 γ 無關）
+- MTP 的 draft 次數 ≈ 1（heads 成本遠小於一次 forward）
+- 三者 verify 階段完全相同（都是 1 次 forward）
+
+**所以三者「不一樣」的地方在 draft 階段**：傳統 SD 是串列（O(γ)），DFlash 和 MTP 是平行（O(1)）。但 DFlash 和 MTP 的「平行方式」也不同：DFlash 靠 diffusion 一次產生全部，MTP 靠多個 head 同時預測。

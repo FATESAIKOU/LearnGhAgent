@@ -4,11 +4,11 @@
 
 | 項目 | 結果 | 備註 |
 |---|---|---|
-| 資訊取得渠道適切性 | PASS | arXiv 論文、GitHub repo、project page 均為適當來源；未使用 CDP 表示 webfetch 可正常取得，符合「優先走一般 web fetch」規則 |
-| 動作與目的對齊 | PASS | 8 個動作各有明確目的，無冗餘動作；從 R1 報告確認覆蓋範圍到逐一搜尋三篇論文與 DFlash 實作細節，邏輯鏈完整 |
-| 結果完整性 | PASS | 涵蓋使用者 4 個質問所需資訊：上下層關係（SD 為框架、DFlash/MTP 為實作）、各自解法比較、diffusion 在離散 token 的連續空間操作原理、平行/串列維度分析 |
-| 決斷合理性 | PASS | 3 個決斷（不搜尋 block diffusion 背景、不搜尋 EAGLE-3、不搜尋 DeepSeek MTP 實作）均有充分理由，未偏離使用者問題範圍 |
-| log 格式合規 | PASS | 4 個 section 齊全且順序正確；37 行長度遠低於 6000 字上限 |
+| 資訊取得渠道適切性 | PASS | arXiv webfetch 取得論文摘要與全文、GitHub webfetch 取得 repo 資訊、本地檔案讀取取得 R1 報告與 logs，渠道選擇合理 |
+| 動作與目的對齊 | PASS | 6 個動作各有明確目的，無冗餘動作；讀取 R1 報告與 logs 作為起點合理 |
+| 結果完整性 | PASS | 涵蓋 DFlash 論文全文、MTP 論文摘要、DFlash GitHub repo、R1 報告驗證；確認 R1 論述與論文一致，且判斷不需補充新搜尋 |
+| 決斷合理性 | PASS | 4 個決斷（搜尋策略、中文資源、PDF 下載、EAGLE-3 對照）皆有明確選項與合理理由 |
+| log 格式合規 | PASS | 4 個 section 齊全且順序正確（狀況理解→執行的動作與結果→動作結束後的現狀→其中的決斷點），長度 35 行遠低於 6000 字限制 |
 
 ## 問題點
 
