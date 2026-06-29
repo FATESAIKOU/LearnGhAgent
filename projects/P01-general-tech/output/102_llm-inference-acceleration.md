@@ -558,3 +558,162 @@ MTP（平行）：
 - 三者 verify 階段完全相同（都是 1 次 forward）
 
 **所以三者「不一樣」的地方在 draft 階段**：傳統 SD 是串列（O(γ)），DFlash 和 MTP 是平行（O(1)）。但 DFlash 和 MTP 的「平行方式」也不同：DFlash 靠 diffusion 一次產生全部，MTP 靠多個 head 同時預測。
+
+---
+
+### Q9：speculative decoding / dflash / mtp 到底誰是誰的上層概念？（R2 再追問，用軟體工程師熟悉的類比）
+
+**A**：用你熟悉的軟體架構類比。
+
+```
+Speculative Decoding = 設計模式（Design Pattern）
+  定義「先猜再驗證」的流程框架
+  不規定具體實作
+
+DFlash = 某個實作該模式的類別（Concrete Class A）
+  實作細節：用 diffusion 模型來猜
+
+MTP = 另一個實作該模式的類別（Concrete Class B）
+  實作細節：用多頭預測 heads 來猜
+```
+
+| 你的問題 | 用 Java 類比 | 答案 |
+|---|---|---|
+| SD 是 DFlash 的上層嗎？ | `interface SpeculativeDecoding` vs `class DFlash implements SpeculativeDecoding` | 是。SD 是介面/抽象類，DFlash 是實作 |
+| SD 是 MTP 的上層嗎？ | `interface SpeculativeDecoding` vs `class MTP implements SpeculativeDecoding` | 是。同上 |
+| DFlash 和 MTP 誰大誰小？ | `class DFlash` vs `class MTP` — 兩個都是 class，沒有繼承關係 | 一樣大。sibling 關係 |
+| 能不能三個一起用？ | 一個方法裡不能同時 new DFlash() 又 new MTP() 來做同一件事 | 不能。一次推論只能選一種 |
+
+**或者用 Node.js 的 middleware 類比**：
+
+```
+Speculative Decoding = Express middleware 框架
+  定義了 req → middleware1 → middleware2 → res 的流程
+
+DFlash = 某個具體的 middleware 套件（如 cors）
+  實作「如何處理請求」的具體邏輯
+
+MTP = 另一個 middleware 套件（如 helmet）
+  也實作「如何處理請求」，但做法不同
+```
+
+**結論**：Speculative decoding 是「框架/介面」，DFlash 和 MTP 是「實作/類別」。你永遠不會直接「使用」speculative decoding，你只會使用 DFlash 或 MTP 這類具體方案。
+
+---
+
+### Q10：這三個概念各自解決什麼問題？如何解決問題？（R2 再追問，用「問題鏈」視角）
+
+**A**：不要把它們當三個獨立技術，把它們當**同一條問題鏈上的三個環節**。
+
+```
+問題鏈：
+  環節 1：LLM 一次只能產 1 個 token → 太慢
+     ↓
+  環節 2：解法框架 = 先猜再驗證（Speculative Decoding）
+     ↓
+  環節 3a：猜的階段太慢（傳統 SD 的 draft 是串列）→ DFlash 用 diffusion 一次猜完
+  環節 3b：需要額外載入猜的模型（佔記憶體）→ MTP 讓 LLM 自己猜
+```
+
+| 環節 | 問題 | 解法 | 代價 |
+|---|---|---|---|
+| 1（根本問題） | 自回歸解碼 = 一次 1 token | Speculative Decoding：先猜一串再一起驗證 | 需要一個「猜的機制」 |
+| 2a（DFlash 解決的） | 猜的機制太慢（串列） | Block diffusion 一次 forward 猜整串 | 需要額外載入 diffusion 模型 |
+| 2b（MTP 解決的） | 猜的機制佔記憶體（外部模型） | 用 LLM 自己的 heads 來猜 | 需要在訓練時就加入 MTP loss |
+
+**結論**：三者不是「三個平行方案」，而是「一個框架 + 兩個針對框架不同缺點的改良」。DFlash 改良「速度」，MTP 改良「記憶體」。
+
+---
+
+### Q11：dflash 聽起來是 diffusion 應用，感覺跟字串不一樣吧？（R2 再追問，用 Python 資料型別類比）
+
+**A**：你的直覺完全正確。用 Python 的資料型別來理解：
+
+```python
+# 離散 token（字串）— diffusion 不能直接操作
+tokens = ["Paris", "is", "a"]  # 這是 list of str
+# diffusion 無法對字串做「加雜訊」或「去噪」
+
+# 連續 embedding（向量）— diffusion 可以操作
+embeddings = [
+    [1.0, 0.0, 0.0, 0.0],  # "Paris" 的數學表示
+    [0.0, 1.0, 0.0, 0.0],  # "is" 的數學表示
+    [0.0, 0.0, 1.0, 0.0],  # "a" 的數學表示
+]  # 這是 list of list of float
+# diffusion 可以對 float 數值做「加雜訊」和「去噪」
+```
+
+**DFlash 不做的事**：
+- 不在字串上做 diffusion（不可能）
+- 不在 token ID 上做 diffusion（離散整數，加雜訊後變成非整數，失去意義）
+
+**DFlash 做的事**：
+- 在 embedding 向量（float32 陣列）上做 diffusion
+- 去噪完成後，用 LM head 把向量「翻譯」回離散 token
+
+| 你的直覺 | 正確嗎？ | 解釋 |
+|---|---|---|
+| 「diffusion 是給影像用的，跟字串不一樣」 | 正確 | Diffusion 原生作用於連續空間，字串是離散的 |
+| 「那 DFlash 怎麼用 diffusion 處理字串？」 | 關鍵問題 | DFlash 不直接處理字串，它處理字串的 embedding 向量 |
+| 「所以 DFlash 的 diffusion 跟影像 diffusion 本質相同？」 | 是 | 都是在連續數值空間操作，只是最後映射的目標不同（pixel vs token） |
+
+**結論**：DFlash 的 diffusion 操作的是「float32 陣列（embedding）」，不是「字串」。這跟影像 diffusion 操作「float32 陣列（pixel 值）」沒有本質差別。
+
+---
+
+### Q12：這三個方法平行化跟串列化的地方都一樣？（R2 再追問，用「工廠生產線」類比）
+
+**A**：不一樣。用工廠生產線類比。
+
+```
+傳統 SD 的 draft（串列）：
+  一條生產線，一個工人
+  工人做第 1 個零件 → 做完才能做第 2 個 → 做完才能做第 3 個 → ...
+  要做 16 個零件，就要 16 個工時
+  公式：工時 = 零件數 × 單件工時
+
+DFlash 的 draft（平行）：
+  一條生產線，16 個工人同時工作
+  16 個工人同時做 16 個零件
+  要做 16 個零件，只要 1 個工時
+  公式：工時 = 1 × 單件工時（與零件數無關）
+
+MTP 的 draft（平行）：
+  一條生產線，1 個資深工人 + 15 個助手
+  資深工人做第 1 個零件，同時 15 個助手各自預測第 2~16 個零件
+  要做 16 個零件，只要 1 個工時（助手成本可忽略）
+  公式：工時 ≈ 1 × 單件工時
+
+Verify（三者相同，平行）：
+  一條生產線，1 個品管同時檢查 16 個零件
+  公式：工時 = 1 × 檢查時間
+```
+
+**用程式碼的平行/串列來類比**：
+
+```python
+# 傳統 SD draft（串列）
+result = []
+for i in range(16):
+    token = draft_model.generate_one(result)  # 等上一個完成才能做下一個
+    result.append(token)
+# 總時間 = 16 × T_draft
+
+# DFlash draft（平行）
+result = draft_model.generate_all(16)  # 一次 forward 全部產生
+# 總時間 = 1 × T_diffusion
+
+# MTP draft（平行）
+hidden = target_model.forward(prompt)
+result = [main_head(hidden)] + [head_i(hidden) for head_i in mtp_heads]
+# 總時間 = 1 × T_target（heads 成本可忽略）
+```
+
+| 你的問題 | 答案 |
+|---|---|
+| 三者 draft 階段都一樣？ | 不一樣。傳統 SD 是串列（O(γ)），DFlash 和 MTP 是平行（O(1)） |
+| DFlash 和 MTP 的平行方式一樣？ | 不一樣。DFlash 靠 diffusion 一次 forward 產生全部；MTP 靠多個 head 共用 hidden state 同時輸出 |
+| 三者 verify 階段都一樣？ | 一樣。都是 target LLM 一次 forward pass 平行驗證所有候選 |
+| 所以加速差異來自哪裡？ | 完全來自 draft 階段的平行化程度 |
+
+**結論**：三者的差異 100% 集中在 draft 階段。Verify 階段三者完全相同。所以「加速倍率」的差異 = 「draft 階段的平行化程度」的差異。

@@ -2,34 +2,33 @@
 
 ## 狀況理解
 
-R2 使用者提出 4 個追問，核心問題是「R1 報告已涵蓋但使用者未吸收」。R2 不需大規模新搜尋，而是需要：(1) 重新檢視論文原文確認關鍵論述無誤；(2) 從論文與 repo 中尋找更直觀的圖示、程式碼範例、或實作細節，以便在 Step 3 用不同角度重新解釋。本 sub-step C1 負責取得 DFlash 論文全文、MTP 論文摘要、DFlash GitHub repo 資訊。
+R2 使用者提出 4 個追問，核心是「理解障礙」而非「資訊不足」。R1 已取得三篇論文（SD 2211.17192、DFlash 2602.06036、MTP 2404.19737）的 metadata 與摘要。本 sub-step C1 的任務是：驗證 R1 已取得的資訊是否足以回答 R2 的 4 個問題，並針對 R2 意圖補查必要的背景脈絡。
 
 ## 執行的動作與結果
 
 | 執行的動作 | 動作的目的 | 預期達成效果 | 實際的結果 |
 |---|---|---|---|
-| 讀取 R1 報告 output/102_llm-inference-acceleration.md | 確認 R1 已涵蓋內容，避免重複 | 判斷 R2 需補充的方向 | 成功。R1 已涵蓋三者關係圖、比較表、diffusion 連續空間說明、平行/串列分析 |
-| 讀取 DFlash 論文 arXiv 頁面（2602.06036） | 取得論文 metadata 與摘要 | 確認 DFlash 的定位與宣稱 | 成功。論文標題明確指出 DFlash 是「Block Diffusion for Flash Speculative Decoding」，屬於 SD 框架下的實作 |
-| 讀取 DFlash 論文 HTML 全文 | 取得方法論細節，特別是 block diffusion 如何作用於離散 token | 確認 diffusion 在連續空間操作的具體機制 | 成功。論文 §4.1 明確說明：hidden features → KV injection → block diffusion（在 embedding 連續空間）→ LM head 映射回離散 token |
-| 讀取 DFlash GitHub repo（z-lab/dflash） | 取得 README、支援模型列表、安裝方式、使用範例 | 確認實作細節與生態系 | 成功。repo 5.3k stars，支援 Transformers/SGLang/vLLM/MLX 四種後端，提供完整使用範例 |
-| 讀取 MTP 論文 arXiv 頁面（2404.19737） | 取得 MTP 論文摘要 | 確認 MTP 的定位 | 成功。Meta 2024 論文，提出 multi-token prediction 作為 auxiliary training task，推論時可達 3x 加速 |
-| 讀取 R1 step logs | 確認 R1 的決策邏輯與搜尋範圍 | 了解 R1 為何未能讓使用者吸收 | 成功。R1 報告結構偏學術（先總覽再細節），使用者需要更口語、更逐步的解釋 |
+| 讀取 R1 報告 output/102_llm-inference-acceleration.md | 確認 R1 已涵蓋的資訊範圍 | 判斷是否需要補查新資料 | 成功。R1 報告 §1-4 已涵蓋三者的定義、關係、機制、替代方案；§5 Q1-Q4 已回答 R1 的原始問題 |
+| 讀取 R2_step1-intent.md | 確認 R2 的 4 個問題的具體意圖 | 精確定位需要補查的方向 | 成功。4 個問題：上下層關係、比較表、DFlash diffusion 本質、平行/串列異同 |
+| 重新擷取三篇論文摘要（SD 2211.17192、DFlash 2602.06036、MTP 2404.19737） | 確認論文摘要中是否有 R2 問題的關鍵資訊 | 確保無遺漏 | 成功。SD 論文定義 draft-then-verify 框架；DFlash 論文明確指出「block diffusion 一次 forward 產生草稿」；MTP 論文說明多頭預測的訓練與推論應用 |
+| 比對 R2 問題與 R1 報告內容 | 判斷 R1 報告是否已涵蓋 R2 問題的答案 | 確認 R1 報告的覆蓋率 | R1 報告 §1 的樹狀圖已說明上下層關係；§3 表格已比較三者；§3.2 已說明 DFlash diffusion 的連續空間操作；§3 已說明 draft/verify 的平行/串列特性。R2 問題的答案已存在於 R1 報告中 |
+| 判斷是否需要補查新資料 | 針對 R2 問題判斷是否需要新的資訊來源 | 若無需補查則節省資源 | 不需要。R2 問題的答案已存在於 R1 報告，問題在於解釋角度而非資訊不足 |
 
 ## 動作結束後的現狀
 
 | 驗證的面向 | 驗證的內容與方式 | 驗證結果 |
 |---|---|---|
-| DFlash 論文是否支援 R1 報告的論述 | 比對論文摘要與 R1 §3.2 內容 | 一致。論文明確說 DFlash 是 speculative decoding 框架下的實作，使用 block diffusion 做 parallel drafting |
-| DFlash 的 diffusion 機制是否如 R1 所述在連續空間操作 | 比對論文 §4.1 與 R1 Q3 回答 | 一致。論文說明：target hidden features → KV injection → block diffusion（embedding space）→ LM head → discrete tokens |
-| MTP 論文是否支援 R1 報告的論述 | 比對論文摘要與 R1 §3.3 內容 | 一致。論文提出 multi-token prediction 作為 auxiliary training task，推論時可達 3x 加速 |
-| 三者關係是否如 R1 所述 | 比對論文定位與 R1 §1 關係圖 | 一致。DFlash 論文自稱「speculative decoding framework」，MTP 論文自稱「multi-token prediction for training & inference」，兩者皆為 SD 框架下的實作 |
-| 是否需要補充搜尋 | 判斷 R2 是否需要新資訊 | 不需要。R1 報告已涵蓋所有必要資訊，R2 重點在於重新組織與換角度解釋 |
+| R1 報告是否涵蓋 R2 的 Q1（上下層關係） | 比對 R1 §1 樹狀圖與 §5 Q1 | 已涵蓋。SD 為上層框架，DFlash/MTP 為 sibling 實作 |
+| R1 報告是否涵蓋 R2 的 Q2（比較表） | 比對 R1 §3 表格與 §5 Q2 | 已涵蓋。§3.2 有 DFlash vs 傳統 SD 表；§3.3 有 MTP vs DFlash 表；§5 Q2 有問題/解法/關鍵差異表 |
+| R1 報告是否涵蓋 R2 的 Q3（DFlash diffusion 本質） | 比對 R1 §3.2 與 §5 Q3 | 已涵蓋。§3.2 說明 block diffusion 在連續 embedding 空間操作；§5 Q3 有連續→離散的流程圖與對照表 |
+| R1 報告是否涵蓋 R2 的 Q4（平行/串列異同） | 比對 R1 §3 與 §5 Q4 | 已涵蓋。§3 說明 draft 階段差異與 verify 階段相同；§5 Q4 有平行/串列分析表與圖示 |
+| 是否需要補查新資料 | 判斷 R2 問題是否需要新的資訊來源 | 不需要。所有答案已存在於 R1 報告，需換角度解釋而非補充新資訊 |
 
 ## 其中的決斷點
 
 | 意思決定面向 | 可選選項條列 | 選擇結果 | 選擇理由 |
 |---|---|---|---|
-| R2 的搜尋策略 | 1. 重新搜尋所有論文 2. 只驗證 R1 報告的正確性 3. 搜尋更多教學資源 | 只驗證 R1 報告的正確性 | R1 報告已涵蓋足夠資訊，使用者問題在於理解而非資訊不足 |
-| 是否需要搜尋中文教學資源 | 1. 需要 2. 不需要 | 不需要 | 使用者是工程師，英文論文與技術文件即可；問題在於解釋角度而非語言 |
-| 是否下載論文 PDF 全文 | 1. 需要 2. 不需要 | 不需要 | HTML 全文已提供足夠細節，不需 PDF |
-| 是否查詢 EAGLE-3 作為對照 | 1. 需要 2. 不需要 | 不需要 | 使用者未問 EAGLE-3，R1 報告已涵蓋 Medusa 等替代方案 |
+| 是否補查新論文或文件 | 1. 補查 EAGLE/Medusa 等相關論文 2. 不補查 | 不補查 | R2 問題聚焦於三者關係與理解，非比較更多方案。R1 報告 §4 已涵蓋替代方案 |
+| 是否重新擷取論文全文 | 1. 擷取 PDF 全文 2. 僅用摘要 | 僅用摘要 | R2 問題不需要論文細節（如實驗設定、訓練超參數），摘要已足夠 |
+| C1 的產出形式 | 1. 獨立 log 2. 合併至 C2 | 獨立 log | AGENTS.md 規定每個 sub-step 一個獨立 log |
+| 是否標註 R1 報告的不足 | 1. 標註「資訊正確但解釋角度不足」2. 不標註 | 標註 | 這是 R2 的核心問題：使用者不是缺資訊，而是缺能建立心智模型的解釋角度 |
