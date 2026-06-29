@@ -2,29 +2,34 @@
 
 ## 狀況理解
 
-R2 使用者提出 4 個概念釐清問題：(1) 三者的上下層關係 (2) 比較表 (3) DFlash 的 diffusion 如何作用於離散文字 (4) 三者的平行/串列特性比較。R1 報告（719 行）已涵蓋所有 4 題的答案（Q1-Q12），但使用者仍無法建立心智模型。本 step 為 R2 的 C1，任務是「取得 repo metadata 與主要文件」，但 R2 的 4 題皆為概念釐清，非新技術查詢，R1 的資料已足夠。因此本 step 的調研動作轉為：確認 R1 資料是否足以回答 R2 的 4 題，以及是否需要補充新的資訊來源。
+R2 使用者提出 4 個追問：(1) 三者的上下層關係（仍不懂）(2) 要求做表比較各自解決什麼問題與如何解決 (3) DFlash 的 diffusion 與字串的差異 (4) 三者的平行/串列化是否相同。R1 報告已有 §5 Q&A（Q1-Q12）涵蓋這 4 個問題，但使用者仍不滿意，表示解釋方式需要調整。C1 任務為取得 repo metadata 與主要文件，針對 R2 的意圖補查新資料，而非重做 R1 的事。
 
 ## 執行的動作與結果
 
 | 執行的動作 | 動作的目的 | 預期達成效果 | 實際的結果 |
 |---|---|---|---|
-| 讀取 R1 報告全文（719 行） | 確認 R1 報告是否已涵蓋 R2 的 4 題 | 判斷是否需要新資料 | R1 報告的 Q1-Q12 已完整回答 R2 的 4 題，無需新資料 |
-| 讀取 R1 C1 log | 確認 R1 已取得的 repo metadata 範圍 | 避免重複調研 | R1 已取得 z-lab/dflash、deepseek-ai/DeepSpec、Awesome-Multi-Token-Prediction、MTPLX 等 repo 資料 |
-| 分析 R2 4 題的資料需求 | 判斷是否需要新的 GitHub/arxiv 查詢 | 決定 C1 的調研方向 | 4 題皆為概念層次釐清，不需要新的 repo metadata 或論文 |
-| 確認 DFlash 論文（arxiv 2602.06036）中關於 continuous latent space 的說明 | 確認 Q3（diffusion vs discrete tokens）的技術細節 | 確保回答準確 | 論文明確指出 block diffusion 在 embedding space 操作，R1 報告 §3.2 與 Q3/Q7/Q11 已正確描述 |
+| 讀取 DFlash 論文全文（arXiv HTML） | 取得 DFlash 的完整技術細節，特別是 KV injection 機制、block diffusion 訓練方式、loss weighting | 理解 DFlash 的 diffusion 如何在連續空間操作，以及與傳統 SD 的本質差異 | 成功。取得關鍵資訊：(1) DFlash 使用 KV injection 而非 input fusion，每層 draft layer 都注入 target hidden features (2) block diffusion 在 embedding 連續空間操作，單步去噪 (3) loss weighting 對 block 內早期位置加權 (4) acceptance length 隨 draft layer 深度線性成長 |
+| 讀取 DFlash 官方 blog（z-lab.ai） | 取得更直觀的架構圖與設計理念 | 理解「the target knows best」的核心洞察 | 成功。確認 DFlash 的關鍵 insight：target LLM 的 hidden features 已隱含多個 future token 的資訊，draft model 只需做 diffusion adapter |
+| 讀取 DeepSpec repo README | 確認 DFlash 在業界生態中的定位 | 了解 DFlash 與其他 speculative decoding 演算法的關係 | 成功。DeepSpec 將 DFlash、Eagle3、DSpark 並列為三種 draft model 演算法，使用統一訓練框架。DFlash 已從獨立 repo 升級為業界標準方案之一 |
+| 讀取 Awesome-MTP repo README | 確認 MTP 的完整研究脈絡 | 了解 MTP 不只是 Meta 的論文，而是一個研究領域 | 成功。MTP 最早可追溯到 2018（UC Berkeley Blockwise Parallel Decoding），2024 Meta 論文為里程碑，2025 有 19 篇論文。DFlash 被歸類在「Speculative Decoding + MTP」分類下 |
+| 讀取 Meta MTP 論文摘要 | 確認 MTP 原始定義 | 了解 MTP 的訓練階段與推論加速雙重用途 | 成功。Meta 論文提出 MTP 作為 auxiliary training task，提升 sample efficiency，推論時可達 3x 加速 |
+| 比對 R1 報告 §5 Q&A 與 R2 問題 | 確認 R1 已涵蓋哪些內容，R2 需要補充什麼 | 判斷 R2 的解釋方式需要調整而非內容不足 | 成功。R1 的 Q1-Q12 已涵蓋 R2 的 4 個問題，但使用者仍不滿意。問題不在內容不足，而在：(1) 報告太長（719 行）難以消化 (2) 需要更精簡的對照表而非文字段落 (3) 需要從「問題鏈」視角而非「名詞定義」視角解釋 |
 
 ## 動作結束後的現狀
 
 | 驗證的面向 | 驗證的內容與方式 | 驗證結果 |
 |---|---|---|
-| R1 資料對 R2 4 題的覆蓋度 | 逐一比對 R1 報告內容與 R2 4 題 | Q1（上下層關係）：R1 §1 關係總覽 + Q1/Q5/Q9 已回答；Q2（比較表）：R1 Q2/Q6/Q10 已回答；Q3（diffusion vs 離散）：R1 Q3/Q7/Q11 已回答；Q4（平行/串列）：R1 Q4/Q8/Q12 已回答 |
-| 是否需要新資料來源 | 判斷 R2 4 題是否需要新的 GitHub repo 或論文 | 不需要。4 題皆為概念釐清，R1 資料已足夠 |
-| 使用者仍困惑的原因 | 推測 R1 報告為何無法讓使用者建立心智模型 | R1 報告技術細節完整但缺乏「從問題出發」的敘事結構；使用者對 LLM 內部機制不熟，需要更基礎的類比與虛擬碼 |
+| DFlash 論文關鍵技術細節 | 確認 KV injection vs input fusion 的差異 | DFlash 將 target hidden features 注入每層 draft layer 的 KV cache，而非像 EAGLE-3 只在 input layer 融合。這是 DFlash 能達到 6x 加速的核心原因 |
+| DFlash 的 diffusion 操作空間 | 確認 block diffusion 在 embedding 連續空間操作 | DFlash 的 diffusion 在 token embedding 的連續 float32 空間操作，單步去噪後透過 LM head 映射回離散 token。與影像 diffusion 在 pixel 連續空間操作的邏輯相同 |
+| MTP 的研究脈絡 | 確認 MTP 不是單一論文而是一個研究領域 | MTP 最早 2018（Blockwise Parallel Decoding），2024 Meta 論文為關鍵里程碑，2025 有 19 篇論文。DFlash 被歸類在 MTP 相關的 speculative decoding 方案下 |
+| DFlash 在業界的定位 | 確認 DFlash 已被 DeepSpec 整合為標準演算法之一 | DeepSpec 支援 DFlash、Eagle3、DSpark 三種演算法，使用統一訓練框架。DFlash 已從學術論文進入生產級部署 |
+| R2 需要補充的方向 | 判斷 R2 的解釋策略 | (1) 從「問題鏈」視角解釋，不要從名詞定義開始 (2) 用更精簡的對照表取代文字段落 (3) 用使用者熟悉的程式語言類比（Python 資料型別、async/await）(4) 用具體數值範例取代抽象描述 |
 
 ## 其中的決斷點
 
 | 意思決定面向 | 可選選項條列 | 選擇結果 | 選擇理由 |
 |---|---|---|---|
-| R2 C1 是否執行新的 repo metadata 查詢 | 1. 重新查詢所有 repo 2. 不查詢，沿用 R1 資料 | 不查詢，沿用 R1 資料 | R2 4 題皆為概念釐清，無新技術需要查詢；R1 已取得完整 repo metadata |
-| 是否需要讀取論文全文 | 1. 讀取 DFlash/MTP 論文全文 2. 僅用摘要與 R1 資料 | 僅用摘要與 R1 資料 | R1 已讀取論文摘要，R2 4 題不涉及論文未涵蓋的新細節 |
-| C1 的產出定位 | 1. 標準的 repo metadata 報告 2. 轉為「資料充足性確認報告」 | 轉為資料充足性確認報告 | R2 的意圖是概念釐清而非新技術調研，C1 應反映此差異 |
+| 是否讀取 DFlash 論文全文 | 1. 只讀摘要 2. 讀全文 | 讀全文 | R2 使用者對 diffusion 與字串的差異有具體疑惑，需要論文原文的技術細節來澄清。摘要不足以回答「diffusion 如何在連續空間操作離散 token」 |
+| 是否讀取 DeepSpec repo | 1. 需要 2. 不需要 | 需要 | DeepSpec 是 DFlash 被業界採用的關鍵證據，且顯示 DFlash 與 Eagle3、DSpark 的並列關係，有助於回答「誰是誰的上層概念」 |
+| 是否讀取 Awesome-MTP repo | 1. 需要 2. 不需要 | 需要 | 使用者對 MTP 的理解可能僅限於 Meta 論文，需要展示 MTP 是一個更大的研究領域，DFlash 只是其中一個應用方向 |
+| C1 後是否需要 C2 | 1. 需要 2. 不需要 | 需要（C2） | C1 已取得足夠的技術細節，但 R2 的 4 個問題需要重新組織解釋方式。C2 應聚焦於：(1) 從問題鏈視角重新解釋三者關係 (2) 用 Python 資料型別類比 diffusion 與字串的差異 (3) 用 async/await 類比平行/串列化 |

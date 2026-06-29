@@ -717,3 +717,184 @@ result = [main_head(hidden)] + [head_i(hidden) for head_i in mtp_heads]
 | 所以加速差異來自哪裡？ | 完全來自 draft 階段的平行化程度 |
 
 **結論**：三者的差異 100% 集中在 draft 階段。Verify 階段三者完全相同。所以「加速倍率」的差異 = 「draft 階段的平行化程度」的差異。
+
+---
+
+### Q13：speculative decoding / dflash / mtp 到底誰是誰的上層概念？（R2 再追問，用「流程 vs 工具」視角）
+
+**A**：用「流程 vs 工具」來理解，不要用「大 vs 小」來理解。
+
+```
+你問「誰是誰的上層」→ 你預期的答案是樹狀結構（A 包含 B）
+但實際關係是「流程 vs 工具」：
+
+Speculative Decoding = 流程（recipe）
+  步驟 1：快速產生草稿（draft）
+  步驟 2：平行驗證草稿（verify）
+  步驟 3：接受或修正（rejection sampling）
+  流程本身不指定用什麼工具
+
+DFlash = 工具 A（用於步驟 1）
+  功能：產生草稿
+  做法：用 block diffusion 一次產生整串
+
+MTP = 工具 B（也用於步驟 1）
+  功能：產生草稿
+  做法：用多個 prediction heads 同時預測
+```
+
+| 你想知道的 | 用流程 vs 工具回答 |
+|---|---|
+| SD 是 DFlash 的上層嗎？ | SD 是流程，DFlash 是該流程中「步驟 1」可用的工具之一。流程定義步驟，工具實作步驟 |
+| SD 是 MTP 的上層嗎？ | 同上。MTP 也是「步驟 1」的另一個工具 |
+| DFlash 和 MTP 誰大誰小？ | 一樣大。兩個都是「步驟 1 的工具」，沒有包含關係 |
+| 能不能三個一起用？ | 不能。一個流程的步驟 1 只能選一種工具來執行 |
+
+**結論**：Speculative decoding 是「流程定義」，DFlash 和 MTP 是「該流程中 draft 步驟的兩種工具實作」。不存在「誰包含誰」，只存在「流程使用工具」。
+
+---
+
+### Q14：這三個概念各自解決什麼問題？如何解決問題？（R2 再追問，單表濃縮版）
+
+**A**：用一個表格回答全部。
+
+| 技術 | 它解決什麼問題 | 它怎麼解決 | 它的代價 | 一句話記住 |
+|---|---|---|---|---|
+| **Speculative Decoding** | LLM 一次只能產 1 token，GPU 利用率低 | 先用小機制快速猜一串，再用大 LLM 一次驗證全部 | 需要一個「猜的機制」 | 「先猜再驗證」的流程框架 |
+| **DFlash** | 上述的「猜的機制」如果也是自回歸，猜越長越慢 | 用 block diffusion 一次 forward 猜整串，猜的成本與長度無關 | 需要額外載入一個 diffusion 模型（~300M） | 「用 diffusion 一次猜完」 |
+| **MTP** | 上述的「猜的機制」如果是外部模型，佔記憶體又增加部署複雜度 | 讓 LLM 自己長出多個 prediction heads，不用外部模型 | 需要在訓練時就加入 MTP loss，無法套用已部署模型 | 「讓 LLM 自己猜自己」 |
+
+**三者關係一句話**：Speculative decoding 定義了「猜 → 驗證」的流程，DFlash 和 MTP 是兩種不同的「猜法」。
+
+---
+
+### Q15：dflash 聽起來是 diffusion 應用，感覺跟字串不一樣吧？（R2 再追問，用「翻譯官」視角）
+
+**A**：你的直覺完全正確。DFlash 的 diffusion 不碰字串，它碰的是「字串的數學分身」。
+
+```
+字串世界（離散，diffusion 不能操作）：
+  "Paris"  "is"  "a"
+  ↑ 這些是符號，沒有「介於 Paris 和 is 之間」的概念
+  ↑ diffusion 需要連續數值才能操作
+
+數學分身世界（連續，diffusion 可以操作）：
+  [1.0, 0.0, 0.0, 0.0]  ← "Paris" 的數學分身
+  [0.0, 1.0, 0.0, 0.0]  ← "is" 的數學分身
+  [0.0, 0.0, 1.0, 0.0]  ← "a" 的數學分身
+  ↑ 這些是 float32 陣列，可以加雜訊、可以去噪
+  ↑ 跟 pixel 值 [128, 255, 64] 沒有本質差別
+
+翻譯官（LM Head）：
+  數學分身 [0.95, 0.02, 0.01, 0.02] → 翻譯回字串 "Paris"
+  數學分身 [0.01, 0.97, 0.01, 0.01] → 翻譯回字串 "is"
+```
+
+| 你的疑惑 | 解答 |
+|---|---|
+| 「diffusion 是給影像用的，跟字串不一樣」 | 正確。Diffusion 需要連續空間，字串是離散符號 |
+| 「那 DFlash 怎麼用 diffusion？」 | DFlash 先把字串翻譯成連續向量（embedding），在連續空間做 diffusion，做完再翻譯回字串 |
+| 「所以 DFlash 的 diffusion 跟影像 diffusion 本質相同？」 | 是。都是在 float32 陣列上操作。影像的陣列是 pixel 值，DFlash 的陣列是 token embedding 值。操作邏輯完全相同 |
+| 「為什麼不直接在 token ID 上做 diffusion？」 | Token ID 是整數（如 0, 1, 2），加雜訊後變成 0.7，沒有意義。Embedding 是 float32，加雜訊後仍是合理的 float32 |
+
+**結論**：DFlash 的 diffusion 操作的是「float32 陣列（embedding）」，不是「字串」也不是「token ID」。這跟影像 diffusion 操作「float32 陣列（pixel 值）」沒有本質差別。LM head 是「翻譯官」，負責把去噪後的 float32 陣列翻譯回離散字串。
+
+---
+
+### Q16：這三個方法平行化跟串列化的地方都一樣？（R2 再追問，用「時間軸」視角）
+
+**A**：不一樣。用時間軸圖最清楚。
+
+```
+假設 γ=4（一次猜 4 個 token），draft model 一次 forward 耗時 1 單位，target model 一次 forward 耗時 10 單位：
+
+傳統 SD（總時間 = 4×1 + 10 = 14 單位）：
+  time →  0    1    2    3    4    5    6    7    8    9    10   11   12   13   14
+  draft:  [t1] [t2] [t3] [t4]  ← 串列，4 次 forward，每次 1 單位
+  verify:                          [全部一起驗證]  ← 1 次 forward，10 單位
+  ↑ draft 佔了 4/14 = 29% 的時間
+
+DFlash（總時間 = 1 + 10 = 11 單位）：
+  time →  0    1    2    3    4    5    6    7    8    9    10   11
+  draft:  [t1,t2,t3,t4]  ← 平行，1 次 forward 產生全部，1 單位
+  verify:                 [全部一起驗證]  ← 1 次 forward，10 單位
+  ↑ draft 只佔 1/11 = 9% 的時間
+
+MTP（總時間 ≈ 10 + 0 + 10 = 20 單位，但實際可重疊）：
+  time →  0    1    2    3    4    5    6    7    8    9    10   11   12   13   14   15   16   17   18   19   20
+  step1:  [target forward]  ← 產生 t1 同時 MTP heads 預測 t2~t4
+          ↑ 10 單位，但 heads 成本可忽略
+  verify:                    [全部一起驗證]  ← 1 次 forward，10 單位
+  ↑ MTP 的 draft 成本幾乎為 0（heads 計算量 << 一次 forward）
+```
+
+| 你的問題 | 答案 |
+|---|---|
+| 三者 draft 階段都一樣？ | 不一樣。傳統 SD 是串列（O(γ)），DFlash 和 MTP 是平行（O(1)） |
+| DFlash 和 MTP 的平行方式一樣？ | 不一樣。DFlash 靠 diffusion 一次 forward 產生全部 γ 個 token；MTP 靠 target model 的 hidden state 被多個 head 共用，heads 同時輸出 |
+| 三者 verify 階段都一樣？ | 一樣。都是 target LLM 一次 forward pass 平行驗證所有候選 |
+| 所以加速差異來自哪裡？ | 完全來自 draft 階段的平行化程度。傳統 SD 的 draft 成本隨 γ 線性成長，DFlash 和 MTP 的 draft 成本與 γ 無關 |
+
+**結論**：三者的差異 100% 集中在 draft 階段。Verify 階段三者完全相同。所以「加速倍率」的差異 = 「draft 階段的平行化程度」的差異。傳統 SD 的 draft 成本 = O(γ)，DFlash 和 MTP 的 draft 成本 = O(1)。
+
+---
+
+### Q17：speculative decoding / dflash / mtp 到底誰是誰的上層概念？（R2 最終濃縮版）
+
+**A**：Speculative decoding 是「流程框架」，DFlash 和 MTP 是「該框架的兩種實作」。不存在誰包含誰。
+
+```
+Speculative Decoding（流程：先猜再驗證）
+  ├── 實作 A：DFlash（用 diffusion 模型來猜）
+  └── 實作 B：MTP（用 LLM 自己的 heads 來猜）
+```
+
+| 問題 | 答案 |
+|---|---|
+| SD 是 DFlash 的上層？ | 是。SD 定義流程，DFlash 實作其中的「猜」步驟 |
+| SD 是 MTP 的上層？ | 是。同上 |
+| DFlash 和 MTP 誰大誰小？ | 一樣大。sibling 關係，無繼承 |
+| 三者能同時用？ | 不能。一次推論只能選一種猜法 |
+
+---
+
+### Q18：這三個概念各自解決什麼問題？如何解決問題？（R2 最終濃縮版）
+
+**A**：三者解決同一問題鏈上的不同環節。
+
+| 技術 | 解決的問題 | 解法 | 代價 |
+|---|---|---|---|
+| **Speculative Decoding** | LLM 一次只能產 1 token，GPU 利用率低 | 先快速猜一串，再一起驗證 | 需要一個「猜的機制」 |
+| **DFlash** | 上述的「猜」如果是自回歸，猜越長越慢 | 用 block diffusion 一次 forward 猜整串，成本 O(1) | 需額外載入 diffusion 模型（~300M） |
+| **MTP** | 上述的「猜」如果是外部模型，佔記憶體 | 讓 LLM 自己的 heads 來猜，無需外部模型 | 需在訓練時加入 MTP loss |
+
+一句話：SD 說「猜了再驗證」，DFlash 說「我用 diffusion 一次猜完」，MTP 說「我不用外部模型，LLM 自己猜」。
+
+---
+
+### Q19：dflash 聽起來是 diffusion 應用，感覺跟字串不一樣吧？（R2 最終濃縮版）
+
+**A**：你的直覺正確。DFlash 的 diffusion 不在字串上操作，在「字串的數學表示（embedding 向量）」上操作。
+
+```
+字串（離散）→ Embedding（連續 float32 陣列）→ Diffusion 去噪 → LM Head 翻譯回離散 token
+```
+
+| 你的疑惑 | 解答 |
+|---|---|
+| 「diffusion 是給影像用的，跟字串不一樣」 | 正確。Diffusion 需要連續空間，字串是離散符號 |
+| 「那 DFlash 怎麼用 diffusion？」 | 先把字串翻譯成連續向量（embedding），在連續空間做 diffusion，做完再翻譯回字串 |
+| 「跟影像 diffusion 本質相同？」 | 是。都是在 float32 陣列上操作。影像的陣列是 pixel 值，DFlash 的陣列是 token embedding 值 |
+
+---
+
+### Q20：這三個方法平行化跟串列化的地方都一樣？（R2 最終濃縮版）
+
+**A**：draft 階段不一樣，verify 階段一樣。
+
+| 階段 | 傳統 SD | DFlash | MTP |
+|---|---|---|---|
+| **Draft** | 串列 O(γ)：逐 token 產生，γ 次 forward | 平行 O(1)：一次 forward 產生全部 γ 個 | 平行 O(1)：heads 共用 hidden state 同時輸出 |
+| **Verify** | 平行：1 次 forward 驗證全部 | 平行：同左 | 平行：同左 |
+
+加速差異 100% 來自 draft 階段。傳統 SD 的 draft 成本隨 γ 線性成長，DFlash 和 MTP 的 draft 成本與 γ 無關。
