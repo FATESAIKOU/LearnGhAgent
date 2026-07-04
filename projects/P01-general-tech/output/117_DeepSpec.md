@@ -292,3 +292,134 @@ DeepSpec 的 draft model 方法在加速比上領先，但代價是：
 3. **資料依賴**：draft model 的品質高度依賴訓練資料的品質與覆蓋範圍
 
 相比之下，Lookahead Decoding 無需訓練但加速比有限，Medusa 無需獨立模型但需修改 target model 架構。選擇取決於部署環境的約束條件（記憶體、訓練預算、延遲要求）。
+
+---
+
+## 5. User Q&A
+
+### Q1：DeepSpec 跟 DFlash 有沒有關係？是不是 DFlash 的 wrapping？
+
+**A**：不是。DeepSpec 與 DFlash 的關係是「框架 vs 框架內的一種演算法」，不是「wrapper vs wrapped」。
+
+| 層級 | 名稱 | 角色 |
+|---|---|---|
+| 上層框架 | **Speculative Decoding** | 定義「draft → verify」兩階段流程的抽象概念 |
+| 訓練/評估基礎設施 | **DeepSpec** | 實作 speculative decoding 的 codebase，提供 data prep、training、evaluation 三階段 pipeline |
+| 演算法實作（之一） | **DFlash** | DeepSpec 支援的三種 draft model 演算法之一（另兩種為 DSpark、Eagle3） |
+
+對照 106 報告的架構：
+
+```
+Speculative Decoding（上層框架）
+  ├── 實作方案 A：DFlash（draft 用 block diffusion）
+  ├── 實作方案 B：MTP（draft 用多頭預測 heads）
+  └── 實作方案 C：DSpark（draft 用 block-level + anchor sampling）
+         ↑
+    DeepSpec 提供這三種演算法的訓練與評估基礎設施
+```
+
+- DeepSpec **不是** DFlash 的 wrapper。DFlash 的原始實作在 [z-lab/dflash](https://github.com/z-lab/dflash)（MIT），DeepSpec 將其重新實作並整合進自己的訓練框架中。
+- DeepSpec 的定位是「speculative decoding 的全端 codebase」，DFlash 只是其中一個演算法模組。
+- 若將 DeepSpec 視為 wrapper，它 wrapper 的是整個 speculative decoding 流程（data → train → eval），而非 wrapper 某個特定演算法。
+
+**結論**：DeepSpec 與 DFlash 是「框架包含演算法」的關係，不是「wrapper 與被 wrapper」的關係。
+
+---
+
+### Q2：DeepSpec 是「可以直接用的套件」還是「演算法」？
+
+**A**：DeepSpec **不是**可直接 `pip install` 的套件，也不是單一演算法。它是**需 clone 後執行 script 的 codebase**。
+
+| 面向 | 事實 | 證據 |
+|---|---|---|
+| 是否可 pip install | **否** | repo 內無 `setup.py` 或 `pyproject.toml` |
+| 是否為 Python package | **否** | `deepspec/__init__.py` 內容為 `__all__ = []`，非設計為 import 使用 |
+| 是否為單一演算法 | **否** | 包含 3 種演算法（DSpark、DFlash、Eagle3），每種有獨立 config |
+| 實際定位 | **全端 codebase** | 提供 data preparation、training、evaluation 三階段 script |
+| 使用方式 | **clone + pip install -r requirements.txt + bash scripts/** | README 明確指示此流程 |
+
+**結論**：DeepSpec 是一個「speculative decoding 的訓練與評估框架」，不是套件也不是單一演算法。使用者需 clone repo 後手動執行各階段 script。
+
+---
+
+### Q3：如果是套件，怎麼用？（請寫指令或程式碼一步一步）
+
+**A**：DeepSpec 不是套件，但以下為 clone 後從頭到尾的完整使用步驟。
+
+**前置條件**：
+- 8 張 GPU（預設配置），或調整 `CUDA_VISIBLE_DEVICES`
+- 至少 38TB 可用磁碟空間（若使用預設 Qwen3-4B 配置）
+- 安裝 SGLang（data preparation 階段需要）：`pip install "sglang[all]"`
+
+**Step 1：Clone 與安裝依賴**
+
+```bash
+git clone https://github.com/deepseek-ai/DeepSpec.git
+cd DeepSpec
+python -m pip install -r requirements.txt
+```
+
+**Step 2：資料準備（Data Preparation）**
+
+```bash
+# 2a: 下載並分割資料
+python scripts/data/download_and_split.py \
+    --dataset-name mlabonne/open-perfectblend \
+    --test-size 0.05 \
+    --train-output-path train_datasets/perfectblend_train.jsonl \
+    --test-output-dir eval_datasets \
+    --skip-existing
+
+# 2b: 啟動 SGLang server（另開 terminal）
+bash scripts/data/launch_sglang_server.sh
+
+# 2c: 用 target model 重新生成答案
+python scripts/data/generate_train_data.py \
+    --model Qwen/Qwen3-4B \
+    --server-address 127.0.0.1:30000 127.0.0.1:30001 ... \
+    --concurrency 32 \
+    --temperature 0.7 \
+    --top-p 0.8 \
+    --top-k 20 \
+    --min-p 0 \
+    --max-tokens 4096 \
+    --disable-thinking \
+    --resume \
+    --input-file-path train_datasets/perfectblend_train.jsonl \
+    --output-file-path train_datasets/qwen3_4b/perfectblend_train_regen.jsonl
+
+# 2d: 建立 target cache（約 38TB）
+bash scripts/data/prepare_data.sh
+```
+
+**Step 3：訓練 Draft Model**
+
+```bash
+# 編輯 config_path 指向欲使用的演算法配置
+# 例如 DSpark: config/dspark/dspark_qwen3_4b.py
+# 例如 DFlash: config/dflash/dflash_qwen3_4b.py
+# 例如 Eagle3: config/eagle3/eagle3_qwen3_4b.py
+
+bash scripts/train/train.sh
+# 預設 config_path 可在 train.sh 內修改，或用 --opts 覆蓋
+# Checkpoint 輸出至 ~/checkpoints/<project_name>/<exp_name>/step_*
+```
+
+**Step 4：評估**
+
+```bash
+bash scripts/eval/eval.sh
+# 設定 target_name_or_path 與 draft_name_or_path
+# 可使用 released checkpoint（見 README 表格）跳過訓練直接評估
+```
+
+**使用 released checkpoint 跳過訓練的捷徑**：
+
+```bash
+# 直接下載已釋出的 checkpoint 進行評估
+# 例如 DFlash for Qwen3-4B:
+#   https://huggingface.co/deepseek-ai/dflash_qwen3_4b_block7
+# 設定 draft_name_or_path 為該 Hugging Face repo ID 即可
+```
+
+**結論**：DeepSpec 的使用方式是「clone → install deps → data prep → train → eval」，非 `pip install` 後 `import deepspec` 的 library 用法。
