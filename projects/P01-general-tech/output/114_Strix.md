@@ -248,6 +248,7 @@ Strix：
 | **Nuclei + ProjectDiscovery 生態** | YAML 模板驅動的弱點掃描器，社群維護數千模板，支援 HTTP/DNS/SSL/TCP 等多協定 | 需撰寫/維護 YAML 模板；無執行環境隔離 | 模板只能檢測已知模式，無法做邏輯推理；無 PoC 驗證；假陽性需人工過濾 | 快速大規模掃描，適合 CI/CD 閘道，但缺乏深度驗證 |
 | **Semgrep + CodeQL（SAST）** | 靜態程式碼分析，Semgrep 以 pattern matching 為主，CodeQL 以資料流分析為主 | 需定義安全規則（Semgrep）或編寫 QL 查詢（CodeQL）；需原始碼存取 | 不執行程式碼，無法發現執行時期漏洞（如 SSRF、IDOR）；假陽性率高 | 在開發階段早期發現程式碼層級弱點，適合 shift-left，但無法取代動態測試 |
 | **OpenAI GPT / Claude 直接使用** | 直接將程式碼或網頁內容餵給 LLM，要求 LLM 分析安全性 | 需手動提供 context；無工具鏈整合；無隔離執行環境 | LLM 可能 hallucinate 漏洞；無法實際驗證；無結構化報告；token 成本不可控 | 快速獲得初步安全意見，但不可靠且不可重複 |
+| **PentestGPT** | LLM agent 迭代式滲透測試，v1.0 升級為 agentic 模式（Claude Code CLI 驅動），legacy 模式支援多 LLM provider | 需安裝 Claude Code CLI（agent 模式）或設定 API key（legacy 模式）；無內建沙箱 | 依賴 Claude Code 的 sandbox 而非自有隔離環境；agent 模式僅支援 Claude；無內建弱點掃描工具鏈（如 nuclei/sqlmap） | 在 LLM 推理層面與 Strix 同級，但缺乏自有工具鏈與沙箱，實際攻擊能力受限 |
 
 ### 4.2 切入點差異分析
 
@@ -291,3 +292,166 @@ Strix 的切入點是 **「LLM Agent + 工具鏈 + 沙箱」** 的組合，這�
 | **速度** | LLM 推理延遲（數秒至數十秒）遠高於規則引擎（毫秒級），大規模掃描效率低 |
 | **可重複性** | LLM 輸出非確定性，同一目標兩次 scan 結果可能不同 |
 | **覆蓋面** | 依賴 LLM 的知識邊界，對於極新或極冷門的漏洞類型可能無法覆蓋 |
+
+### 4.4 Strix vs PentestGPT 對照
+
+| 面向 | Strix | PentestGPT |
+|---|---|---|
+| 建立時間 | 2025-08-05 | 2023-02-27 |
+| Stars | 35.5K | 14.1K |
+| License | Apache-2.0 | MIT |
+| 核心語言 | Python | Python |
+| 架構 | 多 Agent（root/recon/exploit/post）+ Docker sandbox | 單 Agent iteration loop + Claude Code CLI |
+| 沙箱 | Docker 容器（內建 Caido proxy、瀏覽器、Python runtime） | 無獨立沙箱（依賴 Claude Code 的 sandbox） |
+| 工具鏈 | 13 個內建工具（browser/shell/proxy/search 等） | 依賴 Claude Code 內建工具 |
+| 多 LLM 支援 | 是（OpenAI/Anthropic/Google/Vertex/Bedrock/Azure/本地） | 是（legacy 模式支援 8+ provider；agent 模式僅 Claude） |
+| 弱點驗證 | PoC 執行驗證（sandbox 中執行 Python exploit） | 依賴 LLM 推理判斷（無獨立 PoC 執行層） |
+| 學術背景 | 無（開源專案） | USENIX Security 2024 論文 |
+| 安裝方式 | curl 腳本 / pip | git clone + make install |
+| CI/CD 整合 | GitHub Actions workflow 範例 | 無明確 CI/CD 範例 |
+| 收費模式 | 開源 + 雲端平台（app.strix.ai） | 開源（MIT） |
+
+**是否重造輪子的判斷**：Strix 與 PentestGPT 在「LLM agent 驅動滲透測試」的抽象概念上相同，但實作層級有顯著差異：
+
+| 主張 | 反證 |
+|---|---|
+| 兩者都是「LLM 問答 + 工具執行」的 loop | Strix 實作多 Agent 協作架構（root/recon/exploit/post），PentestGPT 為單 Agent 迭代；Strix 有自有 Docker 沙箱與 13 個內建工具，PentestGPT 依賴 Claude Code 生態 |
+| 兩者都支援多 LLM provider | PentestGPT agent 模式僅支援 Claude，legacy 模式雖支援多 provider 但功能受限；Strix 所有模式皆支援多 provider |
+| 兩者都是開源 | Strix 為 Apache-2.0，PentestGPT 為 MIT，授權不同 |
+| 兩者都做滲透測試 | Strix 強調 PoC 執行驗證（sandbox 中實際執行 exploit），PentestGPT 依賴 LLM 推理判斷，驗證深度不同 |
+
+**結論**：Strix 與 PentestGPT 在「LLM agent 驅動」的抽象層面屬於同類，但在架構深度（多 Agent vs 單 Agent）、工具鏈自有程度（13 內建工具 vs 依賴 Claude Code）、驗證機制（PoC 執行 vs LLM 推理）三個維度上有實質差異，不構成單純的「重造輪子」。
+
+---
+
+## 5. User Q&A
+
+### Q1：Strix 與 PentestGPT 有何區別？是不是重造輪子？
+
+**A**：不是單純的重造輪子。兩者在「LLM agent 驅動滲透測試」的抽象概念上同類，但在三個實作維度上有顯著差異：
+
+| 維度 | Strix | PentestGPT | 差異是否實質 |
+|---|---|---|---|
+| **架構** | 多 Agent 協作（root/recon/exploit/post），AgentCoordinator 管理狀態與訊息傳遞 | 單 Agent iteration loop，依賴 Claude Code CLI 的 agent 模式 | 是 — 多 Agent 架構允許分工與平行執行，單 Agent 只能序列操作 |
+| **工具鏈** | 13 個內建工具（browser/shell/proxy/nuclei/sqlmap/nmap 等），自有實作 | 依賴 Claude Code 內建工具，無自有工具鏈 | 是 — 自有工具鏈不受 LLM provider 限制，且可精確控制工具行為 |
+| **驗證機制** | PoC 執行驗證：在 Docker sandbox 中實際執行 Python exploit 確認漏洞 | 依賴 LLM 推理判斷漏洞是否存在，無獨立 PoC 執行層 | 是 — 執行驗證可過濾 LLM 幻覺產生的假漏洞，PentestGPT 無此過濾層 |
+| **沙箱** | 自有 Docker 容器（內建 Caido proxy、瀏覽器、Python runtime） | 無自有沙箱，依賴 Claude Code 的 sandbox | 是 — 自有沙箱可精確控制環境、支援 local source mount、獨立於 LLM provider |
+| **多 LLM 支援** | 所有模式皆支援 OpenAI/Anthropic/Google/Vertex/Bedrock/Azure/本地 | agent 模式僅 Claude，legacy 模式支援多 provider 但功能受限 | 部分 — PentestGPT legacy 模式功能較弱 |
+| **學術背景** | 無 | USENIX Security 2024 論文 | 非功能差異 |
+
+**反證表**（若主張「是重造輪子」需回答的問題）：
+
+| 若主張「重造輪子」 | 需解釋 |
+|---|---|
+| 為何 Strix 需要實作自有 Docker 沙箱而非直接使用 Claude Code sandbox？ | PentestGPT 選擇依賴 Claude Code，Strix 選擇自建，兩者架構決策不同 |
+| 為何 Strix 需要實作 13 個內建工具而非使用 Claude Code 內建工具？ | PentestGPT 的工具能力受限於 Claude Code 提供的工具集 |
+| 為何 Strix 需要實作多 Agent 協調器而非單 Agent loop？ | 單 Agent loop 無法平行執行偵察與利用任務 |
+| 為何 Strix 需要 PoC 執行驗證層？ | PentestGPT 無此層，LLM 幻覺產生的假漏洞無法被過濾 |
+
+**結論**：Strix 與 PentestGPT 在抽象層面同類，但在架構深度、工具鏈自有程度、驗證機制三個維度有實質差異，不構成單純的「重造輪子」。
+
+### Q2：實際上如何一步一步執行 Strix？（給指令）
+
+**A**：以下為完整執行流程，從安裝到進階使用。
+
+#### 前置需求
+
+| 項目 | 版本要求 | 說明 |
+|---|---|---|
+| Python | >= 3.11 | Strix 執行環境 |
+| Docker | 最新版 | 沙箱執行環境 |
+| LLM API Key | 依 provider 而定 | OpenAI / Anthropic / Google 等 |
+
+#### Step 1：安裝
+
+```bash
+# 方式一：curl 安裝腳本（推薦）
+curl -fsSL https://raw.githubusercontent.com/usestrix/strix/main/install.sh | bash
+
+# 方式二：pip 安裝
+pip install strix
+
+# 驗證安裝
+strix --version
+```
+
+#### Step 2：設定 LLM Provider
+
+```bash
+# 設定環境變數（以 Anthropic Claude 為例）
+export ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx
+
+# 或寫入設定檔
+strix config set provider anthropic
+strix config set model claude-sonnet-4-20250514
+```
+
+#### Step 3：基本掃描（Blackbox 模式）
+
+```bash
+# 掃描一個公開網址（無原始碼存取）
+strix --target https://example.com
+
+# 指定掃描模式
+strix --target https://example.com --mode quick    # 快速掃描（~5 分鐘）
+strix --target https://example.com --mode standard # 標準掃描（~15 分鐘）
+strix --target https://example.com --mode deep     # 深度掃描（~30+ 分鐘）
+```
+
+#### Step 4：Whitebox 模式（有原始碼）
+
+```bash
+# 掛載本地原始碼目錄
+strix --target ./my-app --whitebox
+
+# 指定語言框架（加速分析）
+strix --target ./my-app --whitebox --framework django
+```
+
+#### Step 5：進階使用
+
+```bash
+# 指定輸出目錄
+strix --target https://example.com --output ./reports
+
+# 設定預算上限（USD）
+strix --target https://example.com --budget 5.0
+
+# 指定自訂 skill
+strix --target https://example.com --skills custom/my_skill.md
+
+# 恢復中斷的掃描
+strix --resume ./strix_runs/scan_2025xxxx/
+```
+
+#### Step 6：CI/CD 整合（GitHub Actions）
+
+```yaml
+# .github/workflows/strix-scan.yml
+name: Strix Security Scan
+on:
+  push:
+    branches: [main]
+jobs:
+  strix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Strix
+        uses: usestrix/strix-action@v1
+        with:
+          target: ${{ github.workspace }}
+          whitebox: true
+          mode: quick
+          api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+#### 注意事項
+
+| 事項 | 說明 |
+|---|---|
+| **首次執行** | 第一次執行會自動 pull Docker image（約 1-2 GB），需等待數分鐘 |
+| **Token 消耗** | quick mode 約 50K-100K tokens，deep mode 可達 500K+ tokens |
+| **掃描時間** | 取決於 LLM 延遲與目標複雜度，quick mode 約 5 分鐘，deep mode 可達 1 小時 |
+| **Docker 權限** | 確保執行使用者有 Docker 權限（`docker ps` 可正常執行） |
+| **網路要求** | 沙箱需要網路存取目標，若目標在內網需確保 Docker 可到達 |
