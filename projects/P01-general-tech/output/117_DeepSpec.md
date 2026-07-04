@@ -423,3 +423,34 @@ bash scripts/eval/eval.sh
 ```
 
 **結論**：DeepSpec 的使用方式是「clone → install deps → data prep → train → eval」，非 `pip install` 後 `import deepspec` 的 library 用法。
+
+---
+
+### Q4：DeepSpec 是訓練 LLM 本體的 script，還是訓練 speculative decoding submodel 的 script？
+
+**A**：DeepSpec 訓練的是 **speculative decoding 用的 draft model（草稿模型）**，不是 LLM 本體（主模型）。
+
+| 證據來源 | 具體內容 |
+|---|---|
+| README 開頭 | "training and evaluating **draft models** for speculative decoding" |
+| Workflow 段落 | Data Preparation → **Training (draft model)** → Evaluation，主模型僅作為 target 被調用 |
+| Config 結構 | `config/dflash/dflash_qwen3_4b.py` 中 `model.target_model_name_or_path` 指向主模型（Qwen/Qwen3-4B），其餘參數（`block_size`, `num_draft_layers`, `target_layer_ids`）定義 **draft model** 的架構 |
+| Released Checkpoints | 所有已釋出 checkpoint 皆為 draft model（如 `deepseek-ai/dflash_qwen3_4b_block7`），非主模型 |
+| 主模型角色 | 在 pipeline 中作為 **frozen target**，僅用於產生 target cache（推理輸出），**不被訓練** |
+
+**DeepSpec 訓練流程中主模型 vs draft model 的角色對照：**
+
+```
+Data Preparation 階段：
+  target model (frozen) ──inference──→ target cache (hidden states, ~38TB)
+                                              ↑
+Training 階段：
+  target cache ──→ draft model (trainable) ──→ draft tokens
+  (frozen target                          (被訓練的對象)
+  的輸出作為 label)
+
+Evaluation 階段：
+  draft model (frozen) ──draft──→ target model (frozen) ──verify──→ accepted tokens
+```
+
+**結論**：DeepSpec 的 training script 訓練的是 **speculative decoding 的 submodel（draft model）**，不是 LLM 本體。主模型在整個 pipeline 中保持 frozen，僅作為 target 提供推理輸出供 draft model 學習擬合。
