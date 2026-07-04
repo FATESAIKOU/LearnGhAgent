@@ -239,3 +239,48 @@ Prose 層描述設計意圖：
 | 無 iconography 標準 | 無內建 icon token 類型 | 同上，透過 prose 描述 |
 | Agent 採用度未知 | 需 Agent 框架（Copilot, Cursor, Claude Code）原生支援才能發揮最大效益 | CLI 工具讓 Agent 可透過 `designmd lint` / `designmd spec` 程式化讀取 |
 | 無 Figma 雙向同步 | 無官方 Figma plugin 同步 token | 可透過 `export --format dtcg` 橋接 Figma Tokens plugin |
+
+---
+
+## 5. User Q&A
+
+### Q1：所以這東西是「設計標準文件」還是「一份 Markdown(Prompt)」？
+
+**A**：DESIGN.md 同時是「格式標準（format specification）」與「一份 Markdown 檔案」，兩者不互斥，而是規範與實例的關係。
+
+| 層面 | 內容 | 對應實體 |
+|------|------|----------|
+| **格式標準（specification）** | 定義 YAML front matter schema、8 個 prose section 順序、token 引用語法 `{path.to.token}`、9 條 lint 規則、component property 白名單 | `docs/spec.md`、`PHILOSOPHY.md`、CLI 工具（lint/diff/export） |
+| **具體檔案（Markdown file）** | 開發者撰寫的 `DESIGN.md`，包含具體的色票、字型、prose 描述 | 專案根目錄的 `DESIGN.md`（如 examples/atmospheric-glass/DESIGN.md） |
+| **Prompt 模板** | Agent 可將 `DESIGN.md` 內容注入 system prompt 或 context window，作為設計規範的輸入 | 無固定格式，取決於 Agent 框架（Copilot / Cursor / Claude Code） |
+
+**類比**：`package.json` 同時是「npm package.json 格式規範」與「專案中的 package.json 檔案」。DESIGN.md 的 spec 定義了格式，而專案中的 DESIGN.md 是該格式的實例。
+
+**關鍵區別**：
+- DESIGN.md **不是**一份通用的「Prompt 模板字串」——它是有結構的格式（YAML + Markdown），有專屬 CLI 工具可驗證、比對、匯出
+- DESIGN.md **可以**被當作 Prompt 的一部分餵給 Agent——但這只是消費方式之一，不是它的本體定義
+- 官方定位為「format specification」，產出物為「Markdown file with YAML front matter」
+
+**結論**：DESIGN.md 是「一份定義了設計系統描述格式的標準」，其實例是「一份遵循該標準的 Markdown 檔案」。
+
+---
+
+### Q2：這東西的「目標使用效果」、「使用前提」、「使用方式」、「使用副作用」為何？
+
+**A**：
+
+| 面向 | 內容 |
+|------|------|
+| **目標使用效果** | 1. AI Agent 跨 session、跨專案產出視覺一致的 UI 程式碼<br>2. 開發者只需維護一份 `DESIGN.md`，即可讓所有 Agent 框架（Copilot, Cursor, Claude Code, Windsurf）讀取相同設計規範<br>3. 設計 token 與 prose 合一，Agent 同時取得「數值」與「使用規則」<br>4. 可透過 CLI 工具（lint/diff/export）納入 CI/CD pipeline，設計變更可追蹤 |
+| **使用前提** | 1. 專案使用 AI coding agent 產出 UI 程式碼（非純手寫專案效益低）<br>2. 開發者需有能力撰寫 YAML front matter + Markdown prose（基本文件能力）<br>3. 需安裝 Node.js 以執行 CLI 工具（lint/diff/export）<br>4. Agent 框架需支援讀取外部檔案作為 context（多數現代 Agent 皆支援）<br>5. 設計系統需有一定成熟度（臨時專案或一次性頁面不適合） |
+| **使用方式** | 1. **撰寫**：在專案根目錄建立 `DESIGN.md`，依 spec 撰寫 YAML front matter（colors, typography, rounded, spacing, components）+ Markdown prose（Overview, Colors, Typography, Layout, Elevation, Shapes, Components, Do's and Don'ts）<br>2. **驗證**：執行 `npx @google/design.md lint DESIGN.md` 檢查結構正確性與 WCAG 對比度<br>3. **引用**：在 Agent 的 system prompt 或 context 中指示「請參考專案根目錄的 DESIGN.md 作為設計規範」<br>4. **維護**：設計變更時更新 DESIGN.md，執行 `designmd diff` 比較變更，透過 `designmd export` 同步至 Tailwind config / DTCG JSON |
+| **使用副作用** | 1. **維護成本**：需持續更新 DESIGN.md 以反映設計變更，否則 Agent 會使用過時規範<br>2. **格式仍在 alpha**：spec 可能 breaking change，需追蹤 upstream 更新<br>3. **無強制執行力**：Agent 可能不完全遵循 DESIGN.md（取決於 Agent 的 instruction following 能力）<br>4. **無動畫 / motion 標準**：需自行擴充 prose section 描述<br>5. **無 Figma 雙向同步**：設計師在 Figma 修改後需手動同步至 DESIGN.md<br>6. **學習曲線**：團隊需學習 prose 撰寫技巧（Specific Reference > Adjectives 原則）才能發揮最大效益 |
+
+**反證表：何時不該使用 DESIGN.md**
+
+| 情境 | 原因 |
+|------|------|
+| 專案無 AI Agent 參與 | DESIGN.md 的設計目標是給 Agent 讀，純人類開發用 Tailwind config 或 Style Dictionary 更直接 |
+| 設計系統尚未穩定 | 頻繁變動的 token 會導致 DESIGN.md 與實際產出脫節，維護成本 > 效益 |
+| 單人一次性專案 | 無跨 session / 跨 Agent 需求時，直接在 Agent prompt 寫規範更快 |
+| 團隊無 prose 撰寫能力 | 寫出模糊 prose（「modern, clean, premium」）反而比不寫更糟（產生 generic 輸出） |
