@@ -23,6 +23,8 @@
 
 OfficeCLI 以「單一二進位檔 + 統一 CLI + 內建渲染引擎」的方式，讓 AI agent 用一行命令就能對三種 Office 格式執行讀、寫、改、看。
 
+**精確定義**：OfficeCLI 不是「Office 系列軟體的 CLI 包裝層」，而是「從零實作 OOXML 規範的獨立 CLI 工具」。它不依賴 Microsoft Office 或 LibreOffice 的 API，而是自行解析/產生 OOXML 檔案，並內建渲染引擎將文件轉為 HTML/PNG。其目標使用者是 AI agent（Claude Code、Cursor、Copilot），而非一般開發者撰寫 Office 巨集。
+
 ---
 
 ## 2. 這個問題為什麼會發生？（背景）
@@ -269,6 +271,61 @@ officecli mcp vscode    ← 註冊為 VS Code / Copilot 的工具
 | 活躍度 | 5,784 commits，最新 release 2026-07-10（v1.0.135） |
 | 社群 | 14.9k stars、1,020 forks、Discord |
 
+### 3.6 安裝方式詳解
+
+| 平台 | 指令 | 說明 |
+|------|------|------|
+| macOS / Linux | `curl -fsSL https://officecli.ai/install.sh \| bash` | 自動偵測平台，下載對應 binary，安裝至 `~/.local/bin`，支援 checksum 驗證與原子性搬移 |
+| macOS（Homebrew） | `brew install officecli/tap/officecli` | 透過 Homebrew tap 安裝 |
+| Windows | `irm https://officecli.ai/install.ps1 \| iex` | PowerShell 安裝腳本 |
+| Windows（Scoop） | `scoop bucket add officecli https://github.com/iOfficeAI/scoop-officecli && scoop install officecli` | 透過 Scoop 安裝 |
+| npm | `npm install -g @officecli/officecli` | 透過 npm 安裝（內含 Node.js shim） |
+| 手動 | 從 GitHub Releases 下載對應平台的 binary + SHA256SUMS | 需自行解壓、搬移至 PATH |
+
+**安裝後驗證：**
+```bash
+officecli --version
+# 輸出範例：OfficeCLI 1.0.135
+```
+
+### 3.7 GitHub Actions 相容性
+
+OfficeCLI 的 CI（build.yml）已在 GitHub Actions 上完整驗證，使用 ubuntu-latest / macos-latest / windows-latest 執行以下測試：
+
+- **Smoke test**：`create` → `add` → `get` → `close` 完整流程
+- **Install test**：透過 `install.sh` / `install.ps1` 安裝後執行命令
+- **Cross-platform matrix**：8 種平台組合
+
+**在 GitHub Actions 中使用 OfficeCLI 的範例：**
+
+```yaml
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OfficeCLI
+        run: curl -fsSL https://officecli.ai/install.sh | bash
+      - name: Verify installation
+        run: officecli --version
+      - name: Generate document
+        run: |
+          officecli create report.docx
+          officecli set report.docx /body/p[1] text="CI Generated Report"
+          officecli set report.docx /body/p[1] style="Heading1"
+          officecli close report.docx
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: report.docx
+```
+
+**注意事項**：
+- binary 無外部依賴，不需安裝 .NET runtime 或 Office
+- `screenshot` 模式需 headless browser（Chromium），GitHub Actions 預設無瀏覽器，需額外安裝 `google-chrome-stable` 或使用 `puppeteer`
+- `view html` 模式不需瀏覽器，可直接產出 HTML 檔案
+
 ---
 
 ## 4. 是否存在解決類似問題的其他技術 / 框架 / 思考方式？
@@ -308,6 +365,193 @@ officecli mcp vscode    ← 註冊為 VS Code / Copilot 的工具
 | **函式庫嵌入**（python-docx 模式） | 將 Office 操作能力嵌入程式語言，開發者撰寫程式碼控制 | OfficeCLI 反其道而行：將操作抽象為 CLI 命令，任何語言皆可呼叫，不需綁定特定程式語言 |
 | **應用程式自動化**（COM/UNO 模式） | 透過既有 Office 應用程式的自動化介面控制 | OfficeCLI 完全脫離 Office 應用程式，從零實作 OOXML 規範，無需安裝 Office |
 | **文件即資料**（OfficeCLI 模式） | 將 Office 文件視為可透過路徑定址的樹狀結構，操作方式類似檔案系統 | 這是 OfficeCLI 的核心設計哲學，其他方案無對等概念 |
+
+---
+
+## 5. User Q&A
+
+### Q1：所以這東西是在 Office 系列軟體的程式友善 CLI 套組？
+
+**A**：不是。OfficeCLI 不是「Office 系列軟體的 CLI 包裝層」，而是「從零實作 OOXML 規範的獨立 CLI 工具」。
+
+| 面向 | OfficeCLI 的實際定位 | 若理解為「Office 的 CLI 套組」的差異 |
+|------|---------------------|-----------------------------------|
+| 與 Office 的關係 | 完全獨立，不依賴 Microsoft Office 或 LibreOffice | 若為「CLI 套組」，應是包裝既有 Office API |
+| 實作方式 | 自行解析/產生 OOXML（ZIP + XML），內建渲染引擎 | 若為「CLI 套組」，應透過 COM / UNO / VSTO 呼叫 Office |
+| 目標使用者 | AI agent（Claude Code、Cursor、Copilot） | 若為「程式友善 CLI」，目標應是開發者撰寫腳本 |
+| 輸出格式 | 結構化 JSON，專為 LLM 解析設計 | 一般 CLI 工具輸出 human-readable text |
+| 安裝方式 | 單一 binary，無需 Office 安裝 | 若為「Office CLI 套組」，應需先安裝 Office |
+
+**結論**：OfficeCLI 是「專為 AI agent 設計的 Office 文件操作 CLI」，不是「Office 軟體的 CLI 前端」。
+
+---
+
+### Q2：這個 CLI 套組對於原本 Office 軟體的表現性如何 有哪些限制
+
+**A**：OfficeCLI 的功能覆蓋率以 OOXML 規範為基準，與 Microsoft Office 的對照如下：
+
+**支援的功能（OOXML 子集）：**
+
+| 類別 | 支援程度 | 說明 |
+|------|---------|------|
+| 文字（Word） | 高 | 段落、run、樣式、表格、頁首頁尾、註腳、追蹤修訂 |
+| 表格（Excel） | 高 | 儲存格格式、公式（350+ 函數）、樞紐分析表、條件格式、圖表 |
+| 投影片（PowerPoint） | 高 | 形狀、動畫、轉場、母片、圖表、3D 模型、方程式 |
+| 渲染 | 中高 | HTML 輸出品質佳；screenshot 需 headless browser |
+| 公式引擎 | 高 | 350+ Excel 函數，支援自動求值與循環參照偵測 |
+| 範本合併 | 高 | 跨段落/表格/形狀/頁首頁尾/圖表標題的 `{{key}}` 取代 |
+| 文件轉儲 | 高 | 完整文件或子樹層級的 JSON 序列化/回放 |
+
+**已知限制：**
+
+| 限制 | 說明 | 影響程度 |
+|------|------|---------|
+| 僅支援 OOXML 格式 | 不支援 .doc / .xls / .ppt（舊版二進位格式） | 高 — 需先轉檔才能處理舊格式 |
+| 無原生 PDF 輸出 | 需透過 `view html` + 瀏覽器列印或 plugin 轉 PDF | 中 — 需額外步驟 |
+| Screenshot 需 headless browser | `view screenshot` 模式需 Chromium/Chrome 環境 | 中 — CI 環境需額外安裝瀏覽器 |
+| Resident mode flush 時機 | 自動 flush 有 2-10 秒延遲，若程序崩潰可能遺失未 flush 的變更 | 中 — 可設 `OFFICECLI_RESIDENT_FLUSH=each` 緩解 |
+| 路徑索引 1-based | 與程式語言慣例（0-based）不同，需注意 off-by-one 錯誤 | 低 — 文件有說明 |
+| 屬性名稱大小寫敏感 | 部分屬性名稱需特定大小寫（如 `fill` vs `Fill`） | 低 — 錯誤訊息有 suggestion |
+| 非 OOXML 功能 | 不支援 VBA 巨集、ActiveX 控制項、OLE 嵌入物件 | 中 — 這些功能在自動化場景少用 |
+| 協作功能 | 不支援多人協同編輯、變更追蹤（track changes 僅讀取） | 中 — 單人自動化場景不受影響 |
+
+**與 Microsoft Office 的表現性對照：**
+
+| 面向 | Microsoft Office | OfficeCLI |
+|------|-----------------|-----------|
+| 格式支援 | .doc/.docx/.xls/.xlsx/.ppt/.pptx 等 | 僅 .docx/.xlsx/.pptx |
+| GUI 編輯 | ✓ | ✗（僅 CLI） |
+| VBA 巨集 | ✓ | ✗ |
+| 協同編輯 | ✓ | ✗ |
+| PDF 輸出 | ✓（內建） | ✗（需 plugin） |
+| 渲染正確性 | 100%（官方引擎） | 高（第三方實作，部分邊際案例可能偏差） |
+| 公式引擎 | 完整 | 350+ 函數（常見函數全覆蓋，極少數特殊函數可能缺失） |
+| 自動化/CI 適用 | ✗ | ✓ |
+| 結構化輸出 | ✗ | ✓ |
+| 安裝大小 | 數 GB | ~14 MB |
+
+**結論**：OfficeCLI 在「自動化操作 OOXML 文件」的場景下表現性高於 Microsoft Office（因 Office 不支援 CLI/headless），但在「完整 Office 文件編輯」場景下功能覆蓋率約 70-80%，缺失 VBA、協作、舊格式、PDF 原生輸出等功能。
+
+---
+
+### Q3：這東西如何安裝與使用 給我指令一步一步（能不能直接在 github actions 這種環境跑）
+
+**A**：可以。以下提供各平台逐步安裝指令與 GitHub Actions 範例。
+
+**安裝（macOS / Linux）：**
+
+```bash
+# 步驟 1：下載並安裝
+curl -fsSL https://officecli.ai/install.sh | bash
+
+# 步驟 2：確認安裝成功
+officecli --version
+
+# 步驟 3（可選）：安裝 AI skill 與 MCP 註冊
+officecli install
+```
+
+**安裝（Windows PowerShell）：**
+
+```powershell
+# 步驟 1：下載並安裝
+irm https://officecli.ai/install.ps1 | iex
+
+# 步驟 2：確認安裝成功
+officecli --version
+```
+
+**安裝（macOS Homebrew）：**
+
+```bash
+brew install officecli/tap/officecli
+```
+
+**基本使用流程（建立一份 Word 文件）：**
+
+```bash
+# 步驟 1：建立空白文件
+officecli create report.docx
+
+# 步驟 2：設定內容（常駐模式）
+officecli open report.docx
+officecli set report.docx /body/p[1] text="年度報告" style="Heading1"
+officecli set report.docx /body/p[2] text="本報告摘要了 2026 年度的營運狀況。"
+officecli set report.docx /body/p[2] style="Normal"
+officecli close report.docx
+
+# 步驟 3：檢視文件結構
+officecli view report.docx outline
+
+# 步驟 4：轉為 HTML 檢視
+officecli view report.docx html -o report.html
+```
+
+**基本使用流程（建立一份 Excel 試算表）：**
+
+```bash
+# 建立 Excel 檔案
+officecli create data.xlsx
+
+# 填入資料
+officecli set data.xlsx /Sheet1/A1 value="產品" 
+officecli set data.xlsx /Sheet1/B1 value="營收"
+officecli set data.xlsx /Sheet1/A2 value="A產品"
+officecli set data.xlsx /Sheet1/B2 value=1500000
+officecli set data.xlsx /Sheet1/A3 value="B產品"
+officecli set data.xlsx /Sheet1/B3 value=2300000
+
+# 查詢資料
+officecli query data.xlsx 'row[營收>1000000]' --json
+```
+
+**GitHub Actions 完整範例：**
+
+```yaml
+name: Generate Office Document
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # 每週一早上 6 點
+  workflow_dispatch:      # 可手動觸發
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install OfficeCLI
+        run: curl -fsSL https://officecli.ai/install.sh | bash
+      
+      - name: Generate report
+        run: |
+          officecli create weekly-report.docx
+          officecli open weekly-report.docx
+          officecli set weekly-report.docx /body/p[1] text="週報 $(date +%Y-%m-%d)" style="Heading1"
+          officecli set weekly-report.docx /body/p[2] text="本週完成事項："
+          officecli set weekly-report.docx /body/p[2] style="Heading2"
+          officecli close weekly-report.docx
+      
+      - name: Upload document
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-report
+          path: weekly-report.docx
+```
+
+**GitHub Actions 注意事項：**
+
+| 項目 | 說明 |
+|------|------|
+| binary 依賴 | 無 — 單一 binary，不需 .NET runtime 或 Office |
+| 安裝時間 | ~3-5 秒（curl + bash 安裝腳本） |
+| 執行時間 | 文件操作 < 1 秒 |
+| Screenshot 模式 | 需額外安裝 Chromium：`sudo apt-get install -y google-chrome-stable` |
+| 快取建議 | 可快取 `~/.local/bin/officecli` 以加速後續執行 |
+| 輸出 artifact | 使用 `actions/upload-artifact@v4` 上傳 .docx/.xlsx/.pptx |
+
+**結論**：OfficeCLI 完全支援 GitHub Actions 環境，安裝僅需一行 curl 指令，執行無外部依賴，已在官方 CI 中通過完整測試。
 
 ---
 
