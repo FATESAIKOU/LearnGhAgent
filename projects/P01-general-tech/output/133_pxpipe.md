@@ -180,3 +180,234 @@ burnTextSide = priorWarmImageTokens × (1.25 - 0.10)
 | 「快取會失效」 | pxpipe 不新增快取標記，只搬移既有標記；快取對齊確保前綴穩定 | `docs/CACHING_AND_SAVINGS.md` 的對齊機制 |
 | 「精確字串會讀錯」 | 承認此限制，提供 keepSharp 逃生口和 factsheet 保護 | 0/15 Opus vs 13/15 Fable 的 hex 測試 |
 | 「這只是暫時的套利窗口」 | 同意，但指出模型視覺能力持續提升，窗口只會擴大 | 從 Opus 4.8 到 Fable 5 的 4× glyph 面積改善 |
+
+---
+
+## 5. User Q&A
+
+### Q1：cache_control 是什麼東西？用來解決什麼問題？問題發生的背景？它如何解決問題？誰提出的？
+
+**A**：
+
+**定義**：`cache_control` 是 Anthropic Messages API 中，用於標記 prompt 快取斷點（cache breakpoint）的參數。格式為 `{"type": "ephemeral"}`，可附加在 `tools`、`system`、`messages` 陣列中的個別 content block 上。
+
+**提出者**：Anthropic（該公司於 2025 年推出 Prompt Caching 功能時引入）。
+
+**解決的問題**：LLM API 每次請求都重新處理完整 prompt，即使前綴內容在多次請求間完全相同。這導致：
+- 重複計算相同內容的注意力機制（浪費算力）
+- 重複計費（浪費成本）
+- 增加端到端延遲
+
+**問題發生的背景**：LLM 的 stateless 設計——API 不保留任何跨請求狀態，每次呼叫 `/v1/messages` 都是獨立請求。Agent 系統（如 Claude Code）每次請求都重新發送完整的系統提示詞 + 工具定義 + 歷史記錄，這些內容在多次請求間高度重複。
+
+**解決機制**：
+
+| 步驟 | 說明 |
+|------|------|
+| 1. 標記斷點 | 在穩定前綴的最後一個 content block 加上 `cache_control: {"type": "ephemeral"}` |
+| 2. 寫入快取 | 首次請求時，系統計算從 prompt 開頭到斷點的前綴 hash，以 1.25× 費率寫入快取 |
+| 3. 讀取快取 | 後續請求若前綴 hash 匹配，則以 0.1× 費率讀取快取，只處理斷點之後的新內容 |
+| 4. Lookback | 若斷點 hash 不匹配，系統向後最多檢查 20 個 block，尋找先前寫入的快取條目 |
+
+**定價**：
+
+| 項目 | 倍率（相對於 base input） |
+|------|--------------------------|
+| Base input | 1.0× |
+| Cache write（5 分鐘 TTL） | 1.25× |
+| Cache write（1 小時 TTL） | 2.0× |
+| Cache read | 0.1× |
+
+**pxpipe 與 cache_control 的關係**：pxpipe 不新增 cache_control 標記，而是將呼叫方既有的標記搬移到對應圖片區塊的末尾。這確保快取斷點位置不變，圖片前綴與文字前綴使用同一個快取條目，快取折扣不會被重複計算為 pxpipe 的節省。
+
+**結論**：`cache_control` 是 Anthropic 提出的 prompt 前綴快取機制，透過標記斷點讓重複前綴以 0.1× 費率重複使用。pxpipe 利用此機制但不新增標記，只搬移既有標記以維持快取對齊。
+
+---
+
+### Q2：導入 pxpipe 前後，傳輸給 LLM API 的具體全體 prompt 會長什麼樣子？請針對各種場景舉例，最後總結。
+
+**A**：
+
+以下以 Anthropic Messages API 格式為例，展示三種場景下導入 pxpipe 前後的 prompt 形狀。
+
+#### 場景一：一般對話（無工具呼叫）
+
+**導入前（純文字）**：
+```json
+{
+  "model": "claude-fable-5",
+  "system": [
+    {"type": "text", "text": "你是 Claude Code，Anthropic 的 CLI 工具。\n\n## 規則\n- 使用 TypeScript\n- 遵循 ESLint 規則\n\n# Environment\nWorking directory: /home/user/project\nPlatform: linux\nToday's date: 2026-07-25", "cache_control": {"type": "ephemeral"}}
+  ],
+  "messages": [
+    {"role": "user", "content": "幫我看看這個檔案有什麼問題"}
+  ]
+}
+```
+- 系統提示詞：~800 tokens（含規則 + 環境資訊）
+- 使用者訊息：~10 tokens
+- 總計：~810 tokens（前綴 ~800 可快取）
+
+**導入後（pxpipe 代理）**：
+```json
+{
+  "model": "claude-fable-5",
+  "system": [
+    {"type": "text", "text": "x-anthropic-billing-header: ..."}
+  ],
+  "messages": [
+    {"role": "user", "content": [
+      {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo..."}},
+      {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo..."}, "cache_control": {"type": "ephemeral"}},
+      {"type": "text", "text": "[End of rendered context.]"},
+      {"type": "text", "text": "幫我看看這個檔案有什麼問題"}
+    ]}
+  ]
+}
+```
+- 系統提示詞：僅帳單行 ~5 tokens
+- 圖片區塊：2 張 PNG，每張 ~1568×728 px，約 1456 視覺 tokens/張，共 ~2912 tokens
+- 使用者訊息：~10 tokens
+- 總計：~2927 tokens（前綴 ~2912 可快取）
+- 節省：文字 ~800 tokens → 圖片 ~2912 tokens，**此場景反而變貴**（因為一般對話文字量小，圖片固定成本高）
+
+---
+
+#### 場景二：工具呼叫（含系統提示詞 + 工具定義 + 歷史記錄）
+
+**導入前（純文字）**：
+```json
+{
+  "model": "claude-fable-5",
+  "tools": [
+    {"name": "Read", "description": "讀取檔案內容", "input_schema": {"type": "object", "properties": {"file_path": {"type": "string"}}}},
+    {"name": "Edit", "description": "編輯檔案", "input_schema": {"type": "object", "properties": {"file_path": {"type": "string"}, "old_string": {"type": "string"}, "new_string": {"type": "string"}}}},
+    {"name": "Bash", "description": "執行 shell 命令", "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}}}
+  ],
+  "system": [
+    {"type": "text", "text": "你是 Claude Code...\n\n## 規則\n- 使用 TypeScript\n- 遵循 ESLint 規則\n\n<available_skills>\n<skill><name>explore</name><description>探索程式碼庫</description></skill>\n</available_skills>", "cache_control": {"type": "ephemeral"}}
+  ],
+  "messages": [
+    {"role": "user", "content": "幫我找到所有 TypeScript 檔案"},
+    {"role": "assistant", "content": [{"type": "tool_use", "id": "tu_1", "name": "Bash", "input": {"command": "find . -name '*.ts'"}}]},
+    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu_1", "content": "src/index.ts\nsrc/utils.ts\nsrc/core/render.ts"}]},
+    {"role": "assistant", "content": "找到了 3 個 TypeScript 檔案"},
+    {"role": "user", "content": "幫我看看 render.ts 的內容"}
+  ]
+}
+```
+- 工具定義：~300 tokens
+- 系統提示詞：~1200 tokens
+- 歷史記錄：~150 tokens
+- 使用者訊息：~10 tokens
+- 總計：~1660 tokens（前綴 ~1650 可快取）
+
+**導入後（pxpipe 代理）**：
+```json
+{
+  "model": "claude-fable-5",
+  "tools": [
+    {"name": "Read", "description": "讀取檔案內容", "input_schema": {"type": "object", "properties": {"file_path": {"type": "string"}}}},
+    {"name": "Edit", "description": "編輯檔案", "input_schema": {"type": "object", "properties": {"file_path": {"type": "string"}, "old_string": {"type": "string"}, "new_string": {"type": "string"}}}},
+    {"name": "Bash", "description": "執行 shell 命令", "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}}}
+  ],
+  "system": [
+    {"type": "text", "text": "x-anthropic-billing-header: ..."}
+  ],
+  "messages": [
+    {"role": "user", "content": [
+      {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo..."}},
+      {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo..."}, "cache_control": {"type": "ephemeral"}},
+      {"type": "text", "text": "[End of rendered context.]"},
+      {"type": "text", "text": "幫我找到所有 TypeScript 檔案"},
+      {"type": "tool_use", "id": "tu_1", "name": "Bash", "input": {"command": "find . -name '*.ts'"}},
+      {"type": "tool_result", "tool_use_id": "tu_1", "content": "src/index.ts\nsrc/utils.ts\nsrc/core/render.ts"},
+      {"type": "text", "text": "找到了 3 個 TypeScript 檔案"},
+      {"type": "text", "text": "幫我看看 render.ts 的內容"}
+    ]}
+  ]
+}
+```
+- 系統提示詞：僅帳單行 ~5 tokens
+- 工具定義：~300 tokens（保持純文字，因工具定義需精確）
+- 圖片區塊：2 張 PNG，~2912 視覺 tokens
+- 近期對話（純文字）：~160 tokens
+- 總計：~3377 tokens（前綴 ~3212 可快取）
+- 節省：文字 ~1660 tokens → 圖片 + 工具 + 近期對話 ~3377 tokens，**此場景仍略貴**（但歷史越長，節省越明顯）
+
+---
+
+#### 場景三：大工具輸出（pxpipe 最大效益場景）
+
+**導入前（純文字）**：
+```json
+{
+  "model": "claude-fable-5",
+  "tools": [/* 3 個工具定義，~300 tokens */],
+  "system": [
+    {"type": "text", "text": "你是 Claude Code...\n\n## 規則\n- 使用 TypeScript\n- 遵循 ESLint 規則\n\n<available_skills>...</available_skills>", "cache_control": {"type": "ephemeral"}}
+  ],
+  "messages": [
+    {"role": "user", "content": "執行測試並回報結果"},
+    {"role": "assistant", "content": [{"type": "tool_use", "id": "tu_1", "name": "Bash", "input": {"command": "npm test"}}]},
+    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu_1", "content": "PASS src/core/render.test.ts (5.2s)\nPASS src/core/transform.test.ts (3.8s)\nPASS src/core/baseline.test.ts (4.1s)\n\nTest Suites: 3 passed, 3 total\nTests: 47 passed, 47 total\nSnapshots: 0 total\nTime: 13.1s\n\n# 以下是詳細的覆蓋率報告\n...（約 25000 字元的詳細輸出）"}]
+    },
+    {"role": "assistant", "content": "所有測試通過"},
+    {"role": "user", "content": "幫我分析覆蓋率報告"}
+  ]
+}
+```
+- 工具定義 + 系統提示詞：~1500 tokens
+- 歷史記錄（含大工具輸出 25000 字元）：~12500 tokens
+- 使用者訊息：~10 tokens
+- 總計：~14010 tokens（前綴 ~14000 可快取）
+
+**導入後（pxpipe 代理）**：
+```json
+{
+  "model": "claude-fable-5",
+  "tools": [/* 3 個工具定義，~300 tokens */],
+  "system": [
+    {"type": "text", "text": "x-anthropic-billing-header: ..."}
+  ],
+  "messages": [
+    {"role": "user", "content": [
+      {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo..."}},
+      {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo..."}, "cache_control": {"type": "ephemeral"}},
+      {"type": "text", "text": "[End of rendered context.]"},
+      {"type": "text", "text": "執行測試並回報結果"},
+      {"type": "tool_use", "id": "tu_1", "name": "Bash", "input": {"command": "npm test"}},
+      {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo..."}},
+      {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo..."}},
+      {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo..."}},
+      {"type": "text", "text": "所有測試通過"},
+      {"type": "text", "text": "幫我分析覆蓋率報告"}
+    ]}
+  ]
+}
+```
+- 系統提示詞：僅帳單行 ~5 tokens
+- 工具定義：~300 tokens
+- 靜態 slab 圖片：2 張 PNG，~2912 視覺 tokens
+- 近期對話（純文字）：~20 tokens
+- 大工具輸出圖片：3 張 PNG（25000 字元 / 28080 字元每頁 ≈ 1 頁，但 pxpipe 使用 dense 模式），~4368 視覺 tokens
+- 總計：~7605 tokens（前綴 ~7595 可快取）
+- 節省：文字 ~14010 tokens → 圖片 ~7605 tokens，**節省約 46%**
+
+---
+
+#### 總結
+
+| 場景 | 導入前（文字 tokens） | 導入後（圖片 tokens） | 節省比例 | 關鍵因素 |
+|------|:---:|:---:|:---:|---------|
+| 一般對話（短） | ~810 | ~2927 | **-261%**（變貴） | 文字量小，圖片固定成本高 |
+| 工具呼叫（中等） | ~1660 | ~3377 | **-103%**（略貴） | 工具定義 + 近期對話保持純文字 |
+| 大工具輸出（密集） | ~14010 | ~7605 | **+46%**（節省） | 大工具輸出轉圖片效益最大 |
+| 生產流量平均 | ~25000 | ~2700（僅 slab） | **+59-70%** | 含歷史折疊 + 快取命中 |
+
+**關鍵結論**：
+- pxpipe 不是在所有場景都省錢——短對話反而更貴
+- 節省來自「密集文字轉圖片的資訊密度套利」：密集文字 ~1 char/token，圖片 ~3.1 chars/vision-token
+- 近期對話（最後幾輪）保持純文字以確保精確度，只有舊歷史和靜態內容轉圖片
+- 快取命中時效益更大：圖片前綴 ~2700 tokens 以 0.1× 計費 vs 文字前綴 ~25000 tokens 以 0.1× 計費
+- pxpipe 的盈利閘門（profitability gate）會自動跳過不划算的區塊，避免場景一、二的情況
