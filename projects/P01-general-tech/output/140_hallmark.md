@@ -1,6 +1,6 @@
 # Hallmark 技術分析報告
 
-> 調研日期：2026-07-25 | 基於 Nutlope/hallmark（17.5k stars, MIT, CSS primary）
+> 調研日期：2026-07-25 | 基於 Nutlope/hallmark（17.9k stars, MIT, CSS primary）
 
 ---
 
@@ -335,3 +335,191 @@ Slop Test:
 | **學習曲線** | 需理解 4 verbs、21 種結構、20 種主題、58 道閘門 | 安裝後即可使用，無需記憶所有細節（LLM 會自動遵循） |
 | **無 Figma 整合** | 無法直接從 Figma 設計稿導入 | 可透過 Study verb 從截圖提取風格 |
 | **專案活躍度** | 2026-04-27 建立，仍在早期階段，可能 breaking change | ROADMAP.md 已列出 Now/Next/Later 計劃，開發方向明確 |
+
+---
+
+## 5. User Q&A
+
+### Q1：Hallmark 到底是「撰寫好看網頁的工具」還是「驗證網頁風格一致性的檢查器」？
+
+**A**：兩者都不是。Hallmark 的核心 identity 是「**生成階段強制約束系統**」。
+
+| 面向 | 撰寫工具 | 驗證工具 | Hallmark |
+|------|----------|----------|---------|
+| 介入時機 | 生成前/中 | 生成後 | **生成中**（注入 prompt 約束） |
+| 產出 | 直接產出 UI 程式碼 | 產出評分/建議 | 產出 UI 程式碼（受約束） |
+| 是否修改產出 | 是（生成） | 否（只檢查） | 是（生成時強制遵循規則） |
+| Audit verb | 無 | 有 | 有（但非核心 verb） |
+| 核心機制 | 模板/元件庫 | 規則檢查 | **prompt 注入 + 結構/風格強制多樣性 + 自檢** |
+
+Hallmark 的 4 個 verb 各自對應不同角色：
+
+| Verb | 角色 | 說明 |
+|------|------|------|
+| **Default**（無參數） | 生成 | 從零建頁面，強制遵循 21 種結構 + 20 種主題 + 58 道 slop gates |
+| **Audit** | 審計 | 對現有頁面評分，產出改善清單，**不修改** |
+| **Redesign** | 重構 | 保留內容與 IA，更換視覺結構與風格 |
+| **Study** | 提取 | 從截圖/URL 提取設計 DNA，可產出 `design.md` |
+
+**結論**：Hallmark 本質上是一套「生成時強制執行的設計規範」，不是撰寫工具（它不提供模板），也不是驗證工具（Audit 只是 4 個 verb 之一，非核心功能）。它的核心是「讓 LLM 在生成 UI 時無法落入常見的 AI 生成模式」。
+
+### Q2：安裝後 Claude Code / Opencode 會不會自動套用？
+
+**A**：取決於 Agent 框架的 skill 載入機制，非 Hallmark 本身能決定。
+
+| Agent 框架 | 預設載入行為 | 控制方式 |
+|---|---|---|
+| **Claude Code** | **自動載入**（當 conversation 內容與 skill description 匹配時，Claude 自動載入 skill 內容） | 在 SKILL.md frontmatter 設 `disable-model-invocation: true` 可禁止自動載入 |
+| **Opencode** | **按需載入**（agent 透過 `skill` tool 看到可用 skills 列表，可選擇載入或不載入） | 透過 `opencode.json` 的 `permission.skill` 設定 allow/deny/ask |
+
+**關鍵差異**：
+
+- **Claude Code**：Hallmark 的 SKILL.md 中 `description` 包含 "Use when the user asks to build a new app or landing page"。因此當使用者說「幫我建一個 landing page」時，Claude Code **會自動載入 Hallmark**，無需使用者特別提及。若使用者不希望自動載入，需修改 SKILL.md 加入 `disable-model-invocation: true`。
+- **Opencode**：Opencode 的 skill 載入是 agent 主動行為（透過 `skill` tool），非自動。Agent 看到可用 skills 列表後自行判斷是否載入。若使用者不希望 agent 使用 Hallmark，可在 `opencode.json` 設 `"permission": { "skill": { "hallmark": "deny" } }`。
+
+**結論**：在 Claude Code 中，若使用者未特別提及但對話內容與 Hallmark 的 description 匹配，**會自動套用**。在 Opencode 中，**不會自動套用**，需 agent 判斷後手動載入。
+
+### Q3：如何安裝到 Claude Code / Opencode？請給出逐一步驟。
+
+**A**：以下為 3 種安裝方式，依推薦優先順序排列。
+
+#### 方式一：`npx skills add`（最簡單，僅 Claude Code / Cursor / Codex）
+
+```bash
+npx skills add nutlope/hallmark
+```
+
+- 自動下載 SKILL.md + references/ 到正確位置
+- 重複執行可更新到最新版
+- 僅支援 Claude Code、Cursor、Codex（Opencode 不支援此指令）
+
+#### 方式二：手動安裝到 Claude Code
+
+```bash
+# Step 1: 建立 skill 目錄
+mkdir -p ~/.claude/skills/hallmark
+
+# Step 2: 下載 SKILL.md
+curl -o ~/.claude/skills/hallmark/SKILL.md \
+  https://raw.githubusercontent.com/Nutlope/hallmark/main/skills/hallmark/SKILL.md
+
+# Step 3: 下載 references/ 目錄
+curl -L -o /tmp/hallmark-refs.zip \
+  https://github.com/Nutlope/hallmark/archive/refs/heads/main.zip
+unzip /tmp/hallmark-refs.zip "hallmark-main/skills/hallmark/references/*" -d /tmp
+mv /tmp/hallmark-main/skills/hallmark/references ~/.claude/skills/hallmark/
+rm -rf /tmp/hallmark-refs.zip /tmp/hallmark-main
+
+# Step 4: 驗證安裝
+ls ~/.claude/skills/hallmark/
+# 應看到：SKILL.md  references/
+```
+
+#### 方式三：手動安裝到 Opencode
+
+Opencode 相容 Claude skill 格式，可直接複製：
+
+```bash
+# 專案層級（推薦，僅該專案可用）
+mkdir -p .opencode/skills/hallmark
+cp -r ~/.claude/skills/hallmark/* .opencode/skills/hallmark/
+
+# 或全域層級（所有專案可用）
+mkdir -p ~/.config/opencode/skills/hallmark
+cp -r ~/.claude/skills/hallmark/* ~/.config/opencode/skills/hallmark/
+```
+
+Opencode 也支援讀取 `.claude/skills/` 路徑，因此若已安裝到 `~/.claude/skills/hallmark/`，Opencode 會自動發現該 skill，**無需額外複製**。
+
+**驗證安裝是否成功**：
+
+```bash
+# 檢查 skill 是否被 agent 發現
+# 啟動 Opencode 後，agent 的可用工具列表中應出現：
+# <skill><name>hallmark</name><description>Anti-AI-slop design skill...</description></skill>
+```
+
+**結論**：最簡單的方式是 `npx skills add nutlope/hallmark`（僅 Claude Code）。若需在 Opencode 使用，安裝到 `~/.claude/skills/hallmark/` 即可（Opencode 相容此路徑），無需額外步驟。
+
+### Q4：Hallmark 到底是「撰寫好看網頁的工具」還是「驗證網頁風格一致性的檢查器」？亦或是其他？
+
+**A**：三者皆非。Hallmark 的核心 identity 是「**生成階段強制約束系統**」，其 4 個 verb 各自對應不同角色：
+
+| Verb | 角色 | 說明 |
+|------|------|------|
+| **Default**（無參數） | 生成 | 從零建頁面，強制遵循 21 種結構 + 20 種主題 + 58 道 slop gates |
+| **Audit** | 審計 | 對現有頁面評分，產出改善清單，**不修改** |
+| **Redesign** | 重構 | 保留內容與 IA，更換視覺結構與風格 |
+| **Study** | 提取 | 從截圖/URL 提取設計 DNA，可產出 `design.md` |
+
+- 它不是「撰寫工具」：不提供模板或元件庫，而是注入 prompt 約束讓 LLM 自行生成
+- 它不是「驗證工具」：Audit 只是 4 個 verb 之一，非核心功能
+- 它不是「風格一致性檢查器」：Hallmark 不檢查是否符合既有設計系統（那是 DESIGN.md 的領域），而是強制每次產出**與前次不同**
+
+**結論**：Hallmark 是一套「生成時強制執行的設計規範」，核心目標是讓 LLM 無法落入常見的 AI 生成模式。
+
+### Q5：安裝後若我沒特別提到，Claude Code / Opencode 會不會自動套用？
+
+**A**：取決於 Agent 框架的 skill 載入機制，非 Hallmark 本身能決定。
+
+| Agent 框架 | 預設載入行為 | 控制方式 |
+|---|---|---|
+| **Claude Code** | **自動載入**（當 conversation 內容與 skill description 匹配時） | 在 SKILL.md frontmatter 設 `disable-model-invocation: true` 可禁止 |
+| **Opencode** | **按需載入**（agent 透過 `skill` tool 手動載入） | 在 `opencode.json` 設 `"permission": { "skill": { "hallmark": "deny" } }` 可禁止 |
+
+**關鍵行為差異**：
+- Claude Code：Hallmark 的 SKILL.md 中 `description` 包含 "Use when the user asks to build a new app or landing page"。因此當使用者說「幫我建一個 landing page」時，Claude Code **會自動載入**，無需使用者特別提及 Hallmark 這個名字。
+- Opencode：agent 看到可用 skills 列表後自行判斷是否載入，**不會自動套用**。
+
+**結論**：Claude Code 會自動套用（若對話匹配），Opencode 不會。
+
+### Q6：如何安裝到 Claude Code / Opencode？請給出官方 best practice 的逐一步驟指令。
+
+**A**：以下為 3 種安裝方式，依推薦優先順序排列。
+
+#### 方式一：`npx skills add`（最簡單，僅 Claude Code / Cursor / Codex）
+
+```bash
+npx skills add nutlope/hallmark
+```
+
+- 自動下載 SKILL.md + references/ 到正確位置
+- 重複執行可更新到最新版
+- Opencode 不支援此指令
+
+#### 方式二：手動安裝到 Claude Code
+
+```bash
+# Step 1: 建立 skill 目錄
+mkdir -p ~/.claude/skills/hallmark
+
+# Step 2: 下載 SKILL.md
+curl -o ~/.claude/skills/hallmark/SKILL.md \
+  https://raw.githubusercontent.com/Nutlope/hallmark/main/skills/hallmark/SKILL.md
+
+# Step 3: 下載 references/ 目錄
+curl -L -o /tmp/hallmark-refs.zip \
+  https://github.com/Nutlope/hallmark/archive/refs/heads/main.zip
+unzip /tmp/hallmark-refs.zip "hallmark-main/skills/hallmark/references/*" -d /tmp
+mv /tmp/hallmark-main/skills/hallmark/references ~/.claude/skills/hallmark/
+rm -rf /tmp/hallmark-refs.zip /tmp/hallmark-main
+
+# Step 4: 驗證安裝
+ls ~/.claude/skills/hallmark/
+# 應看到：SKILL.md  references/
+```
+
+#### 方式三：手動安裝到 Opencode
+
+Opencode 相容 Claude skill 格式。若已安裝到 `~/.claude/skills/hallmark/`，Opencode 會自動發現該 skill，**無需額外複製**。
+
+若需專案層級隔離：
+
+```bash
+mkdir -p .opencode/skills/hallmark
+cp -r ~/.claude/skills/hallmark/* .opencode/skills/hallmark/
+```
+
+**驗證安裝是否成功**：啟動 Opencode 後，agent 的可用工具列表中應出現 `<skill><name>hallmark</name><description>Anti-AI-slop design skill...</description></skill>`。
+
+**結論**：最簡單的方式是 `npx skills add nutlope/hallmark`（僅 Claude Code）。若需在 Opencode 使用，安裝到 `~/.claude/skills/hallmark/` 即可。
