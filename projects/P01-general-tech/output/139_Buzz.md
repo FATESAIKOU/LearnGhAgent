@@ -234,3 +234,37 @@ Buzz 內建 Git hosting 功能（代號 Forge），基於 NIP-34 標準：
 - 傳統工具鏈的「最佳組合」策略（Linear + GitHub + Slack）導入成本低，但 Agent 協作效率受限於工具間的 API 縫合
 - Buzz 的 self-hosted 模式提供資料主權，但增加了運維負擔（Postgres/Redis/MinIO/Nostr relay）
 - 81 種 event kind 的設計提供了細粒度的事件分類，但也意味著 protocol 層的複雜度較高
+
+---
+
+## 5. User Q&A
+
+### Q1：Buzz 就是一個整合需求管理、程式碼、CI/CD 與任務追蹤的超大 platform？之後公司的 workflow 全部都在這上面運作？
+
+**A**：Buzz 的設計目標是 replacement（取代），但實務上可逐步採用為 coordination layer（協調層）。
+
+| 面向 | 說明 |
+|------|------|
+| 長期願景 | README 明確指出「一個 relay 取代 Slack、GitHub、CI dashboard、issue tracker、release tool、search index 與 glue code」 |
+| 內建功能 | Forge（git hosting + code review + branch protection + merge coordinator）、CI/CD workflow（YAML 定義，relay 為 message bus）、Issue/PR 管理、即時通訊（Stream）、非同步討論（Forum） |
+| 逐步採用 | VISION_SOVEREIGN.md 說明「可在 GitHub 之上作為協作層使用 — 在 Buzz channels 協作，push release 到 public repo」 |
+| 非 all-or-nothing | 可選擇只啟用 chat/forum/canvas 功能，跳過 git hosting；但 Buzz 無雙向同步機制，與既有工具（GitHub Issues、Linear）不會自動同步 |
+
+**結論**：Buzz 的設計意圖是「最終讓公司 workflow 全部在上面運作」，但現階段允許逐步採用。它不是 middleware，而是有完整 git hosting + CI/CD + 通訊的 standalone platform。與傳統工具鏈的關鍵差異在於「單一 relay 作為所有事件的真相源」，而非多工具透過 API 縫合。
+
+### Q2：這東西有何公司背書？還是單純的純 OSS 專案或者小型新創？
+
+**A**：Block, Inc.（前 Square）官方 OSS 專案，非 side project，非新創。
+
+| 面向 | 內容 |
+|------|------|
+| 開發者 | Block, Inc.（Copyright 2026 Block, Inc.） |
+| 授權 | Apache 2.0 |
+| 專案定位 | Block 官方 OSS 精選專案（列於 opensource.block.xyz，與 Goose、OkHttp 同等級） |
+| 商業支援 | 無企業授權、無付費支援、無託管 SaaS |
+| 部署模式 | 僅 self-hosted（Docker Compose + Postgres + Redis + MinIO） |
+| 專案成熟度 | 12.6k stars、1.8k commits、v0.4.26（頻繁發佈）、272 open issues、378 open PRs |
+| Block 內部使用 | Block 內部有 pre-wired 版本（連至 Block relay + agent provider），但 OSS 版本僅 self-hosted |
+| 公告 | 無專屬 launch blog post（相較 Goose 有完整啟動貼文）；僅在 opensource.block.xyz 精選區塊列出 |
+
+**結論**：Buzz 是 Block 官方投入的 OSS 專案，有大型公司背書，但現階段無商業化意圖（無 SaaS、無企業方案）。專案活躍度高（每日合併），但 README 標示「Not finished」，仍處於早期開發階段。
