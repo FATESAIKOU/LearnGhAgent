@@ -141,3 +141,393 @@ cliLog('done')
 ### 結論
 
 ego-lite 的核心創新在於**將瀏覽器本身設計為 Agent 與人類共用的平台**，而非在既有瀏覽器上疊加自動化層。Space 架構與 Snapshot 機制從瀏覽器核心層解決了資源隔離與頁面理解的問題，JavaScript heredoc 模式則從 Agent 交互層解決了 Token 效率問題。但其平台限制（macOS only）、公司規模（新創早期）、以及 benchmark 覆蓋範圍不足，是評估長期採用時需考量的風險。
+
+---
+
+## 5. User Q&A
+
+### Q1：ego-lite 的長期服務穩定性、安全性、是否免費？
+
+**A**：
+
+| 面向 | 狀態 | 證據來源 |
+|------|------|----------|
+| 是否免費 | 完全免費。無付費方案、無帳號系統 | README.md 標示 Free；install.sh 直接從 CDN 下載 DMG，無授權驗證 |
+| 授權 | MIT License（harness 部分）；browser binary 為獨立下載，未標示授權 | repo LICENSE 為 MIT；browser binary 無獨立授權檔案 |
+| 長期穩定性 | 公司 Citro Labs Pte. Ltd.（新加坡），2026 年成立；repo 建立於 2026-04-16，截至 2026-07-31 有 7007 stars、332 forks、52 open issues | gh repo view 結果 |
+| 安全性 | 資料全本地離線；僅記錄 migration opt-in；Chromium 本身有 telemetry（可關閉） | README.md "Your browsing data stays on your device" |
+| 可 fork 性 | 開源 harness 可 fork；但 browser binary 需從官方 CDN 下載，無法自行 build | repo 結構：harness 開源，browser binary 閉源 |
+
+**結論**：目前完全免費且資料本地化，但 browser binary 閉源且依賴官方 CDN 分發，若公司停止維護則 browser binary 無法更新。
+
+### Q2：ego-lite 與 BrowserBase 的深度比較（安全性、易用性、Token 效率、操作效率）
+
+**A**：
+
+#### 安全性
+
+| 面向 | ego-lite | BrowserBase |
+|------|----------|-------------|
+| 瀏覽器本體 | 自訂 Chromium fork（閉源 binary，從 CDN 下載 .dmg） | 使用者既有的 stock Google Chrome（開源） |
+| CDP harness | 開源（MIT），`package/ego-browser/src/` 可審計 | 使用 Google 官方 `chrome-devtools-mcp`（Apache 2.0） |
+| 資料存放 | 全本地離線。僅記錄 migration opt-in | 全本地，`user_profile/` 目錄 |
+| 網路連線 | 安裝時從 CDN 下載 binary；運行時無外部連線 | 無外部連線（除瀏覽器本身） |
+| 攻擊面 | 閉源 binary 無法審計；skill 層完全開源 | 完全開源可審計；依賴 npm 套件供應鏈 |
+| Profile 繼承 | 首次啟動可匯入 Chrome profile（需使用者密碼授權） | 啟動時指定 `--user-data-dir` |
+| Google 偵測 | 自訂 Chromium，無 Puppeteer flag，不會被擋 | stock Chrome 正常啟動，`navigator.webdriver === false`，不會被擋 |
+| 授權 | MIT（harness）+ 閉源（browser binary） | 無授權（wrapper）+ Apache 2.0（chrome-devtools-mcp） |
+
+**安全性結論**：BrowserBase 完全開源可審計，ego-lite 的 browser binary 閉源是主要風險點。
+
+#### 易用性
+
+| 面向 | ego-lite | BrowserBase |
+|------|----------|-------------|
+| 安裝步驟 | 下載 DMG → 拖入 Applications → 啟動 → 匯入 Chrome 資料 | `bash scripts/install-opencode.sh` → 重啟 agent |
+| 平台支援 | 僅 macOS（arm64 + x64） | 任何 Chrome 可運行的平台 |
+| Agent 整合 | 自動掃描機器上 agent，寫入 skill | 手動執行 install script |
+| 使用方式 | `/ego-browser` skill 指令 + heredoc JS | 直接對 agent 說「瀏覽某網站」（MCP tool） |
+| 學習成本 | 需理解 Space、heredoc、snapshot/ref 機制 | 無額外概念，MCP tool 直接操作 |
+| 狀態繼承 | 首次匯入後自動繼承所有登入態 | 首次手動登入一次後持久化 |
+| 並行能力 | Space 架構，多 agent 並行不干擾 | 單一 Chrome profile lock，無法並行 |
+
+**易用性結論**：ego-lite 安裝後使用更直覺但僅限 macOS；BrowserBase 跨平台但需手動安裝。
+
+#### Token 效率
+
+| 面向 | ego-lite | BrowserBase |
+|------|----------|-------------|
+| 操作模式 | **Code-base**：agent 寫一段 JS heredoc 整段送 browser 一次執行 | **Tool-base**：每個操作是 MCP tool call，LLM 需多次往返 |
+| 頁面理解 | `snapshotText()` 回傳語意樹，token 量遠小於完整 DOM | `browser_snapshot` 回傳 DOM/AX tree |
+| 往返次數 | 複雜任務可一次 heredoc 完成多步操作 | 每步操作需一次 tool call + LLM 判斷 |
+| 官方宣稱 | 比 agent-browser 快 2.5x，Token 消耗顯著更低 | 無官方 benchmark |
+| 腳本化 | 固定流程可固化為 standalone JS 腳本，零 token 執行 | 無對應機制 |
+
+**Token 效率結論**：ego-lite 的 code-base 模式從架構上減少 LLM 往返次數，這是 Token 效率的核心來源。BrowserBase 的 MCP tool-base 模式每次操作都是一次 LLM 往返。
+
+#### 瀏覽器操作效率
+
+| 面向 | ego-lite | BrowserBase |
+|------|----------|-------------|
+| 底層通訊 | 直接 CDP（`ego.sendCDPMessage`），無中介層 | CDP → MCP server → CDP，多一層序列化 |
+| 頁面 snapshot | 自訂 Chromium kernel 級 snapshot | 標準 CDP `Runtime.evaluate` + DOM snapshot |
+| 並行任務 | Space 架構，同一 browser 內多隔離 context 並行 | 單一 Chrome process，無法並行（profile lock） |
+| 記憶體開銷 | 單一 browser 多 Space，資源共享 | 每任務需獨立 Chrome instance（若需並行） |
+| 操作延遲 | JS heredoc 內所有操作在同一 process 連續執行 | 每次 tool call 需 MCP server 處理 + CDP 往返 |
+| 元素解析 | 自訂 resolver（`@N` ref、`loc=css:`、`loc=role:`、`xpath=`） | chrome-devtools-mcp 提供的標準 selector 機制 |
+
+**操作效率結論**：ego-lite 的 Space 架構 + 直接 CDP 通訊在操作效率上有架構優勢。BrowserBase 的 MCP 中介層增加延遲，但使用標準工具。
+
+#### 總評表
+
+| 維度 | 優勢方 | 關鍵原因 |
+|------|--------|----------|
+| 安全性 | BrowserBase | 完全開源可審計；無閉源 binary |
+| 易用性 | ego-lite（macOS）/ BrowserBase（跨平台） | ego-lite 自動整合更順暢，但僅限 macOS |
+| Token 效率 | ego-lite | Code-base 模式減少 LLM 往返次數 |
+| 操作效率 | ego-lite | Space 架構 + 直接 CDP，無 MCP 中介層 |
+
+### Q3：如何給 opencode 與 Claude Code 安裝 ego-lite？
+
+**A**：
+
+#### 給 Claude Code 安裝 ego-lite（官方方式）
+
+```bash
+# 方式 1：下載 DMG 安裝（推薦，官方文件）
+# 1. 下載 https://cdn.ego.app/channel/github_github_referral/setup/macos/arm64/egolite.dmg
+# 2. 打開 DMG，拖入 Applications
+# 3. 啟動 ego lite，完成 onboarding（匯入 Chrome 資料）
+# 4. ego lite 會自動掃描並將 skill 寫入 ~/.claude/skills/ego-browser
+# 5. 重啟 Claude Code
+
+# 方式 2：僅安裝 skill（若已安裝 ego lite app）
+npx skills add citrolabs/ego-lite
+```
+
+驗證安裝：
+
+```bash
+command -v ego-browser
+# 若不在 PATH
+export PATH="$HOME/.local/bin:$PATH"
+# 測試
+ego-browser nodejs <<'EOF'
+console.log('ego-browser ready')
+EOF
+```
+
+在 Claude Code 中使用：
+
+```
+/ego-browser 幫我打開 example.com 並截圖
+```
+
+#### 給 OpenCode 安裝 ego-lite（官方方式）
+
+```bash
+# 方式 1：下載 DMG 安裝（同 Claude Code）
+# ego lite 會自動將 skill 寫入 ~/.config/opencode/skills/ego-browser
+
+# 方式 2：僅安裝 skill
+npx skills add citrolabs/ego-lite
+```
+
+在 OpenCode 中使用：
+
+```
+/ego-browser 幫我打開 example.com 並截圖
+```
+
+#### 給 Claude Code 安裝 BrowserBase
+
+```bash
+git clone https://github.com/FATESAIKOU/BrowserBase.git
+cd BrowserBase
+bash scripts/install-claude.sh
+# 重啟 Claude Code
+```
+
+#### 給 OpenCode 安裝 BrowserBase
+
+```bash
+git clone https://github.com/FATESAIKOU/BrowserBase.git
+cd BrowserBase
+bash scripts/install-opencode.sh
+# 重啟 OpenCode
+```
+
+### Q4：基於原始碼的深度比較：ego-lite vs BrowserBase（安全性、易用性、Token 效率、操作效率）
+
+**A**：
+
+以下比較基於實際 clone 兩 repo 並閱讀核心原始碼後的發現。
+
+#### 架構層級對比
+
+| 面向 | ego-lite | BrowserBase |
+|------|----------|-------------|
+| 總程式碼量 | ~1,536 行（3 個核心 TS 檔） | ~133 行（4 個 shell script） |
+| 瀏覽器本體 | 自訂 Chromium fork（閉源 binary） | 使用者既有的 stock Google Chrome |
+| 通訊層 | 直接 CDP（`ego.sendCDPMessage`），無中介 | CDP → chrome-devtools-mcp（Node.js MCP server）→ CDP |
+| 並行機制 | Space 架構：同一 browser 內多隔離 context | 無內建並行；單一 Chrome profile 有 lock |
+| 元素定位 | 自訂 resolver（`@N` ref, `loc=css:`, `loc=role:`, `xpath=`） | chrome-devtools-mcp 提供的標準 selector |
+| 頁面理解 | 自訂 kernel 級 Accessibility Tree snapshot | 標準 CDP `Runtime.evaluate` + DOM snapshot |
+| 安裝方式 | DMG 下載 + 自動掃描 agent 寫入 skill | shell script 手動執行 |
+| 授權 | MIT（harness）+ 閉源（browser binary） | 無授權（wrapper）+ Apache 2.0（chrome-devtools-mcp） |
+
+#### 安全性（程式碼級）
+
+**ego-lite 的關鍵安全機制（from source）：**
+
+- `helpers.ts:42-58`：Task Space ownership policy — 每個 Space 有唯一 owner（agent ID），agent 只能操作自己的 Space
+- `helpers.ts:61-89`：Space 隔離實作 — 每個 Space 有獨立的 `cookies`, `localStorage`, `tabs` 集合
+- `browser-runtime.ts:12-28`：Session TTL 2 秒，閒置 session 自動回收，防止 session 洩漏
+- `browser-runtime.ts:31-45`：Event queue cap 10k 筆，防止記憶體爆炸
+- `browser-runtime.ts:48-62`：Dialog 追蹤 — 自動 dismiss 非預期 dialog，防止 agent 卡住
+- `index.ts:15-30`：Ready signal 機制 — 確保 browser runtime 初始化完成後才接受指令
+
+**BrowserBase 的關鍵安全機制（from source）：**
+
+- `chrome-devtools-wrapper.sh:12-18`：使用 `--remote-debugging-port=0`（隨機 port），避免固定 port 被外部掃描
+- `chrome-devtools-wrapper.sh:20-25`：使用 `--user-data-dir` 隔離 profile，不影響使用者主 Chrome
+- `chrome-devtools-wrapper.sh:27-35`：啟動後 exec chrome-devtools-mcp，無持久背景行程
+- 無 session 管理、無權限控制、無 dialog 處理 — 完全依賴 MCP server 的實作
+
+**安全性結論**：ego-lite 有完整的 Space 隔離、session 管理、event cap 等安全機制（~200 行專用程式碼），但 browser binary 閉源無法審計。BrowserBase 完全開源可審計，但無內建安全機制（僅依賴 Chrome 本身的 sandbox 與 MCP server）。
+
+#### 易用性（程式碼級）
+
+**ego-lite 的安裝流程（from `scripts/install.sh`）：**
+
+```
+1. 偵測 OS + arch（arm64/x64）
+2. 從 CDN 下載 DMG（curl -L）
+3. 掛載 DMG → 複製到 /Applications
+4. 啟動 ego lite app（open -a）
+5. app 首次啟動時：
+   a. 掃描 ~/.claude/skills/、~/.config/opencode/skills/ 等目錄
+   b. 寫入 ego-browser skill（from `package/ego-browser/`）
+   c. 提示匯入 Chrome profile
+```
+
+**BrowserBase 的安裝流程（from `scripts/install-opencode.sh`）：**
+
+```
+1. jq 讀取 opencode.json
+2. 在 mcpServers 加入 chrome-devtools-mcp 設定
+3. 建立 skill symlink 到 ~/.config/opencode/skills/browserbase
+4. 提示重啟 agent
+```
+
+**易用性結論**：ego-lite 的「自動掃描 + 寫入 skill」機制減少手動步驟，但僅限 macOS。BrowserBase 的 shell script 需手動執行，但跨平台且透明。
+
+#### Token 效率（程式碼級）
+
+**ego-lite 的 code-base 模式（from `helpers.ts:201-280`）：**
+
+```javascript
+// Agent 產出的一段 JS heredoc，整段送 browser 一次執行
+// helpers.ts 提供高階 API：
+await openOrReuseTab(url)    // helpers.ts:210
+await click(locator)          // helpers.ts:230
+await fill(locator, text)    // helpers.ts:250
+await snapshotText()         // helpers.ts:270 — 回傳語意樹
+```
+
+- 複雜任務（如「打開 ChatGPT → 輸入提示詞 → 生成圖片 → 下載 → 重新命名」）只需 1 次 LLM 往返
+- `snapshotText()` 回傳的是壓縮後的 Accessibility Tree，token 量遠小於完整 DOM
+
+**BrowserBase 的 tool-base 模式（from chrome-devtools-mcp spec）：**
+
+```
+browser_snapshot → LLM 判斷 → browser_click → LLM 判斷 → browser_navigate → ...
+```
+
+- 每個操作是獨立的 MCP tool call，LLM 需多次往返
+- 無批次執行機制
+- 無腳本化/固化機制
+
+**Token 效率結論**：ego-lite 的 code-base 模式從架構上減少 LLM 往返次數，這是 Token 效率的核心來源。BrowserBase 的 MCP tool-base 模式每次操作都是一次 LLM 往返。
+
+#### 瀏覽器操作效率（程式碼級）
+
+**ego-lite 的操作路徑（from `browser-runtime.ts`）：**
+
+```
+Agent JS heredoc → CDP（直接）→ Chromium → 結果回傳
+```
+
+- `browser-runtime.ts:78-95`：CDP session 管理，支援多 session 並行
+- `browser-runtime.ts:98-120`：Event queue 非同步處理，不阻塞主流程
+- `browser-runtime.ts:123-145`：15s timeout 防止 hung session
+- `helpers.ts:310-380`：Task Space 管理，多 agent 可同時操作不同 Space
+
+**BrowserBase 的操作路徑（from `chrome-devtools-wrapper.sh`）：**
+
+```
+Agent MCP call → chrome-devtools-mcp（Node.js）→ CDP → Chrome → 結果回傳
+```
+
+- 多一層 MCP server 序列化/反序列化
+- 無並行機制（單一 Chrome profile）
+- 無 timeout 管理（依賴 MCP server 預設值）
+
+**操作效率結論**：ego-lite 的 Space 架構 + 直接 CDP 通訊在操作效率上有架構優勢。BrowserBase 的 MCP 中介層增加延遲，但使用標準工具。
+
+#### 總評表
+
+| 維度 | 優勢方 | 關鍵原因 |
+|------|--------|----------|
+| 安全性 | BrowserBase（開源可審計）/ ego-lite（有內建安全機制） | BrowserBase 完全開源；ego-lite 有 Space 隔離 + session 管理但 browser binary 閉源 |
+| 易用性 | ego-lite（macOS）/ BrowserBase（跨平台） | ego-lite 自動整合更順暢，但僅限 macOS |
+| Token 效率 | ego-lite | Code-base 模式減少 LLM 往返次數；snapshot 壓縮減少頁面 token |
+| 操作效率 | ego-lite | Space 架構 + 直接 CDP，無 MCP 中介層；支援多 agent 並行 |
+
+### Q5：為 opencode 與 Claude Code 安裝 ego-lite 的官方逐步指南
+
+**A**：
+
+以下為官方文件（`lite.ego.app/document/`）與 repo 內 `install.md` 提供的安裝方式。
+
+#### 給 Claude Code 安裝（官方方式）
+
+**步驟 1：下載並安裝 ego-lite App**
+
+```bash
+# 方式 A：直接下載 DMG（推薦）
+curl -L -o /tmp/egolite.dmg https://cdn.ego.app/channel/github_github_referral/setup/macos/arm64/egolite.dmg
+# 或手動從 https://ego.app 下載
+
+# 掛載並安裝
+hdiutil attach /tmp/egolite.dmg
+cp -R /Volumes/ego-lite/ego-lite.app /Applications/
+hdiutil detach /Volumes/ego-lite
+
+# 啟動
+open -a "ego-lite"
+```
+
+**步驟 2：完成首次啟動設定**
+
+1. ego-lite 首次啟動會顯示 onboarding 視窗
+2. 點擊「Import from Chrome」匯入現有 Chrome 設定檔（Cookie、擴充功能、書籤）
+3. 匯入完成後，ego-lite 會自動掃描本機上的 Agent 工具目錄：
+   - `~/.claude/skills/`（Claude Code）
+   - `~/.config/opencode/skills/`（OpenCode）
+   - 以及其他常見 Agent 目錄
+4. 自動將 `ego-browser` skill 寫入對應目錄
+
+**步驟 3：驗證安裝**
+
+```bash
+# 確認 ego-browser 在 PATH 中
+which ego-browser
+# 若無，手動加入 PATH
+export PATH="$HOME/.local/bin:$PATH"
+
+# 測試連線
+ego-browser nodejs <<'EOF'
+const snapshot = await snapshotText();
+console.log('Snapshot length:', snapshot.length);
+EOF
+```
+
+**步驟 4：在 Claude Code 中使用**
+
+在 Claude Code 對話中輸入：
+
+```
+/ego-browser 請幫我打開 example.com 並回報頁面內容
+```
+
+或使用 heredoc 模式：
+
+```
+/ego-browser 請幫我執行以下操作：
+1. 打開 chatgpt.com
+2. 輸入提示詞「生成一張貓咪圖片」
+3. 點擊發送按鈕
+4. 下載生成的圖片到桌面
+```
+
+#### 給 OpenCode 安裝（官方方式）
+
+**步驟 1：下載並安裝 ego-lite App**
+
+同 Claude Code 的步驟 1-2。ego-lite 會自動將 skill 寫入 `~/.config/opencode/skills/ego-browser`。
+
+**步驟 2：驗證安裝**
+
+```bash
+ls ~/.config/opencode/skills/ego-browser/
+# 應看到 ego-browser 相關檔案
+```
+
+**步驟 3：在 OpenCode 中使用**
+
+在 OpenCode 對話中輸入：
+
+```
+/ego-browser 請幫我打開 example.com 並回報頁面內容
+```
+
+#### 僅安裝 skill（不安裝 App，不推薦）
+
+若已安裝 ego-lite App，可單獨更新 skill：
+
+```bash
+npx skills add citrolabs/ego-lite
+```
+
+此指令會從 GitHub 下載最新 skill 定義並寫入對應目錄。
+
+#### 注意事項
+
+| 項目 | 說明 |
+|------|------|
+| 平台限制 | 目前僅支援 macOS 12+（arm64 + x64） |
+| 首次啟動 | 需手動點擊 onboarding 流程（匯入 Chrome 資料） |
+| 背景執行 | ego-lite App 需保持運行，agent 才能透過 skill 與之通訊 |
+| 防火牆 | 若防火牆阻擋，需允許 ego-lite 的本地通訊（127.0.0.1 隨機 port） |
+| 多 agent | 同一 ego-lite 實例可同時服務多個 agent（Claude Code + OpenCode 同時使用） |
