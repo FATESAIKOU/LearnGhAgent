@@ -134,21 +134,21 @@ Qoder 提供四層執行模式，由淺入深：
 
 ```
                    模型選擇自由度
-                  高 ▲
-                     │
-           OpenRouter │     Qoder
-           (純 gateway)│  (IDE + gateway)
-                     │
-                     │
-                     │
-              Ollama Cloud│
-              (開源模型)  │
-                     │
-                     │
-              Copilot │  ChatGPT/Claude
-              (單一模型) │  (單一生態系)
-             低 ────────────┼───────────► IDE 整合深度
-                     低     │     高
+                   高 ▲
+                      │
+            OpenRouter │     Qoder
+            (純 gateway)│  (IDE + gateway)
+                      │
+                      │
+                      │
+               Ollama Cloud│
+               (開源模型)  │
+                      │
+                      │
+               Copilot │  ChatGPT/Claude
+               (單一模型) │  (單一生態系)
+              低 ────────────┼───────────► IDE 整合深度
+                      低     │     高
 ```
 
 - **Qoder 的定位**：同時佔據「高模型自由度」與「高 IDE 整合深度」的象限，這是 OpenRouter（只有 gateway）和 ChatGPT/Claude（只有單一模型）都無法同時提供的
@@ -234,3 +234,83 @@ Qoder 賣的是**三層捆綁產品**：
 - 主要使用中國模型（Qwen/DeepSeek/GLM/Kimi）
 
 **結論**：Qoder 與 OpenRouter 不是直接競爭關係。Qoder 是「IDE 產品 + 模型聚合」，OpenRouter 是「純 API gateway」。若使用者只需要模型聚合，OpenRouter 更便宜、模型更多；若需要 IDE 整合 + agent 框架，Qoder 是唯一選擇。
+
+## 5. User Q&A
+
+### Q1：Qoder 跟 Ollama Cloud 相比性價比到底如何？我常用 DeepSeek-V4-Pro 和 GLM-5.2，週用量 70-80%
+
+**A**：以下為量化比較。前提假設：使用者「週用量 70-80%」指每週使用 Ollama Cloud Pro 配額的 70-80%。
+
+**Ollama Cloud Pro ($20/月) 用量估算：**
+
+| 項目 | 數值 | 說明 |
+|------|------|------|
+| Pro 方案倍率 | 50x Free | 官方標示 |
+| DeepSeek-V4-Pro 等級 | level 4（extra heavy） | 官方分類 |
+| Free tier 推估上限 | ~20-30 次/5h session | level 4 模型推估值（官方未公開確切數字） |
+| Pro 每 session 上限 | ~1,000-1,500 次/5h | 50x Free |
+| 每日 session 數 | ~3 次（15h 活躍） | 合理推估 |
+| 每週總上限 | ~21,000-31,500 次 | 3 sessions × 7 天 |
+| 使用者實際用量（70-80%） | ~14,700-25,200 次/週 | 即 ~58,800-100,800 次/月 |
+
+**Qoder 同等用量所需方案：**
+
+| 使用模式 | DeepSeek-V4-Pro 單次消耗 | GLM-5.2 單次消耗 | 58,800 次/月所需 Credits | 對應方案 |
+|----------|-------------------------|-----------------|------------------------|----------|
+| Ask Mode（~3.5cr base） | 0.5x → 1.75cr | 0.6x → 2.1cr | 102,900-123,480cr | Ultra $200（20,000cr）**遠不足** |
+| Efficient Tier（0.3x）Ask | 0.5x × 0.3 → 0.525cr | 0.6x × 0.3 → 0.63cr | 30,870-37,044cr | Ultra $200（20,000cr）**仍不足** |
+| Lite Tier（免費） | 0.5x → 免費但受限 | 0.6x → 免費但受限 | 0cr | Free 方案 |
+
+**關鍵發現**：
+
+- Qoder 的 Credits 系統與 Ollama Cloud 的「無限 fair use」是**完全不同的計量單位**，無法直接換算
+- Ollama Cloud Pro 的「50x Free」對 level 4 模型仍提供大量配額（推估萬次/月），而 Qoder Pro 僅 2,000 credits/月（約 286-571 次操作）
+- 若使用者的實際用量接近推估值（萬次/月），Qoder 沒有任何方案能匹配 — Ultra $200 的 20,000 credits 僅夠 ~3,800-11,400 次 Ask（視模型與 tier 而定）
+- 若使用者實際用量遠低於推估值（例如「70-80%」指時間佔比而非配額佔比），則需使用者提供具體操作次數才能精算
+
+**結論**：在「大量使用 DeepSeek-V4-Pro / GLM-5.2」的場景下，Ollama Cloud Pro $20 的性價比遠高於 Qoder 任何方案。Qoder 的價值不在於每操作成本更低，而在於 IDE 整合與 agent 框架。
+
+---
+
+### Q2：如果我 Ollama Cloud $20 + Anthropic $20 都訂閱，換成 Qoder $60 方案會不會性價比更好？還能用 Anthropic/OpenAI 最新模型？
+
+**A**：此問題的關鍵前提不成立。Qoder **不支援 Anthropic/OpenAI 模型**，因此無法取代 Anthropic 訂閱。
+
+**前提驗證：**
+
+| 驗證項目 | 結果 | 資料來源 |
+|----------|------|----------|
+| Qoder 內建模型是否含 Anthropic/OpenAI | **否**。7 個內建模型全為中國模型 | Qoder Model Selector 頁面 |
+| Qoder BYOK 是否支援 Anthropic/OpenAI | **否**。BYOK 僅支援 6 家中國 provider：Alibaba Cloud、DeepSeek、Z.ai、Kimi、MiniMax、Xiaomi MIMO | Qoder Custom Models 頁面 |
+
+**方案比較表：**
+
+| 方案 | 月費 | 可用模型 | 用量 |
+|------|------|----------|------|
+| Ollama Cloud Pro | $20 | 開源模型（含 DeepSeek-V4-Pro、GLM-5.2） | 無限 fair use（50x Free） |
+| Anthropic Pro | $20 | Claude Sonnet/Opus/Fable | 5h session window + weekly limits |
+| **小計** | **$40** | **兩家生態系** | **各自獨立配額** |
+| Qoder Pro+ | $60 | 僅中國模型（Qwen/DeepSeek/GLM/Kimi/MiniMax） | 6,000 credits/月 |
+| Qoder Pro+ + Anthropic Pro | $80 | Qoder（中國模型）+ Anthropic | 6,000cr + 5h session |
+| Qoder Pro+ + Ollama Cloud Pro | $80 | Qoder（中國模型）+ 開源模型 | 6,000cr + 無限 fair use |
+
+**性價比分析：**
+
+| 比較維度 | Ollama Cloud $20 + Anthropic $20 = $40 | Qoder Pro+ $60 單一方案 |
+|----------|---------------------------------------|------------------------|
+| 模型覆蓋 | 開源模型 + Anthropic 頂尖模型 | 僅中國模型 |
+| 是否含 Anthropic/OpenAI | 是（Anthropic Pro） | **否** |
+| 是否含 DeepSeek-V4-Pro | 是（Ollama Cloud） | 是 |
+| 是否含 GLM-5.2 | 是（Ollama Cloud） | 是 |
+| 總操作次數/月 | 萬次級（Ollama）+ 數千次（Anthropic） | 約 1,000-3,000 次操作（視模式） |
+| IDE 整合 | 無（Ollama 僅 API）+ Claude Code CLI | Desktop + JetBrains + CLI |
+| Agent 框架 | Claude Code（Anthropic） | Quest (26h) + Experts Mode |
+
+**關鍵發現**：
+
+1. **Qoder Pro+ $60 無法取代 Anthropic Pro $20**：Qoder 不提供 Anthropic/OpenAI 模型，使用者若需要 Claude 或 GPT，仍需保留 Anthropic/OpenAI 訂閱
+2. **Qoder Pro+ $60 也無法取代 Ollama Cloud Pro $20**：6,000 credits/月的操作次數遠低於 Ollama Cloud 的 fair use 配額
+3. **若同時需要三家模型**：Ollama Cloud $20 + Anthropic $20 + Qoder Pro $20 = $60，比 Qoder Pro+ $60 多覆蓋 Anthropic 模型，且總操作次數更多
+4. **Qoder Pro+ 的唯一優勢**：6,000 credits 可集中用於 Quest/Experts 等長時間 agent 任務，這在 Ollama Cloud 或 Anthropic Pro 上無法做到
+
+**結論**：Qoder Pro+ $60 不能取代 Ollama Cloud + Anthropic 的組合。若使用者需要 Anthropic/OpenAI 模型，必須保留 Anthropic 訂閱。Qoder Pro+ 的適用場景是「主要使用中國模型 + 需要長時間 agent 任務」的使用者，而非追求模型覆蓋廣度的使用者。
