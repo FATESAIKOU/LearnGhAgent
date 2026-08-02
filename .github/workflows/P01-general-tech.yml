@@ -108,8 +108,6 @@ jobs:
 
       - name: Setup MyBrain search
         working-directory: .
-        env:
-          MYBRAIN_TOKEN: ${{ secrets.MYBRAIN_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p ~/.config/opencode/skills ~/.config/opencode/commands
