@@ -80,6 +80,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
       OPENCODE_MODEL: ollama-cloud/${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash' }}
+      OPENCODE_PERMISSION: '{"*":"allow"}'
       PROJECT_DIR: projects/P02-code-quality-check
       MAX_RETRY: ${{ github.event.inputs.max_retry || '3' }}
       CHATLOG: ../../.github/workflows/scripts/chatlog.py
