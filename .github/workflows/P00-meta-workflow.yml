@@ -94,14 +94,13 @@ jobs:
       - name: Setup MyBrain search
         working-directory: .
         env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          MYBRAIN_TOKEN: ${{ secrets.MYBRAIN_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p ~/.config/opencode/skills ~/.config/opencode/commands
           cp -r .agents/skills/search-from-mybrain ~/.config/opencode/skills/
           cp .agents/commands/search-from-mybrain.md ~/.config/opencode/commands/
-          echo "$PAT_TOKEN" | gh auth login --with-token 2>/dev/null || true
-          MYBRAIN_DIR=/tmp/mybrain bash .agents/skills/search-from-mybrain/refresh.sh || true
+          GH_TOKEN="$MYBRAIN_TOKEN" MYBRAIN_DIR=/tmp/mybrain bash .agents/skills/search-from-mybrain/refresh.sh || true
           echo "MyBrain @ $(git -C /tmp/mybrain log -1 --format='%h %ad' --date=short 2>/dev/null || echo 'unavailable')"
 
       - name: Switch to PR branch + build context + round id + paths
