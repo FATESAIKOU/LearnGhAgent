@@ -20,7 +20,7 @@ jobs:
       actions: write
     env:
       GH_REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+      GH_TOKEN: ${{ secrets.LEARNGHAGENT_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
