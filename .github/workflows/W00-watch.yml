@@ -67,8 +67,8 @@ jobs:
             git commit --allow-empty -m "Initialize PR for issue #$number"
             git push origin "$branch" --force
 
-            # 建 PR，body = issue 內容
-            pr_body=$(printf '## Original Issue: #%s\n\n%s' "$number" "$body")
+            # 建 PR，body = issue 內容 + Closes 關鍵字（merge 時自動關閉原 issue）
+            pr_body=$(printf '## Original Issue: #%s\n\n%s\n\nCloses #%s' "$number" "$body" "$number")
             gh pr create --base main --head "$branch" \
               --title "[${project}] ${title}" \
               --body "$pr_body" \
