@@ -245,3 +245,143 @@ Gemini Spark 支援 MCP（Model Context Protocol）接入，但限制：
 4. **Spark 的第三方整合能力弱**（僅 MCP OAuth），而使用者的 workflow 涉及 Feedly、BrowserBase 等非 Google 服務，Spark 無法直接整合
 
 5. **結論**：Gemini Spark 不是使用者既有 workflow 的替代品，而是「Google Workspace 內部自動化的零程式碼補充方案」。若使用者願意接受訂閱制成本與 Google 生態綁定，Spark 的 Schedules + Skills 可補足自建方案中尚未完善的定時排程與流程固化能力。但對於非 Google 服務的整合（Feedly、BrowserBase 等），仍需維持自建方案。
+
+---
+
+## 5. User Q&A
+
+### Q1：GAS 可不可以直接呼叫外部 API？（我是 Google Drive 2TB 方案，不是 AI 那個）
+
+**A**：可以。Google Apps Script 的 `UrlFetchApp` 類別支援直接呼叫外部 API。
+
+| 能力 | 支援情況 |
+|------|----------|
+| HTTP 方法 | GET / POST / PUT / DELETE / PATCH |
+| 自訂 header | 支援（含 Content-Type、Authorization 等） |
+| OAuth 2.0 | 支援（可自訂 Authorization header 或使用 OAuth2 library） |
+| mutual TLS | 支援 |
+| Payload 大小 | POST 上限 10MB，response 上限 10MB |
+| URL 長度 | 上限 2048 字元 |
+| 每日配額 | 20,000 calls/day（consumer 帳號） |
+
+**注意**：此能力與使用者是否為 AI 方案無關。GAS 是 Google Workspace 的內建功能，只要擁有 Google 帳號即可使用。使用者的 Google Drive 2TB 方案（非 AI）完全可執行 UrlFetchApp。
+
+**結論**：GAS 可直接呼叫外部 API，配額充足（20,000 calls/day），支援 OAuth 認證，可滿足多數第三方 API 整合需求。
+
+---
+
+### Q2：Gemini Spark 可不可以用 GAS 做 MCP 或者能力擴充？（因為 Gemini Web 不行）
+
+**A**：不行。Gemini Spark 的 MCP 接入是「Spark 作為 MCP client 呼叫外部 MCP server」，而非「外部程式碼（如 GAS）作為 MCP server 接入 Spark」。
+
+| 面向 | 說明 |
+|------|------|
+| Spark MCP 方向 | Spark → 外部 MCP server（Spark 是 client） |
+| GAS 角色 | GAS 可作為 HTTP server 對外提供 API，但 Spark 的 MCP 要求 OAuth 認證，且無官方文件支援自訂 MCP server 接入 |
+| Gemini Web 限制 | Gemini Web（Chatbot 模式）不支援 MCP，Spark 是唯一支援 MCP 的 Gemini 模式 |
+| 實質限制 | 即使 GAS 部署為 Web App（doGet/doPost），也無法以 MCP 協議註冊到 Spark 的工具清單中 |
+
+**對照表：Spark 能力擴充方式**
+
+| 方式 | 可行性 | 限制 |
+|------|--------|------|
+| Connected Apps（內建） | 可用 | 僅限 Google 生態（Gmail、Calendar、Drive 等） |
+| MCP（OAuth） | 有限可用 | 需找到支援 OAuth 的 MCP server；GAS 無法作為 MCP server |
+| 自訂程式碼（GAS） | 不可用 | Spark 無外掛或自訂工具介面 |
+| Agent.md 等設定檔 | 不可用 | 影片明確指出 Spark 不支援自訂 agent 設定檔 |
+
+**結論**：Spark 的能力擴充僅限於「內建 Connected Apps」與「OAuth MCP client」兩種方式，無法透過 GAS 或其他自訂程式碼擴充其工具集。
+
+---
+
+### Q3：我的訂閱形態下（Google Drive 2TB 方案（非 AI））能不能用 Spark，有沒有用量限制？
+
+**A**：不能。使用者的 Google Drive 2TB 方案（舊版 Google One，非 AI 方案）不包含 Gemini Spark。
+
+**方案對照表**：
+
+| 方案名稱 | 儲存空間 | 月費 | 包含 Gemini Spark |
+|----------|----------|------|-------------------|
+| Google One 2TB（舊版，使用者現有） | 2TB | ~$9.99/mo | **否** |
+| Google AI Plus | 400GB | $9.99/mo | 否（僅 Gemini Advanced） |
+| Google AI Pro | 5TB | $19.99/mo | **是** |
+| Google AI Ultra | 10TB+ | $199.99/mo | **是** |
+
+**用量限制**（若升級至 AI Pro）：
+
+| 面向 | 限制 |
+|------|------|
+| Task 執行次數 | 無明確上限（但受 Gemini Pro 配額約束） |
+| Skills 數量 | 無明確上限 |
+| Schedules 數量 | 無明確上限 |
+| 背景執行時間 | 無明確上限（雲端 24/7） |
+| Personal Intelligence 記憶量 | 無明確上限 |
+| 地區限制 | 僅美國地區（需 VPN 或美國 IP） |
+
+**結論**：使用者需從現有 Google Drive 2TB 方案升級至 Google AI Pro（$19.99/mo，5TB）才能使用 Gemini Spark。升級後儲存空間從 2TB 增至 5TB，月費從 ~$9.99 增至 $19.99。
+
+---
+
+### Q4：Gemini Spark 可不可以換 LLM 模型，整體擴展性如何？
+
+**A**：不可以。Gemini Spark 固定使用 Gemini 2.0 Flash 模型，無模型切換選項。
+
+| 面向 | 現狀 |
+|------|------|
+| 模型選擇 | 固定 Gemini 2.0 Flash（不可更換） |
+| 模型切換 UI | 無（Spark 模式無模型選擇器） |
+| 自訂模型 | 不支援 |
+| 底層模型更新 | 由 Google 控制，使用者無法干預 |
+
+**整體擴展性評估**：
+
+| 擴展面向 | 評級 | 說明 |
+|----------|------|------|
+| 工具擴展 | 低 | 僅內建 Connected Apps + OAuth MCP |
+| 模型擴展 | 無 | 固定模型，不可更換 |
+| 流程擴展 | 中 | Skills 可固化流程，但無法撰寫自訂程式碼邏輯 |
+| 資料源擴展 | 低 | 僅 Google 生態 + MCP（OAuth 限制） |
+| 輸出格式擴展 | 中 | 可生成 Google Doc/Sheet，但無法自訂輸出模板 |
+| 第三方整合擴展 | 低 | 僅 MCP OAuth，無 API 或 webhook |
+
+**對照：自建方案的擴展性**
+
+| 面向 | Gemini Spark | 自建方案（GAS + LLM API） |
+|------|-------------|---------------------------|
+| 模型選擇 | 固定 Gemini 2.0 Flash | 可選任意 LLM（GPT-4、Claude、Gemini API 等） |
+| 工具擴展 | 僅內建 + MCP OAuth | 可接任意 REST API |
+| 流程控制 | 自然語言指令 | 完整程式碼控制（條件、迴圈、錯誤處理） |
+| 輸出格式 | Google Doc/Sheet | 任意格式（JSON、CSV、HTML、PDF 等） |
+
+**結論**：Spark 的擴展性極低，模型固定、工具集封閉、無自訂程式碼能力。若模型選擇或擴展性是關鍵需求，Spark 不適合。
+
+---
+
+### Q5：我其實已經有 MyBrain 來做跨 Session 的事實存取，但不知道 Gemini Spark 支不支援
+
+**A**：不支援。Gemini Spark 的 Personal Intelligence 與 MyBrain 在設計哲學與技術實作上完全不同，無法互通或取代。
+
+**對照表：Personal Intelligence vs MyBrain**
+
+| 面向 | Personal Intelligence（Spark） | MyBrain（使用者自建） |
+|------|-------------------------------|----------------------|
+| 儲存內容 | 使用者的偏好、習慣、對話中提及的資訊 | 結構化知識庫（身份、處境、決策、技術棧等） |
+| 儲存格式 | 非結構化（模型內部狀態） | 結構化（Markdown 檔案 + 向量檢索） |
+| 存取方式 | 僅 Spark 內部使用，無 API | 可透過搜尋/讀取任意存取 |
+| 匯出/匯入 | 不支援 | 支援（純文字檔案） |
+| 跨對話保留 | 自動（需開啟 Personal Intelligence 設定） | 自動（每次查詢時讀取） |
+| 使用者控制 | 可清除全部記憶，但無法編輯單一條目 | 完全控制（可編輯、刪除、新增任意條目） |
+| 與外部工具整合 | 不可用 | 可透過 API 或檔案系統整合 |
+| 資料所有權 | Google 雲端 | 使用者自控 |
+
+**關鍵差異**：
+
+```
+MyBrain 的設計：
+  使用者主動寫入 → 結構化儲存 → 明確檢索 → 提供給 LLM
+
+Personal Intelligence 的設計：
+  對話中被動學習 → 非結構化儲存 → 隱式影響 → 僅供 Spark 使用
+```
+
+**結論**：Personal Intelligence 無法取代 MyBrain，也無法與 MyBrain 整合。兩者並存時，MyBrain 仍為使用者主要的跨 Session 事實存取方案，Personal Intelligence 僅在 Spark 內部提供額外的對話記憶輔助。
