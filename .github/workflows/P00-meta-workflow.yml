@@ -69,6 +69,7 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      MYBRAIN_TOKEN: ${{ secrets.MYBRAIN_TOKEN }}
       OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
       OPENCODE_MODEL: ollama-cloud/${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash' }}
       OPENCODE_PERMISSION: '{"*":"allow"}'
