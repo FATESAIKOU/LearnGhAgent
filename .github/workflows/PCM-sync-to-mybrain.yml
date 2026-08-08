@@ -1,0 +1,304 @@
+name: PCM-sync-to-mybrain
+
+# 把某個 PR 這一輪的收穫沉澱進第二大腦（FATESAIKOU/MyBrain），開一個 PR 讓
+# 使用者 review。
+#
+# 只接受 workflow_dispatch，由 00-watch.yml 判定「使用者這則留言在叫我存」之後
+# 改派過來——所以留言下同步指令不會再觸發 P0x 的四步 pipeline。
+#
+# 本 workflow 是服務型：沒有自己的 PR，吃「被 sync 的 PR」的號碼，跑完把
+# 結果貼回那個 PR 的 chat。agent 固定在自己的 harness
+# （projects/PCM-sync-to-mybrain）裡跑，被 sync 的 project 的 output/ 與
+# memory/log/ 是素材來源。
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to sync"
+        required: true
+      max_retry:
+        description: "Max retry attempts (1-5)"
+        required: false
+        default: "3"
+
+# 與 P0x 共用同一個 concurrency group：同一個 PR 上，同步與調研不會同時跑。
+concurrency:
+  group: pr-${{ github.event.inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      skip: ${{ steps.guard.outputs.skip }}
+      pr_number: ${{ steps.guard.outputs.pr_number }}
+      source_project: ${{ steps.guard.outputs.source_project }}
+    steps:
+      - name: Guard
+        id: guard
+        run: |
+          set -uo pipefail
+          pr_number="${{ github.event.inputs.pr_number }}"
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+          # source_project 先給預設值，任何 skip 分支都不會留下空字串。
+          echo "source_project=P01-general-tech" >> "$GITHUB_OUTPUT"
+
+          # token check: 輕量 chat call，非 200 = 無用量或 token 無效
+          http_code=$(curl -sS -o /dev/null -w "%{http_code}" -X POST https://ollama.com/api/chat \
+            -H "Authorization: Bearer ${{ secrets.OLLAMA_API_KEY }}" -H "Content-Type: application/json" \
+            -d '{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}],"stream":false}' --max-time 30)
+          if [[ "$http_code" != "200" ]]; then
+            echo "FAIL: token check (HTTP $http_code)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          # 從 label 抓被 sync 的 project——素材來源（output/ 分析報告、
+          # memory/log/ 各 step log）在 projects/<project>/ 底下。
+          project=$(gh pr view "$pr_number" --json labels -q '.labels[].name' | grep -E '^project:' | head -1 | sed 's/^project://')
+          if [[ -z "$project" ]]; then
+            echo "FAIL: PR #$pr_number 沒有 project: label"
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "source_project=$project" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+  execute:
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      MYBRAIN_TOKEN: ${{ secrets.MYBRAIN_TOKEN }}
+      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+      OPENCODE_MODEL: ollama-cloud/${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash' }}
+      OPENCODE_PERMISSION: '{"*":"allow"}'
+      PROJECT_DIR: projects/PCM-sync-to-mybrain
+      SOURCE_PROJECT: ${{ needs.guard.outputs.source_project }}
+      MAX_RETRY: ${{ github.event.inputs.max_retry || '3' }}
+      CHATLOG: ../../.github/workflows/scripts/chatlog.py
+      PR_NUMBER: ${{ needs.guard.outputs.pr_number }}
+    defaults:
+      run:
+        working-directory: projects/PCM-sync-to-mybrain
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Install opencode
+        working-directory: .
+        run: |
+          curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install MyBrain validator deps
+        working-directory: .
+        run: pip install --quiet 'PyYAML>=6'
+
+      - name: Setup MyBrain read + write
+        working-directory: .
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.config/opencode/skills ~/.config/opencode/commands
+          cp -r .agents/skills/search-from-mybrain ~/.config/opencode/skills/
+          cp .agents/commands/search-from-mybrain.md ~/.config/opencode/commands/
+          GH_TOKEN="$MYBRAIN_TOKEN" MYBRAIN_DIR=/tmp/mybrain bash .agents/skills/search-from-mybrain/refresh.sh || true
+          echo "MyBrain @ $(git -C /tmp/mybrain log -1 --format='%h %ad' --date=short 2>/dev/null || echo 'unavailable')"
+          # 讀取只需要 gh；寫入還要 git push，而 git 不看 GH_TOKEN。設定 gh 當
+          # credential helper，push 時就會用當下的 GH_TOKEN（= MYBRAIN_TOKEN）。
+          # LearnGhAgent 自己的 push 走 checkout 寫進 local config 的 extraheader，
+          # 優先於這個 global helper，不受影響。
+          GH_TOKEN="$MYBRAIN_TOKEN" gh auth setup-git || echo "gh auth setup-git failed (push 可能會失敗)"
+
+      - name: Switch to PR branch + build context + round id
+        run: |
+          set -euo pipefail
+          if [[ ! -d "$GITHUB_WORKSPACE/$PROJECT_DIR" ]]; then
+            echo "FAIL: $PROJECT_DIR 不存在"; exit 1
+          fi
+          if [[ ! -d "$GITHUB_WORKSPACE/projects/$SOURCE_PROJECT" ]]; then
+            echo "FAIL: 素材來源 projects/$SOURCE_PROJECT 不存在"; exit 1
+          fi
+          pr_branch=$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName 2>/dev/null || echo "")
+          if [[ -n "$pr_branch" ]]; then
+            git fetch origin "$pr_branch"
+            git checkout "$pr_branch"
+          fi
+          git -C "$(git rev-parse --show-toplevel)" checkout origin/main -- .github/workflows/scripts/ 2>/dev/null || true
+          mkdir -p memory/log
+          gh pr view "$PR_NUMBER" --json body,comments > /tmp/pr_data.json
+          gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews" --jq '[.[] | {id, author: {login: .user.login}, body, state, submitted_at}]' > /tmp/reviews.json
+          gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER/comments" --jq '[.[] | {pull_request_review_id, user: {login: .user.login}, path, line, body, created_at}]' > /tmp/review_comments.json
+          python3 ../../.github/workflows/scripts/merge_pr_data.py
+          python3 "$CHATLOG" /tmp/chatlog.json load-context-from-pr-log < /tmp/pr_data.json > /tmp/load_output.txt 2>&1
+          cat /tmp/load_output.txt
+          round_line=$(grep -oE 'current round R[0-9]+' /tmp/load_output.txt | grep -oE 'R[0-9]+')
+          echo "ROUND_ID=$round_line" >> "$GITHUB_ENV"
+          echo "SYNC_LOG=memory/log/${PR_NUMBER}_${round_line}_sync-to-mybrain.md" >> "$GITHUB_ENV"
+
+          # 使用者最後一則留言＝這次同步的指示（存什麼／怎麼呈現／怎麼存）。
+          # 整段 chatlog 也會進 prompt，但指示要單獨拉出來，不能讓它埋在對話裡。
+          gh pr view "$PR_NUMBER" --json comments,reviews,author,body -q '
+            ([.comments[]? | {author: .author.login, time: .createdAt, body: .body}] +
+             [.reviews[]? | select(.state == "COMMENTED") | {author: .author.login, time: .submittedAt, body: .body}])
+            | map(select(.author | test("bot|^github-actions|^app/"; "i") | not))
+            | sort_by(.time) | last.body // empty
+          ' > /tmp/sync_directive.txt
+          echo "directive: $(wc -c < /tmp/sync_directive.txt) chars"
+
+      - name: Build sync prompt
+        run: |
+          REVIEW_FILE="memory/log/${PR_NUMBER}_${ROUND_ID}_review_sync.md"
+          echo "SYNC_REVIEW=$REVIEW_FILE" >> "$GITHUB_ENV"
+          {
+            python3 "$CHATLOG" /tmp/chatlog.json toprompt
+            echo ""
+            echo "=== 使用者這次的同步指示（最後一則人類留言，逐字）==="
+            cat /tmp/sync_directive.txt
+            echo ""
+            echo "=== End of 同步指示 ==="
+            echo ""
+            echo "=== 本次任務 ==="
+            echo "現在執行：把這個 PR 的收穫同步進第二大腦 FATESAIKOU/MyBrain，開一個 PR 讓使用者 review。"
+            echo ""
+            echo "流程、判準、格式規則全部依 do/sync-to-mybrain.md。**先讀那個檔，照它的七個步驟做。**"
+            echo "本段只給 CI 環境下的差異，其餘一律以那個檔為準："
+            echo ""
+            echo "1. 它說的「當前 session」＝上面那份 PR 對話全文。要存的素材在 ../${SOURCE_PROJECT}/output/ 的分析報告與 ../${SOURCE_PROJECT}/memory/log/ 的各 step log 裡。"
+            echo "2. **上面「使用者這次的同步指示」是最高優先的指令。** 他會講存什麼、怎麼呈現、怎麼存——逐項照做。"
+            echo "   他沒講到的部分，才由你依 do/sync-to-mybrain.md 的判準與 \$WORK/index.md 的使用規則決定。"
+            echo "   他講了的部分不要自作主張換分類、換結構、換詳略程度。"
+            echo "3. 這裡沒有人可以問。原本要「告訴使用者」的狀況，改成寫進本 step 的 execution log，workflow 會貼回 PR chat。"
+            echo "4. gh 已經帶好 MyBrain 的認證（GH_TOKEN），git push 的 credential helper 也設好了，直接用。"
+            echo "5. 分析報告本體留在 LearnGhAgent，**只以 GitHub URL 參照，不要把報告內文整段搬進第二大腦**。"
+            echo "   報告 URL 形如 https://github.com/FATESAIKOU/LearnGhAgent/blob/main/projects/${SOURCE_PROJECT}/output/<檔名>"
+            echo "   PR URL 形如 https://github.com/FATESAIKOU/LearnGhAgent/pull/${PR_NUMBER}"
+            echo "   兩者都要寫進主題檔 frontmatter 的 sources[]，author 標 process:learn-gh-agent。"
+            echo "6. --dry-run 不適用，不要走那條分支。"
+            echo ""
+            echo "同時產出本 step 的 execution log：${SYNC_LOG}"
+            echo "格式必須是 4 個 section："
+            echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
+            echo "在「動作結束後的現狀」中必須包含：寫入／修改的檔案清單（含各檔的 type）與 validate.py 的結果。"
+            echo "在「其中的決斷點」中必須包含：為什麼存這些、為什麼放這個分類、哪些東西判斷不值得存。"
+            echo "檔案長度上限：3000 字。超過會被硬性驗證拒絕，請精簡。"
+            echo ""
+            echo "**${SYNC_LOG} 的最後一行必須是下列其中一種，格式一字不差：**"
+            echo "  MYBRAIN_PR: https://github.com/FATESAIKOU/MyBrain/pull/<號碼>"
+            echo "  MYBRAIN_PR: SKIPPED - <一句話原因>"
+            echo "判斷這次沒有值得存的東西，就不要開空 PR，用 SKIPPED 那行說明原因——那是正確行為，不是失敗。"
+            echo "發現內容含密鑰也立刻停止、用 SKIPPED 回報，不要 commit。"
+          } > /tmp/sync_prompt.txt
+          {
+            python3 "$CHATLOG" /tmp/chatlog.json toprompt
+            echo ""
+            echo "=== 使用者這次的同步指示（最後一則人類留言，逐字）==="
+            cat /tmp/sync_directive.txt
+            echo ""
+            echo "=== End of 同步指示 ==="
+            echo ""
+            echo "=== 本次任務 ==="
+            echo "現在執行 sync-to-mybrain 的軟性驗證。"
+            echo "請讀取 judge/sync-to-mybrain.md 取得 review 觀點，再讀取 ${SYNC_LOG}，依觀點做評估。"
+            echo "若 MyBrain PR 已開，可用 gh pr diff -R FATESAIKOU/MyBrain <號碼> 檢視實際寫入內容再評。"
+            echo "產出 ${REVIEW_FILE}，格式："
+            echo "## 驗證項目（表格：項目 | 結果 | 備註）"
+            echo "## 問題點（若無則寫「無」）"
+            echo "## 建議（若無則寫「無」）"
+            echo "最後一行必須是 VERDICT: PASS 或 VERDICT: FAIL"
+            echo "直接把檔案內容寫到 ${REVIEW_FILE}。"
+          } > /tmp/sync_review_prompt.txt
+
+      - name: Execute (opencode + hard validate + soft validate)
+        run: |
+          set -uo pipefail
+          attempt=0
+          while (( attempt < MAX_RETRY )); do
+            attempt=$((attempt+1))
+            echo "::group::Sync - 執行 opencode (attempt $attempt/$MAX_RETRY)"
+            rm -f "${SYNC_LOG}" "${SYNC_REVIEW}"
+
+            # 上一輪嘗試可能已經對 MyBrain 開過 PR。重跑前先查——找到就
+            # 把網址寫進 SYNC_LOG 的 MYBRAIN_PR 行，跳過重開直接驗證。
+            # 沒有這道檢查，retry 會開出第二個 PR。
+            # 只認當天日期的 sync/* 分支（MyBrain 的 branch 命名是
+            # sync/YYYY-MM-DD-slug），避免誤抓其他 session 開著沒 merge 的
+            # 舊 sync PR——那會造成「跳過重開但這次內容沒存進去」的假成功。
+            today=$(date +%F)
+            existing_pr_url=$(GH_TOKEN="$MYBRAIN_TOKEN" gh pr list -R FATESAIKOU/MyBrain --head "sync/${today}-*" --state open --json url -q '.[0].url // empty' 2>/dev/null || echo "")
+            if [[ -n "$existing_pr_url" ]]; then
+              echo "found existing MyBrain PR: $existing_pr_url"
+              mkdir -p "$(dirname "${SYNC_LOG}")"
+              printf '## 狀況理解\n\n上一輪嘗試已對 MyBrain 開過 PR，本輪直接沿用，不重開。\n\n## 執行的動作與結果\n\n查得既有 PR：%s\n\n## 動作結束後的現狀\n\n沿用既有 PR，未新增。\n\n## 其中的決斷點\n\n不重開 PR，避免重複。\n\nMYBRAIN_PR: %s\n' "$existing_pr_url" "$existing_pr_url" > "${SYNC_LOG}"
+            else
+              GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "sync-$attempt" "$(cat /tmp/sync_prompt.txt)" || echo "opencode run failed (will validate)"
+            fi
+            echo "::endgroup::"
+
+            echo "::group::Sync - Hard validate"
+            GH_TOKEN="$MYBRAIN_TOKEN" judge/validate-step-sync.sh "${SYNC_LOG}"
+            hard_rc=$?
+            echo "::endgroup::"
+            if [[ $hard_rc -ne 0 ]]; then
+              echo "hard validate failed, retry"
+              continue
+            fi
+
+            echo "::group::Sync - Soft validate (opencode review)"
+            GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "sync-review-$attempt" "$(cat /tmp/sync_review_prompt.txt)" || echo "review run failed"
+            echo "::endgroup::"
+            if ! grep -q "VERDICT: PASS" "${SYNC_REVIEW}" 2>/dev/null; then
+              # 重試會讓 agent 再跑一次整條流程。它讀得到既有的 MyBrain PR，
+              # 該補內容就 push 到同一個 branch，不要開第二個 PR。
+              echo "soft validate FAIL, retry"
+              continue
+            fi
+
+            echo "Sync passed on attempt $attempt"
+            exit 0
+          done
+          echo "Sync failed after $MAX_RETRY attempts"
+          exit 1
+
+      - name: Commit & push
+        if: always()
+        working-directory: .
+        run: |
+          # 這一步是 always()：前面任何一步炸掉都會走到這，所以 ROUND_ID 可能
+          # 還沒被設起來。-u 遇到未設變數會直接中止，一律給預設值。
+          set -uo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${PROJECT_DIR}/memory"
+          git commit -m "sync-to-mybrain: PR #${PR_NUMBER} ${ROUND_ID:-R?}" || echo "nothing to commit"
+          git pull --rebase origin "$(git rev-parse --abbrev-ref HEAD)" || echo "pull rebase skipped"
+          git push --force-with-lease || echo "push failed"
+
+      - name: Post result to PR chat
+        if: always()
+        run: |
+          # 同上：always() 步驟不能假設前面的 step 有跑完
+          set -uo pipefail
+          SYNC_LOG="${SYNC_LOG:-}"
+          ROUND_ID="${ROUND_ID:-R?}"
+          if [[ -z "$SYNC_LOG" || ! -f "$SYNC_LOG" ]]; then
+            gh pr comment "$PR_NUMBER" --body "$(printf '<!-- chatlog:sync:%s -->\n### [同步第二大腦 - 失敗]\n\n同步流程沒有產出 execution log，請看 workflow run 的紀錄。\n' "$ROUND_ID")"
+            exit 0
+          fi
+          result_line="$(grep -v '^[[:space:]]*$' "$SYNC_LOG" | tail -1)"
+          gh pr comment "$PR_NUMBER" --body "$(printf '<!-- chatlog:sync:%s -->\n### [同步第二大腦]\n\n%s\n\n```markdown\n%s\n```\n' \
+            "$ROUND_ID" "$result_line" "$(cat "$SYNC_LOG")")"

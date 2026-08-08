@@ -93,6 +93,22 @@ jobs:
             [[ "$login" == *"bot"* || "$login" == "github-actions"* || "$login" == "app/"* || "$login" == *"[bot]"* ]]
           }
 
+          # 判定使用者這則留言要的是「做事」還是「存進第二大腦」。
+          #
+          # 硬 trigger：留言以 /sync-to-mybrain 開頭（可帶參數，如
+          # 「/sync-to-mybrain 存進技術評估」）才算 SYNC。其餘一律 TASK——
+          # 誤判成 TASK 只是多跑一輪調研，誤判成 SYNC 會把還沒定稿的東西
+          # 寫進第二大腦，代價不對稱。自然語言表達的 sync 意圖不在此判，
+          # 由 P0x 的 Step 1 在作業時提案，請使用者照格式回文。
+          classify_intent() {
+            local body="$1"
+            [[ -z "$body" ]] && { echo "TASK"; return; }
+            if printf '%s' "$body" | grep -qiE '^[[:space:]]*/sync[-_ ]?to[-_ ]?my[-_ ]?brain'; then
+              echo "SYNC"; return
+            fi
+            echo "TASK"
+          }
+
           # 取所有 open PR
           prs=$(gh pr list --repo "$GH_REPO" --state open --json number,labels --limit 50)
 
@@ -107,18 +123,31 @@ jobs:
 
             # 判定：合併 comments + reviews 按時間排序，取最後一則非 bot 的
             # gh pr list 不包含 reviews，改用 gh pr view
-            last_author=$(gh pr view "$pr_number" --json comments,reviews -q '
-              ([.comments[]? | {author: .author.login, time: .createdAt}] +
-               [.reviews[]? | select(.state == "COMMENTED") | {author: .author.login, time: .submittedAt}])
-              | sort_by(.time) | last.author // empty
+            # body 一起取——要拿它判意圖，不能只看 author
+            last_msg=$(gh pr view "$pr_number" --json comments,reviews -q '
+              ([.comments[]? | {author: .author.login, time: .createdAt, body: .body}] +
+               [.reviews[]? | select(.state == "COMMENTED") | {author: .author.login, time: .submittedAt, body: .body}])
+              | sort_by(.time) | last // empty
             ')
+            last_author=$(printf '%s' "$last_msg" | jq -r '.author // empty')
+            last_body=$(printf '%s' "$last_msg" | jq -r '.body // empty')
             if [[ -n "$last_author" ]] && is_bot "$last_author"; then
               echo "PR #$pr_number: last message is bot, skip"
               continue
             fi
 
+            # 意圖分流：叫我存 → PCM 同步第二大腦；其餘 → 該 project 的 pipeline。
+            # 兩者共用 concurrency group pr-<n>，不會同時跑。
+            intent=$(classify_intent "$last_body")
+            if [[ "$intent" == "SYNC" ]]; then
+              echo "PR #$pr_number: intent=SYNC, launching PCM-sync-to-mybrain.yml"
+              gh workflow run "PCM-sync-to-mybrain.yml" --ref main -f pr_number="$pr_number" \
+                || echo "Failed to launch PCM-sync-to-mybrain.yml for PR #$pr_number"
+              continue
+            fi
+
             # 啟動（project workflow 有 concurrency per PR，重複觸發會被 GitHub 擋掉）
-            echo "PR #$pr_number: launching ${project}.yml"
+            echo "PR #$pr_number: intent=TASK, launching ${project}.yml"
             gh workflow run "${project}.yml" --ref main -f pr_number="$pr_number" \
               || echo "Failed to launch ${project}.yml for PR #$pr_number"
           done
