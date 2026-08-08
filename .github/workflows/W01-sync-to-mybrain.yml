@@ -185,9 +185,7 @@ jobs:
             echo "   報告 URL 形如 https://github.com/FATESAIKOU/LearnGhAgent/blob/main/${PROJECT_DIR}/output/<檔名>"
             echo "   PR URL 形如 https://github.com/FATESAIKOU/LearnGhAgent/pull/${PR_NUMBER}"
             echo "   兩者都要寫進主題檔 frontmatter 的 sources[]，author 標 process:learn-gh-agent。"
-            echo "6. 你是 AI：一律 status: draft，不填 verified。使用者叫你存不等於他已經 review 過內容。"
-            echo "7. log.md 只准在最上面加新的日期區塊，**既有記錄一個字都不能改**（MyBrain CI 有 append-only 檢查）。"
-            echo "8. --dry-run 不適用，不要走那條分支。"
+            echo "6. --dry-run 不適用，不要走那條分支。"
             echo ""
             echo "同時產出本 step 的 execution log：${SYNC_LOG}"
             echo "格式必須是 4 個 section："
@@ -230,11 +228,26 @@ jobs:
             attempt=$((attempt+1))
             echo "::group::Sync - 執行 opencode (attempt $attempt/$MAX_RETRY)"
             rm -f "${SYNC_LOG}" "${SYNC_REVIEW}"
-            GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "sync-$attempt" "$(cat /tmp/sync_prompt.txt)" || echo "opencode run failed (will validate)"
+
+            # 上一輪嘗試可能已經對 MyBrain 開過 PR。重跑前先查——找到就
+            # 把網址寫進 SYNC_LOG 的 MYBRAIN_PR 行，跳過重開直接驗證。
+            # 沒有這道檢查，retry 會開出第二個 PR。
+            # 只認當天日期的 sync/* 分支（MyBrain 的 branch 命名是
+            # sync/YYYY-MM-DD-slug），避免誤抓其他 session 開著沒 merge 的
+            # 舊 sync PR——那會造成「跳過重開但這次內容沒存進去」的假成功。
+            today=$(date +%F)
+            existing_pr_url=$(GH_TOKEN="$MYBRAIN_TOKEN" gh pr list -R FATESAIKOU/MyBrain --head "sync/${today}-*" --state open --json url -q '.[0].url // empty' 2>/dev/null || echo "")
+            if [[ -n "$existing_pr_url" ]]; then
+              echo "found existing MyBrain PR: $existing_pr_url"
+              mkdir -p "$(dirname "${SYNC_LOG}")"
+              printf '## 狀況理解\n\n上一輪嘗試已對 MyBrain 開過 PR，本輪直接沿用，不重開。\n\n## 執行的動作與結果\n\n查得既有 PR：%s\n\n## 動作結束後的現狀\n\n沿用既有 PR，未新增。\n\n## 其中的決斷點\n\n不重開 PR，避免重複。\n\nMYBRAIN_PR: %s\n' "$existing_pr_url" "$existing_pr_url" > "${SYNC_LOG}"
+            else
+              GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "sync-$attempt" "$(cat /tmp/sync_prompt.txt)" || echo "opencode run failed (will validate)"
+            fi
             echo "::endgroup::"
 
             echo "::group::Sync - Hard validate"
-            ../../.agents/judge/validate-sync.sh "${SYNC_LOG}"
+            GH_TOKEN="$MYBRAIN_TOKEN" ../../.agents/judge/validate-step-sync.sh "${SYNC_LOG}"
             hard_rc=$?
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then

@@ -21,9 +21,6 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ secrets.LEARNGHAGENT_TOKEN }}
-      # 意圖分類用。判斷「這則留言是要我做事、還是要我存進第二大腦」。
-      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
-      CLASSIFIER_MODEL: ${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -98,34 +95,18 @@ jobs:
 
           # 判定使用者這則留言要的是「做事」還是「存進第二大腦」。
           #
-          # 兩層：明確的指令形式用 grep 直接判掉（零成本、零誤差）；剩下的自然
-          # 語言表達交給 LLM。分不出來一律回 TASK——誤判成 TASK 只是多跑一輪
-          # 調研，誤判成 SYNC 會把還沒定稿的東西寫進第二大腦，代價不對稱。
+          # 硬 trigger：留言以 /sync-to-mybrain 開頭（可帶參數，如
+          # 「/sync-to-mybrain 存進技術評估」）才算 SYNC。其餘一律 TASK——
+          # 誤判成 TASK 只是多跑一輪調研，誤判成 SYNC 會把還沒定稿的東西
+          # 寫進第二大腦，代價不對稱。自然語言表達的 sync 意圖不在此判，
+          # 由 P0x 的 Step 1 在作業時提案，請使用者照格式回文。
           classify_intent() {
             local body="$1"
             [[ -z "$body" ]] && { echo "TASK"; return; }
-
-            if printf '%s' "$body" | grep -qiE 'sync[-_ ]?to[-_ ]?my[-_ ]?brain'; then
+            if printf '%s' "$body" | grep -qiE '^[[:space:]]*/sync[-_ ]?to[-_ ]?my[-_ ]?brain'; then
               echo "SYNC"; return
             fi
-            if printf '%s' "$body" | grep -qE '(存|寫|記|收|同步|沉澱|沈澱)[^。\n]{0,8}(第二大腦|MyBrain|mybrain)'; then
-              echo "SYNC"; return
-            fi
-
-            local payload resp
-            payload=$(jq -n --arg m "$CLASSIFIER_MODEL" --arg c "$body" '{
-              model: $m, stream: false,
-              messages: [
-                {role: "system", content: "你是意圖分類器。使用者在一個技術調研 PR 底下留言。判斷這則留言是不是在要求把這次的成果存進他的第二大腦（MyBrain / 第二大腦 / 知識庫）。是就輸出 SYNC，否則輸出 TASK。追問技術問題、質疑結論、要求補充或修改報告，全部都是 TASK。只輸出一個詞，不要解釋。"},
-                {role: "user", content: $c}
-              ]}')
-            resp=$(curl -sS -X POST https://ollama.com/api/chat \
-              -H "Authorization: Bearer ${OLLAMA_API_KEY}" \
-              -H "Content-Type: application/json" \
-              --max-time 60 -d "$payload" 2>/dev/null | jq -r '.message.content // empty')
-
-            # 分類器掛掉、回空、回垃圾都走這裡 → TASK（維持既有行為）
-            if printf '%s' "$resp" | grep -q 'SYNC'; then echo "SYNC"; else echo "TASK"; fi
+            echo "TASK"
           }
 
           # 取所有 open PR
