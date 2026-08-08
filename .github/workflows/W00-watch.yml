@@ -21,6 +21,9 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ secrets.LEARNGHAGENT_TOKEN }}
+      # 意圖分類用。判斷「這則留言是要我做事、還是要我存進第二大腦」。
+      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+      CLASSIFIER_MODEL: ${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -93,6 +96,38 @@ jobs:
             [[ "$login" == *"bot"* || "$login" == "github-actions"* || "$login" == "app/"* || "$login" == *"[bot]"* ]]
           }
 
+          # 判定使用者這則留言要的是「做事」還是「存進第二大腦」。
+          #
+          # 兩層：明確的指令形式用 grep 直接判掉（零成本、零誤差）；剩下的自然
+          # 語言表達交給 LLM。分不出來一律回 TASK——誤判成 TASK 只是多跑一輪
+          # 調研，誤判成 SYNC 會把還沒定稿的東西寫進第二大腦，代價不對稱。
+          classify_intent() {
+            local body="$1"
+            [[ -z "$body" ]] && { echo "TASK"; return; }
+
+            if printf '%s' "$body" | grep -qiE 'sync[-_ ]?to[-_ ]?my[-_ ]?brain'; then
+              echo "SYNC"; return
+            fi
+            if printf '%s' "$body" | grep -qE '(存|寫|記|收|同步|沉澱|沈澱)[^。\n]{0,8}(第二大腦|MyBrain|mybrain)'; then
+              echo "SYNC"; return
+            fi
+
+            local payload resp
+            payload=$(jq -n --arg m "$CLASSIFIER_MODEL" --arg c "$body" '{
+              model: $m, stream: false,
+              messages: [
+                {role: "system", content: "你是意圖分類器。使用者在一個技術調研 PR 底下留言。判斷這則留言是不是在要求把這次的成果存進他的第二大腦（MyBrain / 第二大腦 / 知識庫）。是就輸出 SYNC，否則輸出 TASK。追問技術問題、質疑結論、要求補充或修改報告，全部都是 TASK。只輸出一個詞，不要解釋。"},
+                {role: "user", content: $c}
+              ]}')
+            resp=$(curl -sS -X POST https://ollama.com/api/chat \
+              -H "Authorization: Bearer ${OLLAMA_API_KEY}" \
+              -H "Content-Type: application/json" \
+              --max-time 60 -d "$payload" 2>/dev/null | jq -r '.message.content // empty')
+
+            # 分類器掛掉、回空、回垃圾都走這裡 → TASK（維持既有行為）
+            if printf '%s' "$resp" | grep -q 'SYNC'; then echo "SYNC"; else echo "TASK"; fi
+          }
+
           # 取所有 open PR
           prs=$(gh pr list --repo "$GH_REPO" --state open --json number,labels --limit 50)
 
@@ -107,18 +142,31 @@ jobs:
 
             # 判定：合併 comments + reviews 按時間排序，取最後一則非 bot 的
             # gh pr list 不包含 reviews，改用 gh pr view
-            last_author=$(gh pr view "$pr_number" --json comments,reviews -q '
-              ([.comments[]? | {author: .author.login, time: .createdAt}] +
-               [.reviews[]? | select(.state == "COMMENTED") | {author: .author.login, time: .submittedAt}])
-              | sort_by(.time) | last.author // empty
+            # body 一起取——要拿它判意圖，不能只看 author
+            last_msg=$(gh pr view "$pr_number" --json comments,reviews -q '
+              ([.comments[]? | {author: .author.login, time: .createdAt, body: .body}] +
+               [.reviews[]? | select(.state == "COMMENTED") | {author: .author.login, time: .submittedAt, body: .body}])
+              | sort_by(.time) | last // empty
             ')
+            last_author=$(printf '%s' "$last_msg" | jq -r '.author // empty')
+            last_body=$(printf '%s' "$last_msg" | jq -r '.body // empty')
             if [[ -n "$last_author" ]] && is_bot "$last_author"; then
               echo "PR #$pr_number: last message is bot, skip"
               continue
             fi
 
+            # 意圖分流：叫我存 → W01 同步第二大腦；其餘 → 該 project 的 pipeline。
+            # 兩者共用 concurrency group pr-<n>，不會同時跑。
+            intent=$(classify_intent "$last_body")
+            if [[ "$intent" == "SYNC" ]]; then
+              echo "PR #$pr_number: intent=SYNC, launching W01-sync-to-mybrain.yml"
+              gh workflow run "W01-sync-to-mybrain.yml" --ref main -f pr_number="$pr_number" \
+                || echo "Failed to launch W01-sync-to-mybrain.yml for PR #$pr_number"
+              continue
+            fi
+
             # 啟動（project workflow 有 concurrency per PR，重複觸發會被 GitHub 擋掉）
-            echo "PR #$pr_number: launching ${project}.yml"
+            echo "PR #$pr_number: intent=TASK, launching ${project}.yml"
             gh workflow run "${project}.yml" --ref main -f pr_number="$pr_number" \
               || echo "Failed to launch ${project}.yml for PR #$pr_number"
           done
