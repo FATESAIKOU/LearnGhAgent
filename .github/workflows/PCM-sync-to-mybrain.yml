@@ -138,6 +138,9 @@ jobs:
             git fetch origin "$pr_branch"
             git checkout "$pr_branch"
           fi
+          # 被 sync 的 PR 的 branch 可能是 merge 前建的，沒有 PCM harness。
+          # checkout 後從 main 補回，agent 才讀得到 do/、judge/、know/。
+          git -C "$(git rev-parse --show-toplevel)" checkout origin/main -- projects/PCM-sync-to-mybrain/ 2>/dev/null || true
           git -C "$(git rev-parse --show-toplevel)" checkout origin/main -- .github/workflows/scripts/ 2>/dev/null || true
           mkdir -p memory/log
           gh pr view "$PR_NUMBER" --json body,comments > /tmp/pr_data.json
@@ -224,6 +227,11 @@ jobs:
           } > /tmp/sync_review_prompt.txt
 
       - name: Execute (opencode + hard validate + soft validate)
+        env:
+          # agent 在 opencode session 裡 spawn 的 bash 繼承這個 env。GH_TOKEN 必須是
+          # MYBRAIN_TOKEN——agent 的 git push 到 MyBrain 靠它，gh 的 credential
+          # helper 也讀它。GITHUB_TOKEN 對 MyBrain 無權限，會 403。
+          GH_TOKEN: ${{ secrets.MYBRAIN_TOKEN }}
         run: |
           set -uo pipefail
           attempt=0
@@ -245,7 +253,7 @@ jobs:
               mkdir -p "$(dirname "${SYNC_LOG}")"
               printf '## 狀況理解\n\n上一輪嘗試已對 MyBrain 開過 PR，本輪直接沿用，不重開。\n\n## 執行的動作與結果\n\n查得既有 PR：%s\n\n## 動作結束後的現狀\n\n沿用既有 PR，未新增。\n\n## 其中的決斷點\n\n不重開 PR，避免重複。\n\nMYBRAIN_PR: %s\n' "$existing_pr_url" "$existing_pr_url" > "${SYNC_LOG}"
             else
-              GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "sync-$attempt" "$(cat /tmp/sync_prompt.txt)" || echo "opencode run failed (will validate)"
+              opencode run --model "$OPENCODE_MODEL" --title "sync-$attempt" "$(cat /tmp/sync_prompt.txt)" || echo "opencode run failed (will validate)"
             fi
             echo "::endgroup::"
 
@@ -259,7 +267,7 @@ jobs:
             fi
 
             echo "::group::Sync - Soft validate (opencode review)"
-            GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "sync-review-$attempt" "$(cat /tmp/sync_review_prompt.txt)" || echo "review run failed"
+            opencode run --model "$OPENCODE_MODEL" --title "sync-review-$attempt" "$(cat /tmp/sync_review_prompt.txt)" || echo "review run failed"
             echo "::endgroup::"
             if ! grep -q "VERDICT: PASS" "${SYNC_REVIEW}" 2>/dev/null; then
               # 重試會讓 agent 再跑一次整條流程。它讀得到既有的 MyBrain PR，
