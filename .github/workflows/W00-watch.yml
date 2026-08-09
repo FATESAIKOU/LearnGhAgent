@@ -23,7 +23,7 @@ jobs:
       GH_TOKEN: ${{ secrets.LEARNGHAGENT_TOKEN }}
       # 軟判定（sync 意圖分類）用。判斷「這則留言有沒有 sync-to-mybrain 意圖」。
       OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
-      CLASSIFIER_MODEL: ${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash' }}
+      CLASSIFIER_MODEL: ${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash:0731' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

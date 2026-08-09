@@ -44,7 +44,7 @@ jobs:
           # token check: 輕量 chat call，非 200 = 無用量或 token 無效
           http_code=$(curl -sS -o /dev/null -w "%{http_code}" -X POST https://ollama.com/api/chat \
             -H "Authorization: Bearer ${{ secrets.OLLAMA_API_KEY }}" -H "Content-Type: application/json" \
-            -d '{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}],"stream":false}' --max-time 30)
+            -d '{"model":"deepseek-v4-flash:0731","messages":[{"role":"user","content":"hi"}],"stream":false}' --max-time 30)
           if [[ "$http_code" != "200" ]]; then
             echo "FAIL: token check (HTTP $http_code)"
             echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
@@ -84,7 +84,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       MYBRAIN_TOKEN: ${{ secrets.MYBRAIN_TOKEN }}
       OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
-      OPENCODE_MODEL: ollama-cloud/${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash' }}
+      OPENCODE_MODEL: ollama-cloud/${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash:0731' }}
       OPENCODE_PERMISSION: '{"*":"allow"}'
       PROJECT_DIR: projects/P01-general-tech
       MAX_RETRY: ${{ github.event.inputs.max_retry || '3' }}
