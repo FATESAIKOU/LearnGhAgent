@@ -102,7 +102,7 @@ jobs:
           # 這裡不必再改。skill 是本體，command 只是薄殼入口。
           cp -r .agents/skills/. ~/.config/opencode/skills/
           cp .agents/commands/*.md ~/.config/opencode/commands/
-          GH_TOKEN="$MYBRAIN_TOKEN" MYBRAIN_DIR=/tmp/mybrain bash .agents/skills/search-from-mybrain/refresh.sh || true
+          GH_TOKEN="$MYBRAIN_TOKEN" MYBRAIN_DIR=/tmp/mybrain bash .agents/skills/mybrain-read/refresh.sh || true
           echo "MyBrain @ $(git -C /tmp/mybrain log -1 --format='%h %ad' --date=short 2>/dev/null || echo 'unavailable')"
 
       - name: Switch to PR branch + build context + round id + paths
@@ -150,7 +150,7 @@ jobs:
             echo "- project_description（一句話描述）"
             echo "- project_role（agent 角色描述）"
             echo ""
-            echo "**定調之前先查第二大腦。** 用 search-from-mybrain skill 查 FATESAIKOU/MyBrain，至少確認兩件事："
+            echo "**定調之前先查第二大腦。** 用 mybrain-read skill 查 FATESAIKOU/MyBrain，至少確認兩件事："
             echo "- 這個新 project 要處理的領域，他現有的專案與待辦裡有沒有重疊（技術/動手做、技術/追加功能、技術/靈感）"
             echo "- 他對 agent 信任邊界、自動化程度的既有準則（骨幹 tag 的檔、抽象理解/本質洞察）——這會決定 judge/ 該卡多緊"
             echo "查到的內容寫進「## 執行的動作與結果」，每則要帶 GitHub URL 與信任層級（generated.by / status）。"
@@ -306,7 +306,7 @@ jobs:
             echo "6. 生成的 <project_name>.yml 是否保留了 Setup MyBrain search step 與 Step 1／Step 3 的查第二大腦指示"
             echo "   （從 P01-general-tech.yml 複製時這幾段必須跟著過去，漏掉新 project 就查不到他的脈絡）"
             echo ""
-            echo "**驗證判準要對照第二大腦。** 用 search-from-mybrain skill 查他對 agent 信任邊界與自動化程度的準則"
+            echo "**驗證判準要對照第二大腦。** 用 mybrain-read skill 查他對 agent 信任邊界與自動化程度的準則"
             echo "（骨幹 tag 的檔、抽象理解/本質洞察），確認生成的 judge/ 卡的鬆緊符合他的立場。查不到就明寫沒有。"
             echo "產出 ${STEP3_LOG}。格式必須是 4 個 section："
             echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"

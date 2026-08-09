@@ -2,9 +2,9 @@
 description: 查第二大腦——我是誰／我在哪裡／我要去哪的線索
 ---
 
-# /search-from-mybrain
+# /mybrain-read
 
-用 `search-from-mybrain` skill 查詢 https://github.com/FATESAIKOU/MyBrain。
+用 `mybrain-read` skill 查詢 https://github.com/FATESAIKOU/MyBrain。
 
 要查的主題：`$ARGUMENTS`
 

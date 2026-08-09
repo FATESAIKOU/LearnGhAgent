@@ -115,7 +115,7 @@ jobs:
           # 這裡不必再改。skill 是本體，command 只是薄殼入口。
           cp -r .agents/skills/. ~/.config/opencode/skills/
           cp .agents/commands/*.md ~/.config/opencode/commands/
-          GH_TOKEN="$MYBRAIN_TOKEN" MYBRAIN_DIR=/tmp/mybrain bash .agents/skills/search-from-mybrain/refresh.sh || true
+          GH_TOKEN="$MYBRAIN_TOKEN" MYBRAIN_DIR=/tmp/mybrain bash .agents/skills/mybrain-read/refresh.sh || true
           echo "MyBrain @ $(git -C /tmp/mybrain log -1 --format='%h %ad' --date=short 2>/dev/null || echo 'unavailable')"
 
       - name: Switch to PR branch + build context + round id + paths
@@ -163,7 +163,7 @@ jobs:
             echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
             echo "注意：你要理解的是「這一輪（${ROUND_ID}）使用者的意圖」。若這是 R2+，使用者可能在追問、質疑或要求補充前幾輪的內容。"
             echo ""
-            echo "**定調意圖之前先查第二大腦。** 用 search-from-mybrain skill 查 FATESAIKOU/MyBrain，至少確認三件事："
+            echo "**定調意圖之前先查第二大腦。** 用 mybrain-read skill 查 FATESAIKOU/MyBrain，至少確認三件事："
             echo "- 這個標的他是不是已經評估過（技術/技術評估）、判定是什麼"
             echo "- 這件事跟他手上哪個進行中的專案有關（技術/動手做、技術/追加功能）"
             echo "- 他有沒有相關的取捨準則（骨幹 tag 的檔）"
@@ -336,7 +336,7 @@ jobs:
               echo "   報告總長度上限：50000 字（含既有內容）。超過會被硬性驗證拒絕。"
             fi
             echo ""
-            echo "   **§4 的替代方案與 DA 表要對照第二大腦，不要只照通則列。** 用 search-from-mybrain skill 查 FATESAIKOU/MyBrain："
+            echo "   **§4 的替代方案與 DA 表要對照第二大腦，不要只照通則列。** 用 mybrain-read skill 查 FATESAIKOU/MyBrain："
             echo "   - 他的技術取捨準則（骨幹 tag 的檔）——照通則推薦會推到他反對的方向"
             echo "   - 技術/技術評估 底下這些替代方案他判定過沒有、判定是什麼（判定總表是骨幹索引，先讀它）"
             echo "   查到的判定要寫進 §4，標 GitHub URL 與信任層級；AI draft 一定要註明是未經他 review 的草稿。"
