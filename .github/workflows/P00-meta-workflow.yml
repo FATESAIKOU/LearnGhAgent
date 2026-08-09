@@ -98,8 +98,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ~/.config/opencode/skills ~/.config/opencode/commands
-          cp -r .agents/skills/search-from-mybrain ~/.config/opencode/skills/
-          cp .agents/commands/search-from-mybrain.md ~/.config/opencode/commands/
+          # 全目錄複製：MyBrain 日後多一支 skill，只要進 .agents/ 就自動生效，
+          # 這裡不必再改。skill 是本體，command 只是薄殼入口。
+          cp -r .agents/skills/. ~/.config/opencode/skills/
+          cp .agents/commands/*.md ~/.config/opencode/commands/
           GH_TOKEN="$MYBRAIN_TOKEN" MYBRAIN_DIR=/tmp/mybrain bash .agents/skills/search-from-mybrain/refresh.sh || true
           echo "MyBrain @ $(git -C /tmp/mybrain log -1 --format='%h %ad' --date=short 2>/dev/null || echo 'unavailable')"
 
