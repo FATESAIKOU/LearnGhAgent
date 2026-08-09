@@ -275,20 +275,6 @@ jobs:
           echo "Sync failed after $MAX_RETRY attempts"
           exit 1
 
-      - name: Commit & push
-        if: always()
-        working-directory: .
-        run: |
-          # 這一步是 always()：前面任何一步炸掉都會走到這，所以 ROUND_ID 可能
-          # 還沒被設起來。-u 遇到未設變數會直接中止，一律給預設值。
-          set -uo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "${PROJECT_DIR}/memory"
-          git commit -m "sync-to-mybrain: PR #${PR_NUMBER} ${ROUND_ID:-R?}" || echo "nothing to commit"
-          git pull --rebase origin "$(git rev-parse --abbrev-ref HEAD)" || echo "pull rebase skipped"
-          git push --force-with-lease || echo "push failed"
-
       - name: Post result to PR chat
         if: always()
         run: |
