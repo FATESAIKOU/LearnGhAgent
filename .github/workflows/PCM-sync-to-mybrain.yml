@@ -253,8 +253,11 @@ jobs:
             echo "::endgroup::"
 
             echo "::group::Sync - Hard validate"
-            GH_TOKEN="$MYBRAIN_TOKEN" judge/validate-step-sync.sh "${SYNC_LOG}"
-            hard_rc=$?
+            if GH_TOKEN="$MYBRAIN_TOKEN" judge/validate-step-sync.sh "${SYNC_LOG}"; then
+              hard_rc=0
+            else
+              hard_rc=$?
+            fi
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed, retry"

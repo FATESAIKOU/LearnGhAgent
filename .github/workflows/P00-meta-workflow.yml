@@ -102,6 +102,10 @@ jobs:
           # 這裡不必再改。skill 是本體，command 只是薄殼入口。
           cp -r .agents/skills/. ~/.config/opencode/skills/
           cp .agents/commands/*.md ~/.config/opencode/commands/
+          # refresh.sh 的 git fetch 要 gh 認證（private repo）。job 的 GH_TOKEN
+          # 是 GITHUB_TOKEN，對 MyBrain 無權限——設好 credential helper 讓
+          # fetch 走 MYBRAIN_TOKEN，否則每次 CI 都抓到失敗、沿用舊鏡像。
+          GH_TOKEN="$MYBRAIN_TOKEN" gh auth setup-git || echo "gh auth setup-git failed (refresh 可能失敗)"
           GH_TOKEN="$MYBRAIN_TOKEN" MYBRAIN_DIR=/tmp/mybrain bash .agents/skills/mybrain-read/refresh.sh || true
           echo "MyBrain @ $(git -C /tmp/mybrain log -1 --format='%h %ad' --date=short 2>/dev/null || echo 'unavailable')"
 
