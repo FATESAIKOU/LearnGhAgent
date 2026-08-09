@@ -133,15 +133,8 @@ jobs:
           if [[ ! -d "$GITHUB_WORKSPACE/projects/$SOURCE_PROJECT" ]]; then
             echo "FAIL: 素材來源 projects/$SOURCE_PROJECT 不存在"; exit 1
           fi
-          pr_branch=$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName 2>/dev/null || echo "")
-          if [[ -n "$pr_branch" ]]; then
-            git fetch origin "$pr_branch"
-            git checkout "$pr_branch"
-          fi
-          # 被 sync 的 PR 的 branch 可能是 merge 前建的，沒有 PCM harness。
-          # checkout 後從 main 補回，agent 才讀得到 do/、judge/、know/。
-          git -C "$(git rev-parse --show-toplevel)" checkout origin/main -- projects/PCM-sync-to-mybrain/ 2>/dev/null || true
-          git -C "$(git rev-parse --show-toplevel)" checkout origin/main -- .github/workflows/scripts/ 2>/dev/null || true
+          # 不 checkout 被 sync 的 PR 的 branch——它可能是 merge 前建的，沒有
+          # PCM harness。直接在 main 上跑，PCM harness 與素材都讀 main 的。
           mkdir -p memory/log
           gh pr view "$PR_NUMBER" --json body,comments > /tmp/pr_data.json
           gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews" --jq '[.[] | {id, author: {login: .user.login}, body, state, submitted_at}]' > /tmp/reviews.json
