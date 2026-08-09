@@ -21,6 +21,9 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ secrets.LEARNGHAGENT_TOKEN }}
+      # 軟判定（sync 意圖分類）用。判斷「這則留言有沒有 sync-to-mybrain 意圖」。
+      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+      CLASSIFIER_MODEL: ${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4-flash' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -98,8 +101,7 @@ jobs:
           # 硬 trigger：留言以 /sync-to-mybrain 開頭（可帶參數，如
           # 「/sync-to-mybrain 存進技術評估」）才算 SYNC。其餘一律 TASK——
           # 誤判成 TASK 只是多跑一輪調研，誤判成 SYNC 會把還沒定稿的東西
-          # 寫進第二大腦，代價不對稱。自然語言表達的 sync 意圖不在此判，
-          # 由 P0x 的 Step 1 在作業時提案，請使用者照格式回文。
+          # 寫進第二大腦，代價不對稱。
           classify_intent() {
             local body="$1"
             [[ -z "$body" ]] && { echo "TASK"; return; }
@@ -107,6 +109,27 @@ jobs:
               echo "SYNC"; return
             fi
             echo "TASK"
+          }
+
+          # 軟判定：留言有 sync-to-mybrain 意圖但非正確格式（沒以 /sync-to-mybrain
+          # 開頭）。命中就直接回文提醒使用者照格式回文，不啟動任何 workflow——
+          # 回文後最後留言變 bot，下次掃描自動 skip，不會重複提醒。
+          # LLM 掛掉、回空、回垃圾都走這裡 → 回 TASK（維持既有行為，不阻塞）。
+          detect_sync_intent() {
+            local body="$1"
+            [[ -z "$body" ]] && { echo "TASK"; return; }
+            local payload resp
+            payload=$(jq -n --arg m "$CLASSIFIER_MODEL" --arg c "$body" '{
+              model: $m, stream: false,
+              messages: [
+                {role: "system", content: "你是意圖分類器。使用者在一個技術調研 PR 底下留言。判斷這則留言是否在要求把這次的成果存進他的第二大腦（MyBrain / 第二大腦 / 知識庫）。是就輸出 SYNC，否則輸出 TASK。追問技術問題、質疑結論、要求補充或修改報告，全部都是 TASK。只輸出一個詞，不要解釋。"},
+                {role: "user", content: $c}
+              ]}')
+            resp=$(curl -sS -X POST https://ollama.com/api/chat \
+              -H "Authorization: Bearer ${OLLAMA_API_KEY}" \
+              -H "Content-Type: application/json" \
+              --max-time 60 -d "$payload" 2>/dev/null | jq -r '.message.content // empty')
+            if printf '%s' "$resp" | grep -q 'SYNC'; then echo "SYNC"; else echo "TASK"; fi
           }
 
           # 取所有 open PR
@@ -136,13 +159,25 @@ jobs:
               continue
             fi
 
-            # 意圖分流：叫我存 → PCM 同步第二大腦；其餘 → 該 project 的 pipeline。
-            # 兩者共用 concurrency group pr-<n>，不會同時跑。
+            # 三層意圖分流：
+            # 1. 硬 trigger（/sync-to-mybrain 開頭）→ 啟動 PCM 同步第二大腦
+            # 2. 軟判定（LLM 偵測到 sync 意圖但非正確格式）→ 直接回文提醒，
+            #    不啟動任何 workflow
+            # 3. 其餘 → 啟動該 project 的 pipeline
+            # 三者共用 concurrency group pr-<n>，不會同時跑。
             intent=$(classify_intent "$last_body")
             if [[ "$intent" == "SYNC" ]]; then
               echo "PR #$pr_number: intent=SYNC, launching PCM-sync-to-mybrain.yml"
               gh workflow run "PCM-sync-to-mybrain.yml" --ref main -f pr_number="$pr_number" \
                 || echo "Failed to launch PCM-sync-to-mybrain.yml for PR #$pr_number"
+              continue
+            fi
+
+            soft=$(detect_sync_intent "$last_body")
+            if [[ "$soft" == "SYNC" ]]; then
+              echo "PR #$pr_number: soft intent=SYNC, posting format hint"
+              gh pr comment "$pr_number" --body "<!-- chatlog:sync-hint -->偵測到你想把這輪的成果存進第二大腦。請用正確格式回文觸發同步：\`/sync-to-mybrain\`（可帶參數指定存什麼，例如 \`/sync-to-mybrain 存進技術評估，判定寫...\`）。" \
+                || echo "Failed to post sync hint for PR #$pr_number"
               continue
             fi
 
