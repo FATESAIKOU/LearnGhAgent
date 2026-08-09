@@ -176,7 +176,9 @@ jobs:
             soft=$(detect_sync_intent "$last_body")
             if [[ "$soft" == "SYNC" ]]; then
               echo "PR #$pr_number: soft intent=SYNC, posting format hint"
-              gh pr comment "$pr_number" --body "<!-- chatlog:sync-hint -->偵測到你想把這輪的成果存進第二大腦。請用正確格式回文觸發同步：\`/sync-to-mybrain\`（可帶參數指定存什麼，例如 \`/sync-to-mybrain 存進技術評估，判定寫...\`）。" \
+              # 用 GITHUB_TOKEN 以 bot 身分回文——job 的 GH_TOKEN 是 PAT，
+              # 用它會以使用者名義留言，chatlog 解析時會把 hint 當成人類留言。
+              GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" gh pr comment "$pr_number" --body "<!-- chatlog:sync-hint -->偵測到你想把這輪的成果存進第二大腦。請用正確格式回文觸發同步：\`/sync-to-mybrain\`（可帶參數指定存什麼，例如 \`/sync-to-mybrain 存進技術評估，判定寫...\`）。" \
                 || echo "Failed to post sync hint for PR #$pr_number"
               continue
             fi
