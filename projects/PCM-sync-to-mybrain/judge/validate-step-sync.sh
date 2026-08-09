@@ -19,15 +19,18 @@ for sec in "## 狀況理解" "## 執行的動作與結果" "## 動作結束後�
 done
 
 # 最後一行（忽略尾端空行）必須是 MYBRAIN_PR 標記。
+# 模型常把這行包成 markdown code（`MYBRAIN_PR: <url>`）——剝掉行首結尾的
+# ` 與 * 再比對，形狀對了就算數。真正的防偽靠下面的 gh 實查，不靠字串形狀。
 last_line="$(grep -v '^[[:space:]]*$' "$file" | tail -1)"
-if [[ "$last_line" =~ ^MYBRAIN_PR:\ https://github\.com/FATESAIKOU/MyBrain/pull/([0-9]+)$ ]]; then
+normalized="$(printf '%s' "$last_line" | sed -E 's/^[`*]+//; s/[`*]+$//')"
+if [[ "$normalized" =~ ^MYBRAIN_PR:\ https://github\.com/FATESAIKOU/MyBrain/pull/([0-9]+)$ ]]; then
   pr_number="${BASH_REMATCH[1]}"
   if ! gh pr view -R FATESAIKOU/MyBrain "$pr_number" --json number -q .number >/dev/null 2>&1; then
     echo "FAIL: $file 標記的 MyBrain PR #$pr_number 不存在" >&2
     exit 1
   fi
   echo "OK: sync log valid (PR #$pr_number exists)"
-elif [[ "$last_line" =~ ^MYBRAIN_PR:\ SKIPPED\ -\ .+$ ]]; then
+elif [[ "$normalized" =~ ^MYBRAIN_PR:\ SKIPPED\ -\ .+$ ]]; then
   echo "OK: sync log valid (skipped, reason recorded)"
 else
   echo "FAIL: $file 最後一行必須是 'MYBRAIN_PR: <PR 網址>' 或 'MYBRAIN_PR: SKIPPED - <原因>'" >&2
