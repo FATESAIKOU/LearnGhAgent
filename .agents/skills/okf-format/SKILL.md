@@ -1,5 +1,5 @@
 ---
-name: okf-brain
+name: okf-format
 description: Open Knowledge Format (OKF v0.2) 與 FATESAIKOU/MyBrain 第二大腦的撰寫維護規範。**此 skill 應該被觸發**：當你在任何含有 `okf_version` 根 index.md 的 bundle（如 MyBrain）中工作時；當使用者要求「整理成 OKF」「加 frontmatter」「整理筆記」「更新第二大腦」「驗證 bundle」時；當你要新增或修改任何帶 YAML frontmatter 的知識類 markdown 檔時。提供 frontmatter 欄位規則、type 分類、index.md/log.md 格式、以及驗證方式。
 ---
 

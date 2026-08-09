@@ -8,10 +8,10 @@
 #
 #   1. session 啟動時（Claude Code 的 SessionStart hook／opencode plugin）
 #      ——為了速度，查詢時鏡像已經是熱的
-#   2. search-from-mybrain skill 每次搜尋之前
+#   2. mybrain-read skill 每次搜尋之前
 #      ——為了正確性，hook 沒跑、session 開很久、CI 環境都還是有效
 #
-# 這是唯讀鏡像。要寫東西進第二大腦一律走 /sync-to-mybrain，不要碰這裡。
+# 這是唯讀鏡像。要寫東西進第二大腦一律走 /mybrain-write，不要碰這裡。
 
 set -uo pipefail
 

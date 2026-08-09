@@ -118,7 +118,7 @@ jobs:
           # 這裡不必再改。skill 是本體，command 只是薄殼入口。
           cp -r .agents/skills/. ~/.config/opencode/skills/
           cp .agents/commands/*.md ~/.config/opencode/commands/
-          GH_TOKEN="$MYBRAIN_TOKEN" MYBRAIN_DIR=/tmp/mybrain bash .agents/skills/search-from-mybrain/refresh.sh || true
+          GH_TOKEN="$MYBRAIN_TOKEN" MYBRAIN_DIR=/tmp/mybrain bash .agents/skills/mybrain-read/refresh.sh || true
           echo "MyBrain @ $(git -C /tmp/mybrain log -1 --format='%h %ad' --date=short 2>/dev/null || echo 'unavailable')"
           # 讀取只需要 gh；寫入還要 git push，而 git 不看 GH_TOKEN。設定 gh 當
           # credential helper，push 時就會用當下的 GH_TOKEN（= MYBRAIN_TOKEN）。

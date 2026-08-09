@@ -1,9 +1,9 @@
 ---
-name: sync-to-mybrain
-description: 把當前 session 的收穫寫進第二大腦 FATESAIKOU/MyBrain，開 PR 讓本人 review。**此 skill 應該被觸發**：當使用者要求「同步到第二大腦」「存進 MyBrain」「記下來」，或執行 /sync-to-mybrain 時。內容涵蓋判斷值不值得存、clone → 寫 → 重生 index → 驗證 → 開 PR → 清理的完整流程，以及失敗處理。**格式與 frontmatter 規則不在本檔**——那些在 okf-brain skill 與 bundle 根目錄的 index.md。
+name: mybrain-write
+description: 把當前 session 的收穫寫進第二大腦 FATESAIKOU/MyBrain，開 PR 讓本人 review。**此 skill 應該被觸發**：當使用者要求「同步到第二大腦」「存進 MyBrain」「記下來」，或執行 /mybrain-write 時。內容涵蓋判斷值不值得存、clone → 寫 → 重生 index → 驗證 → 開 PR → 清理的完整流程，以及失敗處理。**格式與 frontmatter 規則不在本檔**——那些在 okf-format skill 與 bundle 根目錄的 index.md。
 ---
 
-# sync-to-mybrain
+# mybrain-write
 
 把**當前對話**中值得長期保存的內容寫進第二大腦，開一個 PR 讓使用者 review。
 
@@ -19,7 +19,7 @@ REPO = https://github.com/FATESAIKOU/MyBrain
 
 | 想知道的事 | 去哪 |
 |---|---|
-| frontmatter 欄位、`type` 分類、保留檔名、信任層級 | `okf-brain` skill |
+| frontmatter 欄位、`type` 分類、保留檔名、信任層級 | `okf-format` skill |
 | 目錄結構、檔名、日誌標記、連結規則、下一步清單 | bundle 根目錄 `index.md` 的「使用規則」一節 |
 | 詞彙定義 | bundle 根目錄 `CONTEXT.md` |
 
@@ -99,7 +99,7 @@ ls "$WORK/日誌/" | tail -5
 
 **用 Write／Edit 工具寫，不要用 bash heredoc**——中文和 YAML 用 heredoc 極易出錯。路徑一律 `$WORK/...`。
 
-**格式規則不在本檔。** 目錄結構、檔名、日誌標記、連結、圖片擺放、下一步清單——全在步驟 3 讀到的 `index.md`；frontmatter 欄位與 `type` 分類在 `okf-brain` skill。**照它們寫，不要憑記憶。**
+**格式規則不在本檔。** 目錄結構、檔名、日誌標記、連結、圖片擺放、下一步清單——全在步驟 3 讀到的 `index.md`；frontmatter 欄位與 `type` 分類在 `okf-format` skill。**照它們寫，不要憑記憶。**
 
 流程上只有三件事要記得：
 

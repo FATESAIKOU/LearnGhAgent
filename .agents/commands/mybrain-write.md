@@ -2,9 +2,9 @@
 description: 把當前 session 的收穫整理進第二大腦，在 GitHub 開 PR
 ---
 
-# /sync-to-mybrain
+# /mybrain-write
 
-用 `sync-to-mybrain` skill 把當前對話中值得長期保存的內容寫進 https://github.com/FATESAIKOU/MyBrain，開一個 PR 讓使用者 review。
+用 `mybrain-write` skill 把當前對話中值得長期保存的內容寫進 https://github.com/FATESAIKOU/MyBrain，開一個 PR 讓使用者 review。
 
 這次要存什麼：`$ARGUMENTS`
 
