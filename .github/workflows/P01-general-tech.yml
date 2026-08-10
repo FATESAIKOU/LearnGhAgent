@@ -194,11 +194,11 @@ jobs:
         run: |
           set -uo pipefail
           attempt=0
+          cp /tmp/step1_prompt.txt /tmp/step1_prompt_work.txt
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
             echo "::group::Step 1 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
             rm -f "${STEP1_LOG}" "${STEP1_REVIEW}"
-            cp /tmp/step1_prompt.txt /tmp/step1_prompt_work.txt
             GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "step1-$attempt" "$(cat /tmp/step1_prompt_work.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
 
@@ -212,12 +212,13 @@ jobs:
             if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed, retry"
               {
+                cat /tmp/step1_prompt.txt
                 echo ""
                 echo "### 上次嘗試的硬性驗證失敗原因 ###"
                 echo '```'
                 cat /tmp/step1_hard_fail.txt 2>/dev/null || echo '(no detail)'
                 echo '```'
-              } >> /tmp/step1_prompt_work.txt
+              } > /tmp/step1_prompt_work.txt
               continue
             fi
 
@@ -227,12 +228,13 @@ jobs:
             if ! grep -q "VERDICT: PASS" "${STEP1_REVIEW}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
               {
+                cat /tmp/step1_prompt.txt
                 echo ""
                 echo "### 上次嘗試的軟性驗證失敗原因 ###"
                 echo '```'
                 cat "${STEP1_REVIEW}" 2>/dev/null || echo 'review 檔不存在'
                 echo '```'
-              } >> /tmp/step1_prompt_work.txt
+              } > /tmp/step1_prompt_work.txt
               continue
             fi
 
@@ -286,11 +288,11 @@ jobs:
         run: |
           set -uo pipefail
           attempt=0
+          cp /tmp/step2_prompt.txt /tmp/step2_prompt_work.txt
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
             echo "::group::Step 2 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
             rm -f "${STEP2_LOG}" "${STEP2_REVIEW}"
-            cp /tmp/step2_prompt.txt /tmp/step2_prompt_work.txt
             GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "step2-$attempt" "$(cat /tmp/step2_prompt_work.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
 
@@ -304,12 +306,13 @@ jobs:
             if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed, retry"
               {
+                cat /tmp/step2_prompt.txt
                 echo ""
                 echo "### 上次嘗試的硬性驗證失敗原因 ###"
                 echo '```'
                 cat /tmp/step2_hard_fail.txt 2>/dev/null || echo '(no detail)'
                 echo '```'
-              } >> /tmp/step2_prompt_work.txt
+              } > /tmp/step2_prompt_work.txt
               continue
             fi
 
@@ -319,12 +322,13 @@ jobs:
             if ! grep -q "VERDICT: PASS" "${STEP2_REVIEW}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
               {
+                cat /tmp/step2_prompt.txt
                 echo ""
                 echo "### 上次嘗試的軟性驗證失敗原因 ###"
                 echo '```'
                 cat "${STEP2_REVIEW}" 2>/dev/null || echo 'review 檔不存在'
                 echo '```'
-              } >> /tmp/step2_prompt_work.txt
+              } > /tmp/step2_prompt_work.txt
               continue
             fi
 
@@ -410,6 +414,7 @@ jobs:
           set -uo pipefail
           current_round_num="${ROUND_ID#R}"
           attempt=0
+          cp /tmp/step3_main_prompt.txt /tmp/step3_main_prompt_work.txt
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
             echo "::group::Step 3 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
@@ -417,7 +422,6 @@ jobs:
             if (( current_round_num == 1 )); then
               rm -f output/${PR_NUMBER}_*.md
             fi
-            cp /tmp/step3_main_prompt.txt /tmp/step3_main_prompt_work.txt
             GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "step3-$attempt" "$(cat /tmp/step3_main_prompt_work.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
 
@@ -439,12 +443,13 @@ jobs:
             if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed (report), retry"
               {
+                cat /tmp/step3_main_prompt.txt
                 echo ""
                 echo "### 上次嘗試的硬性驗證失敗原因 ###"
                 echo '```'
                 cat "$hard_fail" 2>/dev/null || echo '(no detail)'
                 echo '```'
-              } >> /tmp/step3_main_prompt_work.txt
+              } > /tmp/step3_main_prompt_work.txt
               continue
             fi
 
@@ -458,12 +463,13 @@ jobs:
             if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed (step log), retry"
               {
+                cat /tmp/step3_main_prompt.txt
                 echo ""
                 echo "### 上次嘗試的硬性驗證失敗原因 ###"
                 echo '```'
                 cat /tmp/step3_hard_fail.txt 2>/dev/null || echo '(no detail)'
                 echo '```'
-              } >> /tmp/step3_main_prompt_work.txt
+              } > /tmp/step3_main_prompt_work.txt
               continue
             fi
 
@@ -473,12 +479,13 @@ jobs:
             if ! grep -q "VERDICT: PASS" "${STEP3_REVIEW}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
               {
+                cat /tmp/step3_main_prompt.txt
                 echo ""
                 echo "### 上次嘗試的軟性驗證失敗原因 ###"
                 echo '```'
                 cat "${STEP3_REVIEW}" 2>/dev/null || echo 'review 檔不存在'
                 echo '```'
-              } >> /tmp/step3_main_prompt_work.txt
+              } > /tmp/step3_main_prompt_work.txt
               continue
             fi
 
@@ -539,11 +546,11 @@ jobs:
         run: |
           set -uo pipefail
           attempt=0
+          cp /tmp/step4_prompt.txt /tmp/step4_prompt_work.txt
           while (( attempt < MAX_RETRY )); do
             attempt=$((attempt+1))
             echo "::group::Step 4 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
             rm -f "${STEP4_LOG}" "${STEP4_REVIEW}"
-            cp /tmp/step4_prompt.txt /tmp/step4_prompt_work.txt
             GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "step4-$attempt" "$(cat /tmp/step4_prompt_work.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
 
@@ -557,12 +564,13 @@ jobs:
             if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed, retry"
               {
+                cat /tmp/step4_prompt.txt
                 echo ""
                 echo "### 上次嘗試的硬性驗證失敗原因 ###"
                 echo '```'
                 cat /tmp/step4_hard_fail.txt 2>/dev/null || echo '(no detail)'
                 echo '```'
-              } >> /tmp/step4_prompt_work.txt
+              } > /tmp/step4_prompt_work.txt
               continue
             fi
 
@@ -572,12 +580,13 @@ jobs:
             if ! grep -q "VERDICT: PASS" "${STEP4_REVIEW}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
               {
+                cat /tmp/step4_prompt.txt
                 echo ""
                 echo "### 上次嘗試的軟性驗證失敗原因 ###"
                 echo '```'
                 cat "${STEP4_REVIEW}" 2>/dev/null || echo 'review 檔不存在'
                 echo '```'
-              } >> /tmp/step4_prompt_work.txt
+              } > /tmp/step4_prompt_work.txt
               continue
             fi
 
