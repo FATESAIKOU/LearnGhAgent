@@ -160,7 +160,7 @@ jobs:
           {
             python3 "$CHATLOG" /tmp/chatlog.json toprompt
             echo ""
-            echo "=== 本次任務 ==="
+            echo "### 本次任務 ###"
             echo "你是「技術解析助理」。現在執行 Step 1：意圖理解。"
             echo "請依 know/AGENTS.md 中 Step 1 的規定，產出 ${STEP1_LOG}。"
             echo "這是「你自己的動作總結」。格式必須是 4 個 section："
@@ -173,7 +173,7 @@ jobs:
             echo "- 他有沒有相關的取捨準則（骨幹 tag 的檔）"
             echo "查到的內容寫進「## 執行的動作與結果」，每則要帶 GitHub URL 與信任層級（generated.by / status）。"
             echo "查不到就在同一節明寫「第二大腦無此主題」——不要用通用知識填空、更不要講得像是他的舊結論。"
-            echo "檔案長度上限：2500 字。超過會被硬性驗證拒絕，請精簡。"
+            echo "檔案長度上限：4000 字。超過會被硬性驗證拒絕，請精簡。"
             echo "直接把檔案內容寫到 ${STEP1_LOG}，不要額外輸出說明文字。"
           } > /tmp/step1_prompt.txt
           {
@@ -202,11 +202,16 @@ jobs:
             echo "::endgroup::"
 
             echo "::group::Step 1 - Hard validate"
-            ./judge/validate-step1.sh "${STEP1_LOG}"
-            hard_rc=$?
+            if ! ./judge/validate-step1.sh "${STEP1_LOG}" 2>&1 | tee /tmp/step1_hard_fail.txt; then
+              hard_rc=${PIPESTATUS[0]:-1}
+            else
+              hard_rc=0
+            fi
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed, retry"
+              retry_reason="$(cat /tmp/step1_hard_fail.txt 2>/dev/null || echo '(no detail)')"
+              sed -i.bak "s|### 本次任務 ###|### 上次嘗試的硬性驗證失敗原因 ###\n\`\`\`\n${retry_reason}\n\`\`\`\n### 本次任務 ###|" /tmp/step1_prompt.txt && rm -f /tmp/step1_prompt.txt.bak
               continue
             fi
 
@@ -215,6 +220,8 @@ jobs:
             echo "::endgroup::"
             if ! grep -q "VERDICT: PASS" "${STEP1_REVIEW}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
+              retry_reason="soft validate: review 沒有給 VERDICT: PASS（詳見 ${STEP1_REVIEW}）"
+              sed -i.bak "s|### 本次任務 ###|### 上次嘗試的軟性驗證失敗原因 ###\n\`\`\`\n${retry_reason}\n\`\`\`\n### 本次任務 ###|" /tmp/step1_prompt.txt && rm -f /tmp/step1_prompt.txt.bak
               continue
             fi
 
@@ -238,7 +245,7 @@ jobs:
             cat ${STEP1_LOG} 2>/dev/null || echo "(尚未產出)"
             echo "=== End of Step 1 log ==="
             echo ""
-            echo "=== 本次任務 ==="
+            echo "### 本次任務 ###"
             echo "你是「技術解析助理」。現在執行 Step 2 的第一個 sub-step C1：取得 repo metadata 與主要文件。"
             echo "請依 do/skills/document/SKILL.md 的標準調研動作執行："
             echo "1. 若是 GitHub repo，用 gh api / gh repo view 取得 metadata"
@@ -276,11 +283,16 @@ jobs:
             echo "::endgroup::"
 
             echo "::group::Step 2 - Hard validate"
-            ./judge/validate-step2.sh "${STEP2_LOG}"
-            hard_rc=$?
+            if ! ./judge/validate-step2.sh "${STEP2_LOG}" 2>&1 | tee /tmp/step2_hard_fail.txt; then
+              hard_rc=${PIPESTATUS[0]:-1}
+            else
+              hard_rc=0
+            fi
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed, retry"
+              retry_reason="$(cat /tmp/step2_hard_fail.txt 2>/dev/null || echo '(no detail)')"
+              sed -i.bak "s|### 本次任務 ###|### 上次嘗試的硬性驗證失敗原因 ###\n\`\`\`\n${retry_reason}\n\`\`\`\n### 本次任務 ###|" /tmp/step2_prompt.txt && rm -f /tmp/step2_prompt.txt.bak
               continue
             fi
 
@@ -289,6 +301,8 @@ jobs:
             echo "::endgroup::"
             if ! grep -q "VERDICT: PASS" "${STEP2_REVIEW}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
+              retry_reason="soft validate: review 沒有給 VERDICT: PASS（詳見 ${STEP2_REVIEW}）"
+              sed -i.bak "s|### 本次任務 ###|### 上次嘗試的軟性驗證失敗原因 ###\n\`\`\`\n${retry_reason}\n\`\`\`\n### 本次任務 ###|" /tmp/step2_prompt.txt && rm -f /tmp/step2_prompt.txt.bak
               continue
             fi
 
@@ -318,7 +332,7 @@ jobs:
             cat ${STEP2_LOG} 2>/dev/null || echo "(尚未產出)"
             echo "=== End of Step 2 log ==="
             echo ""
-            echo "=== 本次任務 ==="
+            echo "### 本次任務 ###"
             echo "你是「技術解析助理」。現在執行 Step 3：基於調研資料，產出/更新最終分析報告，並產出本 step 的 execution log。"
             echo "你需要產出兩個檔案："
             echo ""
@@ -386,22 +400,37 @@ jobs:
 
             echo "::group::Step 3 - Hard validate (report)"
             report_file=$(ls output/${PR_NUMBER}_*.md 2>/dev/null | head -1)
+            hard_fail=/tmp/step3_hard_fail.txt
+            : > "$hard_fail"
             if [[ -n "$report_file" ]]; then
-              ./judge/validate-report.sh "$report_file"
+              if ! ./judge/validate-report.sh "$report_file" 2>&1 | tee -a "$hard_fail"; then
+                hard_rc=${PIPESTATUS[0]:-1}
+              else
+                hard_rc=0
+              fi
+            else
+              hard_rc=1
+              echo "no report file produced" >> "$hard_fail"
             fi
-            hard_rc=$?
             echo "::endgroup::"
-            if [[ -z "$report_file" || $hard_rc -ne 0 ]]; then
+            if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed (report), retry"
+              retry_reason="$(cat "$hard_fail" 2>/dev/null || echo '(no detail)')"
+              sed -i.bak "s|### 本次任務 ###|### 上次嘗試的硬性驗證失敗原因 ###\n\`\`\`\n${retry_reason}\n\`\`\`\n### 本次任務 ###|" /tmp/step3_main_prompt.txt && rm -f /tmp/step3_main_prompt.txt.bak
               continue
             fi
 
             echo "::group::Step 3 - Hard validate (step log)"
-            ./judge/validate-step3.sh "${STEP3_LOG}"
-            hard_rc=$?
+            if ! ./judge/validate-step3.sh "${STEP3_LOG}" 2>&1 | tee /tmp/step3_hard_fail.txt; then
+              hard_rc=${PIPESTATUS[0]:-1}
+            else
+              hard_rc=0
+            fi
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed (step log), retry"
+              retry_reason="$(cat /tmp/step3_hard_fail.txt 2>/dev/null || echo '(no detail)')"
+              sed -i.bak "s|### 本次任務 ###|### 上次嘗試的硬性驗證失敗原因 ###\n\`\`\`\n${retry_reason}\n\`\`\`\n### 本次任務 ###|" /tmp/step3_main_prompt.txt && rm -f /tmp/step3_main_prompt.txt.bak
               continue
             fi
 
@@ -410,6 +439,8 @@ jobs:
             echo "::endgroup::"
             if ! grep -q "VERDICT: PASS" "${STEP3_REVIEW}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
+              retry_reason="soft validate: review 沒有給 VERDICT: PASS（詳見 ${STEP3_REVIEW}）"
+              sed -i.bak "s|### 本次任務 ###|### 上次嘗試的軟性驗證失敗原因 ###\n\`\`\`\n${retry_reason}\n\`\`\`\n### 本次任務 ###|" /tmp/step3_main_prompt.txt && rm -f /tmp/step3_main_prompt.txt.bak
               continue
             fi
 
@@ -444,7 +475,7 @@ jobs:
             echo ""
             echo "本輪產出的分析報告：${REPORT_FILE}"
             echo ""
-            echo "=== 本次任務 ==="
+            echo "### 本次任務 ###"
             echo "你是「技術解析助理」。現在執行 Step 4：總結本輪產出。"
             echo "產出 ${STEP4_LOG}。這是「你自己的動作總結」，格式必須是 4 個 section："
             echo "## 狀況理解 / ## 執行的動作與結果 / ## 動作結束後的現狀 / ## 其中的決斷點"
@@ -478,11 +509,16 @@ jobs:
             echo "::endgroup::"
 
             echo "::group::Step 4 - Hard validate"
-            ./judge/validate-step4.sh "${STEP4_LOG}"
-            hard_rc=$?
+            if ! ./judge/validate-step4.sh "${STEP4_LOG}" 2>&1 | tee /tmp/step4_hard_fail.txt; then
+              hard_rc=${PIPESTATUS[0]:-1}
+            else
+              hard_rc=0
+            fi
             echo "::endgroup::"
             if [[ $hard_rc -ne 0 ]]; then
               echo "hard validate failed, retry"
+              retry_reason="$(cat /tmp/step4_hard_fail.txt 2>/dev/null || echo '(no detail)')"
+              sed -i.bak "s|### 本次任務 ###|### 上次嘗試的硬性驗證失敗原因 ###\n\`\`\`\n${retry_reason}\n\`\`\`\n### 本次任務 ###|" /tmp/step4_prompt.txt && rm -f /tmp/step4_prompt.txt.bak
               continue
             fi
 
@@ -491,6 +527,8 @@ jobs:
             echo "::endgroup::"
             if ! grep -q "VERDICT: PASS" "${STEP4_REVIEW}" 2>/dev/null; then
               echo "soft validate FAIL, retry"
+              retry_reason="soft validate: review 沒有給 VERDICT: PASS（詳見 ${STEP4_REVIEW}）"
+              sed -i.bak "s|### 本次任務 ###|### 上次嘗試的軟性驗證失敗原因 ###\n\`\`\`\n${retry_reason}\n\`\`\`\n### 本次任務 ###|" /tmp/step4_prompt.txt && rm -f /tmp/step4_prompt.txt.bak
               continue
             fi
 
