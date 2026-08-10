@@ -39,7 +39,7 @@
 從 issue 內容解析要建什麼 project（project name、description、role）。
 
 **log 檔：** `memory/log/(pr-id)_R(round-id)_step1-intent.md`
-**最大長度：** 2500 字
+**最大長度：** 3500 字
 
 ### Step 2：執行計劃
 根據 Step 1 的解析，生成新 project 的所有檔案（AGENTS.md、opencode.json、validate.sh、judge/、workflow yml 等）。
