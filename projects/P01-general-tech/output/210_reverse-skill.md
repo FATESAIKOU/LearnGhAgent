@@ -141,6 +141,46 @@ APK/Android、iOS/mobile、Binary reverse（exe/dll/so/elf）、.NET/C#、前端
 
 ---
 
+## 5. User Q&A
+
+> 本節沉澱使用者對 reverse-skill 的追問。R2 兩題皆為概念性質問，非新標的調研。
+
+### Q1：這東西的解決方式本質上是 skill？harness engineering？還是 graph engineering？
+
+**A**：本質是 **skill 包 + 文件式 harness 契約**，路由用**規則計分**（非 graph）。三種歸類拆開看：
+
+| 歸類 | 是否成立 | 依據 |
+|---|---|---|
+| **skill** | ✅ 成立（本體） | 本體是 `skills/` 下 40+ 個 `SKILL.md` 子模組（apk-reverse、ida-reverse、js-reverse、pentest-tools…），每個是「方法論＋工具鏈＋工作流」的 markdown 指令包；`skills/SKILL.md` 是總控入口。`skills/ops/IDENTITY.md` 自稱「Skill 路由包」 |
+| **harness engineering** | ⚠️ 部分成立（執行契約） | `RULES.md`＋`skills/SKILL.md` 定義 agent 的執行契約（NOW/NEXT/ACT 順序、case-init scope 門禁、Evidence→Finding→Path、禁止假停）。但這是**文件契約**，非程式碼 runtime——沒有編譯、沒有強制執行器，靠 agent 遵守 |
+| **graph engineering** | ❌ 不成立 | 路由是 `skills/config/routing.json` 的**關鍵字正規式計分**（`must`／`exclude`／`mustAll` 命中→計分→取最高分 PRIMARY），是**規則式線性分流**，非語意圖、非知識圖譜、非 DAG 執行引擎。`docs/ARCHITECTURE.md` 的 mermaid 是文件示意，非 runtime graph |
+
+**結論**：reverse-skill 是「skill 包」為本體、「文件式 harness 契約」為執行約束、「規則計分」為路由機制。它**不是** graph engineering——沒有把任務建模成圖、沒有圖遍歷或圖搜尋，只有關鍵字命中後的優先級排序。
+
+---
+
+### Q2：要駕馭這東西，人可以不懂資安嗎？（就一般工程師）
+
+**A**：**駕馭「路由」可以不懂資安；駕馭「結果可信度」不行。** 門檻分兩層：
+
+| 層級 | 是否需資安知識 | 說明 |
+|---|---|---|
+| **路由層（選對 skill）** | ❌ 不需 | 使用者只需描述任務（「分析這個 APK 的簽名驗證」），`routing.json` 關鍵字命中自動選 PRIMARY skill，agent 照 SKILL.md 走。一般工程師可當「黑箱路由器」用 |
+| **執行層（跑工具）** | ⚠️ 部分 | `RULES.md`／`SKILL.md` 要求 agent 產出「ACTUAL SIDE EFFECTS」——裝工具、分析、驗證漏洞、寫報告。agent 會執行，但**是否該對某目標動手**（scope/auth 門禁）需要判斷授權邊界 |
+| **驗證層（判斷結果對錯）** | ✅ 需要 | 判斷漏洞真偽、排除 false positive、理解 Evidence→Finding→Path 的證據鏈，需要資安專業。不懂資安的人**無法判斷 agent 產出是否正確**，只能照單全收 |
+
+**反證表（「不懂資安也能駕馭」的破綻）：**
+
+| 主張 | 反證 |
+|---|---|
+| 「agent 會自動做，我不用懂」 | agent 產出的「找到漏洞」若無資安背景，無法區分真漏洞與誤報；誤報當真會浪費時間，漏報當無會誤判安全 |
+| 「路由自動選對，我不用懂」 | 路由靠關鍵字命中，任務描述若用錯詞（例如把「越獄」當 iOS 而非 LLM 語境），會路由到錯誤 skill（R1 報告 §3.2 已註明此歧義） |
+| 「授權門禁會保護我」 | scope/auth 門禁需要使用者**自己設定授權邊界**；不懂資安的人可能誤授權（掃到不該掃的）或漏授權（該測的沒測） |
+
+**結論**：reverse-skill 把「選方法論」的門檻降到一般工程師可及，但把「判斷結果對錯」與「設定授權邊界」的門檻保留在資安專業。一般工程師能**操作**它，不能**信任**它的產出——信任需要資安判斷力。
+
+---
+
 ## 附錄：資料來源
 
 - README.md（raw）：https://raw.githubusercontent.com/zhaoxuya520/reverse-skill/main/README.md
