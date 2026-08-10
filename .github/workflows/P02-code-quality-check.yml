@@ -134,7 +134,7 @@ jobs:
           gh pr view "$PR_NUMBER" --json body,comments,reviews > /tmp/pr_data.json
           python3 "$CHATLOG" /tmp/chatlog.json load-context-from-pr-log < /tmp/pr_data.json > /tmp/load_output.txt 2>&1
           cat /tmp/load_output.txt
-          round_line=$(grep -oE 'current round R[0-9]+' /tmp/load_output.txt | grep -oE 'R[0-9]+' || true)
+          round_line=$(grep -oE 'current round R[0-9]+' /tmp/load_output.txt | grep -oE 'R[0-9]+')
           echo "ROUND_ID=$round_line" >> "$GITHUB_ENV"
           python3 "$CHATLOG" /tmp/chatlog.json toprompt > /tmp/conversation_context.txt
           echo "STEP1_LOG=memory/log/${PR_NUMBER}_${round_line}_step1-intent.md" >> "$GITHUB_ENV"
@@ -165,7 +165,7 @@ jobs:
             echo "- 他對程式碼品質、工具鏈的既有取捨（骨幹 tag 的檔、技術/技術評估）"
             echo "查到的內容寫進「## 執行的動作與結果」，每則要帶 GitHub URL 與信任層級（generated.by / status）。"
             echo "查不到就在同一節明寫「第二大腦無此主題」——不要用通用知識填空、更不要講得像是他的舊結論。"
-            echo "檔案長度上限：4000 字。超過會被硬性驗證拒絕，請精簡。"
+            echo "檔案長度上限：3500 字。超過會被硬性驗證拒絕，請精簡。"
             echo "直接把檔案內容寫到 ${STEP1_LOG}，不要額外輸出說明文字。"
           } > /tmp/step1_prompt.txt
           {
@@ -190,7 +190,8 @@ jobs:
             attempt=$((attempt+1))
             echo "::group::Step 1 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
             rm -f "${STEP1_LOG}" "${STEP1_REVIEW}"
-            GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "step1-$attempt" "$(cat /tmp/step1_prompt.txt)" || echo "opencode run failed (will validate)"
+            cp /tmp/step1_prompt.txt /tmp/step1_prompt_work.txt
+            GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "step1-$attempt" "$(cat /tmp/step1_prompt_work.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
 
             echo "::group::Step 1 - Hard validate"
@@ -208,7 +209,7 @@ jobs:
                 echo '```'
                 cat /tmp/step1_hard_fail.txt 2>/dev/null || echo '(no detail)'
                 echo '```'
-              } >> /tmp/step1_prompt.txt
+              } >> /tmp/step1_prompt_work.txt
               continue
             fi
 
@@ -223,7 +224,7 @@ jobs:
                 echo '```'
                 cat "${STEP1_REVIEW}" 2>/dev/null || echo 'review 檔不存在'
                 echo '```'
-              } >> /tmp/step1_prompt.txt
+              } >> /tmp/step1_prompt_work.txt
               continue
             fi
 
@@ -283,7 +284,8 @@ jobs:
             attempt=$((attempt+1))
             echo "::group::Step 2 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
             rm -f "${STEP2_LOG}" "${STEP2_REVIEW}"
-            GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "step2-$attempt" "$(cat /tmp/step2_prompt.txt)" || echo "opencode run failed (will validate)"
+            cp /tmp/step2_prompt.txt /tmp/step2_prompt_work.txt
+            GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "step2-$attempt" "$(cat /tmp/step2_prompt_work.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
 
             echo "::group::Step 2 - Hard validate"
@@ -301,7 +303,7 @@ jobs:
                 echo '```'
                 cat /tmp/step2_hard_fail.txt 2>/dev/null || echo '(no detail)'
                 echo '```'
-              } >> /tmp/step2_prompt.txt
+              } >> /tmp/step2_prompt_work.txt
               continue
             fi
 
@@ -316,7 +318,7 @@ jobs:
                 echo '```'
                 cat "${STEP2_REVIEW}" 2>/dev/null || echo 'review 檔不存在'
                 echo '```'
-              } >> /tmp/step2_prompt.txt
+              } >> /tmp/step2_prompt_work.txt
               continue
             fi
 
@@ -401,12 +403,13 @@ jobs:
             if (( current_round_num == 1 )); then
               rm -f output/${PR_NUMBER}_*.md
             fi
-            GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "step3-$attempt" "$(cat /tmp/step3_main_prompt.txt)" || echo "opencode run failed (will validate)"
+            cp /tmp/step3_main_prompt.txt /tmp/step3_main_prompt_work.txt
+            GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "step3-$attempt" "$(cat /tmp/step3_main_prompt_work.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
 
             echo "::group::Step 3 - Hard validate (report)"
             report_file=$(ls output/${PR_NUMBER}_*.md 2>/dev/null | head -1 || true)
-            hard_fail=/tmp/step3_hard_fail.txt
+            hard_fail=/tmp/step3_report_fail.txt
             : > "$hard_fail"
             if [[ -n "$report_file" ]]; then
               if ! ./judge/validate-report.sh "$report_file" 2>&1 | tee -a "$hard_fail"; then
@@ -427,7 +430,7 @@ jobs:
                 echo '```'
                 cat "$hard_fail" 2>/dev/null || echo '(no detail)'
                 echo '```'
-              } >> /tmp/step3_main_prompt.txt
+              } >> /tmp/step3_main_prompt_work.txt
               continue
             fi
 
@@ -446,7 +449,7 @@ jobs:
                 echo '```'
                 cat /tmp/step3_hard_fail.txt 2>/dev/null || echo '(no detail)'
                 echo '```'
-              } >> /tmp/step3_main_prompt.txt
+              } >> /tmp/step3_main_prompt_work.txt
               continue
             fi
 
@@ -461,7 +464,7 @@ jobs:
                 echo '```'
                 cat "${STEP3_REVIEW}" 2>/dev/null || echo 'review 檔不存在'
                 echo '```'
-              } >> /tmp/step3_main_prompt.txt
+              } >> /tmp/step3_main_prompt_work.txt
               continue
             fi
 
@@ -526,7 +529,8 @@ jobs:
             attempt=$((attempt+1))
             echo "::group::Step 4 - 執行 opencode (attempt $attempt/$MAX_RETRY)"
             rm -f "${STEP4_LOG}" "${STEP4_REVIEW}"
-            GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "step4-$attempt" "$(cat /tmp/step4_prompt.txt)" || echo "opencode run failed (will validate)"
+            cp /tmp/step4_prompt.txt /tmp/step4_prompt_work.txt
+            GH_TOKEN="$MYBRAIN_TOKEN" opencode run --model "$OPENCODE_MODEL" --title "step4-$attempt" "$(cat /tmp/step4_prompt_work.txt)" || echo "opencode run failed (will validate)"
             echo "::endgroup::"
 
             echo "::group::Step 4 - Hard validate"
@@ -544,7 +548,7 @@ jobs:
                 echo '```'
                 cat /tmp/step4_hard_fail.txt 2>/dev/null || echo '(no detail)'
                 echo '```'
-              } >> /tmp/step4_prompt.txt
+              } >> /tmp/step4_prompt_work.txt
               continue
             fi
 
@@ -559,7 +563,7 @@ jobs:
                 echo '```'
                 cat "${STEP4_REVIEW}" 2>/dev/null || echo 'review 檔不存在'
                 echo '```'
-              } >> /tmp/step4_prompt.txt
+              } >> /tmp/step4_prompt_work.txt
               continue
             fi
 
