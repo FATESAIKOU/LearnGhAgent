@@ -156,6 +156,107 @@ SGLang、vLLM、diffusers（`MiniMaxH3ModularPipeline`）、ComfyUI。2K 流程�
 
 ---
 
+## 5. User Q&A
+
+> 本節為 R2 使用者追問（PR chat）的構造化 QA。三問皆質問型句構，觸發本節。回答資料來源：R1 報告既有事實 ＋ R2 Step 2 補查（SGLang cookbook、MiniMax PAYGO 定價頁、H3 video-generation API guide、README/model card）。
+
+### Q1：這東西拿來寫程式，CP 值或效能能比肩 deepseek-v4-0731-flash 之頂尖流嗎？
+
+**A**：不能，且此比較基準不成立——**H3 不是程式碼生成模型，與 deepseek-v4 屬不同賽道，無 CP 值可比性**。
+
+| 面向 | MiniMax-H3 | deepseek-v4-0731-flash |
+|---|---|---|
+| 模型類型 | 全模態**生成**模型（輸入→影片+音訊） | coding/agent **LLM** |
+| 輸出 | 影片（mp4）+ 32kHz 立體聲音訊 | 文字／程式碼／工具呼叫 |
+| 程式碼生成能力 | **無**（repo/model card 均無此宣稱） | 核心能力 |
+| 上下文 | 影片 token 序列 | 1M context、XML tool calling |
+| 用途 | 影音內容生成 | 寫程式、agent 任務 |
+
+**佐證**：H3 repo 的 9 個 skills 中，`h3-prompt-writing` 是「影片 prompt 撰寫」skill，其餘 8 個是 MiniMax Hub 的影片風格 skill——**皆非程式生成工具**。deepseek-v4 的定位見 MyBrain `技術/技術評估/DeepSeek V4.md`（`human:fatesaikou`／`stable`，2026-04-26）：1M 上下文、XML tool calling、Agent 一等公民，屬 coding/agent 模型。
+
+**反證表（若硬要拿來寫程式）**：
+
+| 假設 | 結果 |
+|---|---|
+| 用 H3 生成程式碼 | 無此輸出路徑，輸出固定為影片 |
+| 用 H3 當 coding agent | 無 tool calling、無文字輸出，無法執行 |
+| 用 deepseek-v4 生成影片 | 無影片輸出能力，屬另一模型 |
+
+**結論**：H3 與 deepseek-v4 是兩類不同工具，前者解決「生成影音」，後者解決「寫程式／跑 agent」。拿 H3 寫程式等同拿影片生成器當編譯器，不存在 CP 值比較的基準。
+
+---
+
+### Q2：這東西比起其他同類模型，有何對一般使用者友善的點（除了開源，比如足夠小可自架、或很便宜）？
+
+**A**：**自架門檻高、API 不便宜、且無訂閱折扣**——對一般使用者友善度低，開源是唯一明顯友善點。
+
+**自架硬體門檻**（SGLang 官方驗證配置）：
+
+| 配置 | 需求 | 備註 |
+|---|---|---|
+| 最低（offload） | 2×RTX 5090（各 32GB）＋ 384GiB 主機 | 需 layerwise offload，lossless BF16 |
+| 資料中心級 | 4×H100 80GB ／ 4×H200 ／ 8×B200 ／ 8×B300 | resident 完整品質 |
+| AMD | 8×MI300X ／ 8×MI355X | AITER packed attention |
+
+→ 33B 模型，**最低也要 2 張消費級旗艦卡＋384GiB 主機**，非一般使用者可負擔。
+
+**API 成本**（MiniMax PAYGO 定價頁）：
+
+| 項目 | 價格 |
+|---|---|
+| 768P 輸出 | $0.08/秒 |
+| 2K 輸出 | $0.13/秒 |
+| 圖片輸入 | 前 5 張免費，之後 $0.04/張 |
+| Regeneration 768P→2K | $0.05/秒 |
+| Context-IR | $0.90/M in、$3.60/M out |
+
+→ 一支 5 秒 768P = **$0.4**、5 秒 2K = **$0.65**；Context-IR 另計 token 費。
+
+**對照表（友善度）**：
+
+| 面向 | MiniMax-H3 | 同類（Veo/Sora/Kling） |
+|---|---|---|
+| 開源 | 部分（僅 H3-Base） | 全閉源 |
+| 自架 | 高門檻（2×5090+384GiB） | 不可自架 |
+| 訂閱折扣 | **無**（Video Packages 明示「H3 not supported yet」） | 有套餐 |
+| 計價 | 僅 PAYGO，按秒 | 按用量/訂閱 |
+
+**與 MyBrain 既有判定的對照**：MyBrain `技術/技術評估/LLM降本增效.md`（`human:fatesaikou`／`stable`，2026-05-01）結論「個人開發強烈推薦 Ollama Cloud」，其降本切入點是**文字 LLM 的 token 成本**；H3 屬影片生成，計價單位是「秒」而非「token」，**不適用該降本框架**。H3 的「便宜」與否，與他既有的 LLM 成本模型是兩套計價邏輯。
+
+**結論**：H3 對一般使用者的友善點僅「部分開源」一項；自架硬體門檻高、API 按秒計價且無折扣，不屬「夠小可自架」或「很便宜」的類別。
+
+---
+
+### Q3：這東西只能生成影音？
+
+**A**：**是，H3 輸出僅限「影片＋音訊」**。輸入全模態，但輸出固定為帶同步立體聲的影片（mp4）。
+
+| 方向 | 模態 | 說明 |
+|---|---|---|
+| **輸入** | 文字／圖片／影片／音訊（任意組合） | 全模態輸入 |
+| **輸出** | 影片（mp4）＋ 32kHz 立體聲音訊 | **固定，無其他輸出路徑** |
+
+**三處規格交叉佐證**：
+
+| 來源 | 輸出規格 |
+|---|---|
+| README | 「generate video with native stereo audio」 |
+| model card | 影片＋音訊 |
+| H3 video-generation API guide | 回應僅回傳影片 URL（`content.url`，mp4） |
+
+**反證表（H3 不能做什麼）**：
+
+| 想產出的東西 | H3 能否 | 原因 |
+|---|---|---|
+| 純文字 | 否 | 無 t2t 輸出路徑 |
+| 純圖片 | 否 | 無 t2i 輸出路徑 |
+| 純音樂 | 否 | 音訊僅作為影片內嵌，無獨立音訊輸出 |
+| 影片＋音訊 | 是 | 唯一輸出 |
+
+**結論**：H3 的「全模態」指**輸入**；**輸出**固定為影片＋音訊，無法產出純文字、純圖片或純音樂。
+
+---
+
 ## 附錄：資料來源
 
 - GitHub repo：`https://github.com/MiniMax-AI/MiniMax-H3`
