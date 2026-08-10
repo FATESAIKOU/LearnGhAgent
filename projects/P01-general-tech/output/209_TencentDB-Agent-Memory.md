@@ -190,7 +190,121 @@ PersonaMem 測試 Agent 在長時間互動後能否正確理解並套用使用�
 
 ---
 
+## 5. User Q&A
+
+> 本節為 R2 輪使用者「接近 Reject 前」的三個質問（issue #208 追問）的構造化回答。既有 §1-§4 內容不刪改，本節按序號接續。
+
+### Q1：這東西跟我的 MyBrain 比，在「解決的問題」「解決問題的方式」上比較如何？
+
+**A**：兩者解決的是不同層級的問題，機制不可互換。MyBrain 是個人級記憶基礎設施，TencentDB-Agent-Memory 是團隊級記憶 hub；前者是「我一個人的判斷與偏好」，後者是「多 Agent／多成員的共享資產與治理」。
+
+| 面向 | MyBrain（使用者自建） | TencentDB-Agent-Memory | 本質差異 |
+|---|---|---|---|
+| **解決的問題層級** | 個人級：讓 agent 有使用者個人上下文，避免推薦脫離處境 | 團隊級：讓跨 session、跨 Agent 的經驗累積且可治理 | 一對一 vs 多對多 |
+| **要解決的具體問題** | agent 不知道哪些選項已評估、結論是什麼、現職/投資/價值觀脈絡 | 專案 context 重講、文件重讀、workflow 重摸索、記憶無治理 | 個人脈絡缺失 vs 團隊經驗重複與失序 |
+| **解決方式：記憶內容** | 判斷準則、價值觀、職涯、金融、專案現況（三問線索庫） | Chat Memory / Skill / Wiki / CodeGraph 四類資產 | 存「人」vs 存「團隊資產」 |
+| **解決方式：檢索/接入** | `mybrain-read` skill（先讀骨幹再 grep，15 場景觸發） | L0-L3 分層 + BM25+vector+RRF + MemoryProxy 注入 | 規則式情境判讀 vs 全自動分層檢索 |
+| **寫入門檻** | PR 人 review 才合併（寫入僅本人可叫） | Skill 層 review 後才可 team 分享，Chat Memory 預設 private | 兩者都有 review 概念，但覆蓋範圍不同 |
+
+**對照表（信任層級：`human:fatesaikou`/`stable`）**：
+
+| 面向 | MyBrain | TencentDB-Agent-Memory |
+|---|---|---|
+| 記憶等級 | 個人級（日常在用） | 團隊級 |
+| 人 Review | 寫入走 PR、本人 review 才合併（`技術取捨準則`五） | 僅 Skill 層需 review 才 team 分享，其餘資產未見同等強制 |
+| 存取規則 | 唯讀鏡像 `/tmp/mybrain`、寫入僅本人可叫 | ACL 四可見度 + 雙層角色 + ownership |
+| 腐化防護 | append-only log 檢查 + validate/reindex CI | 無 dedup/衝突合併/回滾機制文件 |
+
+**切入點差異**：MyBrain 的寫入閘門是「人」，TencentDB 的寫入閘門是「pipeline＋ACL」。前者以「本人的理解」作為品質守門員，後者以「LLM 抽取 prompt＋權限模型」作為守門員——這正好是 Q3 的焦點。
+
+**結論**：兩者不構成競爭。MyBrain 解決「我一個人怎麼讓 agent 懂我」，TencentDB 解決「一個團隊怎麼讓 agent 共享並治理經驗」。照使用者既有判準，MyBrain 屬個人日常 workflow（進 Feature 的候選），TencentDB 屬團隊治理基礎設施（與已 Reject 的 EverOS 同層級）。
+
+---
+
+### Q2：這算組織層級的知識庫是吧？但它肯定需要人類 Review 和建立存取規則，它有做嗎？怎麼處理的？最終效果如何？
+
+**A**：算團隊（組織）層級知識庫，且存取規則做得完整，但人類 Review 只覆蓋 Skill 一層，未覆蓋全部資產——這是「有做但做一半」。
+
+**存取規則（有做，且完整）**：
+
+| 機制 | 內容 | 覆蓋範圍 |
+|---|---|---|
+| ACL 四可見度 | `private`（僅 Owner 可讀，連 team admin 都不能）/ `team`（成員可讀，Owner/Admin 管理）/ `restricted`（User/Role/Agent ACL 精確授權）/ `agent`（配給特定 Agent） | 全部資產 |
+| 雙層角色 | 全域 System Admin（管使用者/團隊）+ Team-level Admin/Member | 全部資產 |
+| Ownership | Asset 由 Owner 持有，Owner 自動具管理權 | 全部資產 |
+| 預設安全 | 新 Chat Memory 與 Skill 預設 `private`，分享是明確動作而非預設洩漏 | Chat Memory / Skill |
+
+**人類 Review（有做，但只做一層）**：
+
+| 資產 | 有無人 Review | 第一手證據 |
+|---|---|---|
+| **Skill** | ✅ 有 | 根 README 原句「Personal Skills are private by default; **after review**, they can be shared with the team and assigned to other Agents」——Review 是 Skill 從 private 升級為 team 的門檻 |
+| **Chat Memory** | ❌ 未見同等強制 | 文件未描述 Chat Memory 的人類驗證閘門 |
+| **Wiki** | ❌ 未見 | 非同步建置，未見人驗證閘門 |
+| **CodeGraph** | ❌ 未見 | 非同步建置，未見人驗證閘門 |
+
+**最終效果評估**：
+
+| 面向 | 評估 |
+|---|---|
+| 存取規則效果 | 好：private 預設＋四可見度＋雙層角色＋ownership 構成完整權限模型，明確動作才分享 |
+| 人類 Review 效果 | 部分：僅 Skill 層有強制 review，Chat Memory/Wiki/CodeGraph 靠 LLM 抽取 pipeline 而無人閘門 |
+| 未覆蓋資產的風險 | 高：Chat Memory（使用者偏好/事實/決策）與 Wiki/CodeGraph（知識）未經人 review，錯誤或過時內容可能直接進入 team 資產 |
+
+**結論**：存取規則建立完整（ACL 模型），人類 Review 僅建立於 Skill 一層，其餘三類資產無人驗證閘門——「知識庫的權限治理」做了，「知識庫的內容品質治理」只做了一層。
+
+---
+
+### Q3：這東西不像把東西處理後只存最高層級不同面向，反而把 raw session 重複抽象總結好幾層各自放入快取？但誰規定什麼該留在哪一層、什麼該排除？誰、如何驗證？如何避免腐化？
+
+**A**：你觀察正確——它確實是「raw 對話（L0）重複抽象成 L1/L2/L3 多層」，而不是只存最高層級。誰規定留取、誰驗證、如何防腐化，這三問官方文件給的回答如下。
+
+**分層機制（確認是逐層精煉，非只存高層）**：
+
+```
+L0 Conversation（raw 對話）
+   │ 非同步 pipeline 逐層精煉
+   ▼
+L1 Atom（事實/偏好/約束/事件）
+   ▼
+L2 Scenario（專案/場景知識區塊）
+   ▼
+L3 Persona（長期 profile / 穩定模式）
+```
+
+- 生成需 LLM credential（「memory extraction and aggregation require valid credentials」），pipeline state 在 process 內維護。
+
+**① 誰規定什麼留哪一層、排除什麼？——由抽取用 LLM prompt 決定，無人類規則。**
+
+| 面向 | 官方文件回答 |
+|---|---|
+| 分層「留什麼/排除什麼」 | 由**抽取用的 LLM prompt** 決定 |
+| 是否有顯式人類規則 | **無顯式人類驗證閘門** |
+| 分層 prompt 品質 | ROADMAP v2.0.1 原句：「Memory extraction quality depends on domain context… **A single hard-coded prompt cannot serve both**」；且「Editing custom prompts from the Memory Hub panel is **not supported yet**」——官方自承單一硬編碼 prompt 是瓶頸、尚未支援面板改 prompt |
+
+**② 誰、如何驗證？——無獨立驗證機制，官方靠單一 pipeline 內建。**
+
+- 文件未見對抽取結果的獨立驗證（無 L1/L2/L3 之間的一致性檢查、無與 L0 的對帳描述）。
+- ROADMAP 規劃 Wiki 建置改為 bounded-concurrency pipeline（失敗頁獨立重試、進度可視），反證現行建置有黑箱與串行問題。
+- 唯一 benchmark（PersonaMem 48%→76%）只測「Agent 能否套用使用者資訊」，未測分層留取品質。
+
+**③ 如何避免腐化？——文件未見完整答案。**
+
+| 腐化防護機制 | MyBrain（使用者既有） | TencentDB-Agent-Memory |
+|---|---|---|
+| dedup（去重） | 未查證 | 文件未見 |
+| 衝突合併 | 未查證 | 文件未見 |
+| 回滾 | 未查證 | 文件未見 |
+| append-only log / CI | ✅（validate.py + reindex.py + log append-only 檢查） | 未見 |
+
+**對照 MyBrain 的腐化防護（`human:fatesaikou`/`stable`）**：MyBrain 以「append-only log 檢查 + validate/reindex CI」程式化防腐化（`技術取捨準則`五：約束在 harness 不在權限）；TencentDB 的文件對 dedup/衝突合併/回滾皆無描述，官方反而自承「單一硬編碼 prompt」是分層品質瓶頸——即分層留取品質完全依賴未可調、未驗證的單一 prompt。
+
+**結論**：分層「留什麼/排除什麼」由單一硬編碼 LLM prompt 決定，無人類規則、無獨立驗證閘門、無 dedup/衝突合併/回滾文件；官方 ROADMAP 自承該 prompt 是品質瓶頸且尚未支援修改。腐化防護在文件層面缺項，與使用者 MyBrain 的「append-only + CI 驗證」模型不對等。
+
+---
+
 ## 附錄：調研來源
 
 - 官方 README（feat/server_team 分支）：https://github.com/TencentCloud/TencentDB-Agent-Memory
-- 使用者第二大腦（FATESAIKOU/MyBrain）：判定總表、技術取捨準則、EverOS/OpenHuman/planning-with-files/codebase-memory-mcp/HermesAgent/LeanCtx/Headroom/context-mode 評估檔
+- 官方 ROADMAP（v2.0.1 自承單一硬編碼 prompt 瓶頸、面板編輯未支援、Wiki bounded-concurrency 規劃）：https://github.com/TencentCloud/TencentDB-Agent-Memory
+- 使用者第二大腦（FATESAIKOU/MyBrain）：判定總表、技術取捨準則、EverOS/OpenHuman/planning-with-files/codebase-memory-mcp/HermesAgent/LeanCtx/Headroom/context-mode 評估檔、專案現況表
