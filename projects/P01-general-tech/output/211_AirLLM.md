@@ -143,8 +143,84 @@ Llama 2/3/3.1/3.3/4、Qwen 1/2/2.5/3、DeepSeek V2/V3/R1、Mistral/Mixtral、Phi
 | 不適合生產/高併發 | 設計目標是單一使用者可行性 | 生產場景改用 vLLM |
 | 長上下文受限 | KV cache 仍需記憶體 | 控制序列長度；選配量化壓縮 |
 
+### 4.5 R2 補充：針對「RTX 2070S + 64GB RAM 跑 deepseek-v4-flash:0731」的硬體對照
+
+R2 追問把 §4 的替代方案對照落到「特定硬體 × 特定模型」的實用層。關鍵事實（來源見 §5 Q1）：
+
+| 面向 | 事實 | 對照結果 |
+|---|---|---|
+| 模型 | deepseek-v4-flash:0731 = DeepSeek-V4-Flash，291B params、MoE top-6、1M ctx、FP4+FP8 mixed、hybrid attention (CSA/HCA) | 291B 級，任何單卡都無法整顆常駐 |
+| AirLLM 支援度 | README 只列 V2/V3/R1；無 V4 專用子類；generic 路徑對 hybrid attention / FP4 expert 無特化 | **官方未宣告支援 V4**，載入走 generic，正確性有風險 |
+| 硬體相容 | RTX 2070S = 8GB、Turing sm_75；AirLLM v3 預設 bf16，2070S 無 bf16 原生支援，須強制 fp16（issue #317） | 需改精度設定，非開箱即用 |
+| 社群實測 | issue #299：「能跑但 TPS 極慢，coding 不建議」 | 可行性成立但效能不可用 |
+
+**對照第二大腦的意義：** 使用者對 llama.cpp/vllm 已判 **Reject(Reserve)**（「目前環境挺極限的，感覺目前用不上」）。AirLLM 是唯一能「載入」291B 級模型的途徑，但這不改變「目前用不上」的結論——它只是把「載不進去」變成「載得進去但慢到不可用」。依技術取捨準則，AirLLM 的價值在「逐層 offload + per-expert streaming」這個**可抽取的需求理解與方案方向**，而非「導入 AirLLM 本身」。
+
 ---
 
 ## 5. User Q&A
 
-（本輪無使用者提問，此節暫缺。）
+### Q1：比起我之前檢討過的方案，在 RTX2070S + 64GB RAM 上，AirLLM 能跑 deepseek-v4-flash:0731 嗎？
+
+**A**：能「載入」，但**不是官方支援**，且「能載入」≠「能用得好」。拆成三層看：
+
+| 層次 | 判定 | 依據 |
+|---|---|---|
+| 能載入 | **可**（走 generic 路徑） | AirLLM 用 meta device + forward hook 逐層 stream，不要求整顆模型常駐；291B 權重放磁碟即可 |
+| 能正確生成 | **有風險** | README 未列 V4、無 `deepseek_v4.py` 專用子類；generic 路徑對 hybrid attention (CSA/HCA) 與 FP4 expert 無特化處理，正確性未驗證 |
+| 能用得好 | **不可用** | 社群 issue #299 實測「能跑但 TPS 極慢，coding 不建議」；吞吐量級見 Q2 |
+
+**硬體相容性（issue #317）：**
+
+| 面向 | 事實 |
+|---|---|
+| RTX 2070S | 8GB GDDR6、Turing **sm_75** |
+| bf16 支援 | AirLLM v3 預設 bf16，但 bf16 需 Ampere（sm_80+）；**2070S 無原生 bf16**，須強制 fp16 |
+| 多 GPU | AirLLM 無多 GPU 平行 |
+
+**對照「我之前檢討過的方案」（第二大腦判定）：**
+
+| 方案 | 第二大腦判定 | 信任層級 | 在 2070S 上跑 291B |
+|---|---|---|---|
+| llama.cpp / vLLM | **Reject(Reserve)**，「目前環境挺極限的，感覺目前用不上」 | `human:fatesaikou` / `stable` | 291B 量化後仍超 8GB VRAM，**載不進去** |
+| Ollama | **採用**，個人開發強烈推薦 Ollama Cloud | `human:fatesaikou` / `stable` | 底層 llama.cpp，同樣載不進去 |
+| **AirLLM** | 第二大腦**無此主題**（未評估） | — | **載得進去**，但慢到不可用 |
+
+**結論：** 相較於你已 Reject 的 llama.cpp/vllm（載不進去），AirLLM 是唯一能「載入」291B 級模型的途徑，但代價是吞吐低到不可用。它不改變你「目前用不上」的既有判定——只是把「載不進去」變成「載得進去但慢到不可用」。AirLLM 的價值在「逐層 offload + per-expert streaming」這個可抽取的方案方向，而非導入本身。
+
+---
+
+### Q2：如果 Q1 是可以，試算一下秒速跟 context 量是多少？
+
+**A**：量級估算如下（**誤差大，僅供量級判斷**，非實測）。
+
+**秒速試算：**
+
+| 假設 | 數值 | 說明 |
+|---|---|---|
+| 權重 | 291B params，FP4+FP8 mixed | 磁碟約 **150~200GB** |
+| 每 token 啟動 | MoE top-6 → 13B activated | 只算被路由到的 expert + 共享層 |
+| 磁碟頻寬 | NVMe SSD（PCIe 3.0，2070S 世代）實測 ~3.5 GB/s | 上限 7GB/s |
+| 非 expert 層 | ~40% × 291B ≈ 116B params | attention + shared 層每 token 全量載入 |
+
+```
+每 token 搬運量：
+  非 expert 層：116B params × ~0.75B/param ≈ ~87GB
+  啟動的 expert：~10B × ~0.75B ≈ ~7.5GB
+  合計 ≈ ~95GB / token
+
+秒速：
+  95GB ÷ 3.5GB/s ≈ 27 秒/token → ~0.04 tokens/sec
+  若用 7GB/s NVMe → ~0.08 tokens/sec
+  量級結論：0.03 ~ 0.1 tokens/sec
+```
+
+**context 試算：**
+
+| 面向 | 數值 |
+|---|---|
+| 模型上限 | 1M（但 AirLLM generic 對 hybrid attention 無特化，實際達不到） |
+| KV cache 上限 | 受 64GB RAM 限制；43 層、hidden ~7168、fp16 → 約 1~2MB/token，理論可撐**數萬 token** |
+| 實務上限 | **被生成速度卡住**：0.04 tokens/sec 下，填滿 10K context 需 ~3 天，填滿 50K 需 ~14 天 |
+
+**結論：** 秒速量級 **0.03~0.1 tokens/sec**（比人類打字慢數十倍），context 理論上受 64GB RAM 限制可達數萬 token，但**實務上被生成速度卡死**——長上下文在這種速度下要跑數天。此量級與社群「TPS 極慢、coding 不建議」的定性回報一致。此為估算，實際值受磁碟頻寬、prefetch 命中率、FP4 解包開銷影響，誤差可達一個數量級。
