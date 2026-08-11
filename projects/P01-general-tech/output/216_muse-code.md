@@ -167,7 +167,7 @@ Muse Code 的解法可拆為「harness（CLI）」「模型（Muse Spark 1.2）�
 
 ---
 
-## 5. 個人採用評估總論（給使用者的收斂）
+### 4.5 個人採用評估總論（給使用者的收斂）
 
 **結論（情境化判準，非二選一）：**
 
@@ -179,3 +179,86 @@ Muse Code 的解法可拆為「harness（CLI）」「模型（Muse Spark 1.2）�
 | 性價比 | **低/中用量時 Muse Code 零固定成本**，但 Standard output $4.25/M 高於多數 coding model；Contributor 才接近低價 | 對照「Ollama Cloud 為主、高價模型為輔」分級 |
 
 **MVP 到 Feature 的唯一閘門**（依技術取捨準則）：Muse Code / Muse Spark 是否影響你個人的 daily workflow。此點需實際試用才能判定，非本次調研可定案。
+
+---
+
+## 5. User Q&A
+
+### Q1：相同用量下 MuseCode 的月費到底是多少？我 ClaudeCode 跟 OllamaCloud 每週都用 50~80% 周限額、集中在六日，算個數值給我比較
+
+**A**：先講硬性限制——**官方不公開 Claude Code Pro 與 Ollama Cloud 的「周限額＝多少 token」**，因此「相同用量」無法從官方直接換算成 Muse 的 token 費用。要給數值，只能**自設 token 量假設**，以下用敏感度表呈現，並標明假設。
+
+**計費結構對照（先釐清，避免誤比）：**
+
+| 方案 | 計費型態 | 月固定成本 | 每 token 單價 |
+|------|---------|-----------|--------------|
+| Claude Code Pro | 固定月費 | $20/月（官方現行；你自述 $22） | 不公開（周限額內） |
+| Ollama Cloud Pro | 固定月費 | $20/月 | 不公開（token 計但無單價） |
+| Muse Spark 1.2 Standard | 純 token 計費 | $0 | $1.25 in / $0.15 cached / $4.25 out（每 M） |
+| Muse Spark 1.2 Contributor | 純 token 計費 | $0 | $0.10 in / $0.002 cached / $0.20 out（每 M） |
+
+**「相同用量」的換算假設**：你每週用 50~80% 周限額、集中六日。以「每週 4 週、每月 4 週」計，假設每週用量落在中位 65%，並以「input:output ≈ 3:1」的 coding agent 典型比例估算。因官方無周限額 token 數，以下為**假設性敏感度表**，非官方數字：
+
+| 假設每週 token 量（in+out） | 每月 token 量 | Muse Standard 月費 | Muse Contributor 月費 |
+|---------------------------|--------------|-------------------|----------------------|
+| 5M（低） | 20M | ≈ $1.25×15M + $4.25×5M = **$40** | ≈ $0.10×15M + $0.20×5M = **$2.5** |
+| 10M（中） | 40M | ≈ $1.25×30M + $4.25×10M = **$80** | ≈ $0.10×30M + $0.20×10M = **$5** |
+| 20M（高） | 80M | ≈ $1.25×60M + $4.25×20M = **$160** | ≈ $0.10×60M + $0.20×20M = **$10** |
+
+**結論**：
+- Muse **Standard** 在「相同用量」下**不必然比現行 $40/月（Claude $20 + Ollama $20）便宜**——中高用量（每週 10M+）就超過 $80/月，是現行兩倍以上。Standard 的優勢只在**低用量**（每週 <5M）時才成立。
+- Muse **Contributor**（授權 Meta 訓練、限地區）在相同用量下**遠低於現行**（$2.5~$10/月），但代價是資料授權。
+- 真正的比較前提是：**你現行 $40/月是「固定費、周限額內無限用」；Muse 是「變動費、用多少付多少」**。若你六日集中衝量，Muse 的變動費在高峰週會放大，不像固定月費有上限保護。
+- 因官方不公開周限額 token 數，**此數值無法精確**；要精確需先實測你每週實際 token 消耗（Claude Code 用量統計 / Ollama Cloud 用量頁）。
+
+**結論**：Muse Standard 對你「每週 50~80% 周限額、集中六日」的用量，月費約落在 **$40~$160**（依每週 5M~20M token 假設），**中高用量下不具價格優勢**；Contributor 才便宜，但以資料授權為代價。
+
+---
+
+### Q2：Muse 有多模態嗎？
+
+**A**：**有，多模態輸入、純文字輸出**。OpenRouter 的 `meta/muse-spark-1.2` model card 明載：
+
+| 方向 | 支援 |
+|------|------|
+| 輸入 | **text / image / video / audio / PDF** |
+| 輸出 | **text**（僅文字） |
+| Context | 1M tokens |
+
+- 官方 blog 的建站 demo 以 **mp4 影片**驅動生成，佐證 video 輸入。
+- 注意：model card 表格列 image/video/PDF，**audio 僅出現於 prose 描述**，未在表格明列——若你依賴 audio 輸入，需實測確認。
+- 對照你的現行棧：Claude Code（Opus/Fable 系）與 deepseek-v4-flash 皆支援多模態輸入；Muse 的多模態**不構成相對優勢**，僅是「有，不輸人」。
+
+**結論**：Muse 支援 text/image/video/audio/PDF 輸入、text 輸出、1M context；多模態能力與你現行模型同級，非切換理由。
+
+---
+
+### Q3：Muse 在 Coding 效能上比 Anthropic 各模型（Opus/Fable 系）跟 deepseek-v4-flash 表現如何？給 benchmark 數據，沒有就官方數據
+
+**A**：分兩層回答——**官方數據**與**獨立評測**，並**明確標註「與 deepseek-v4-flash 無同基準可比」**。
+
+**官方數據（Meta vendor-run，各自 harness）：**
+
+| Benchmark | Muse Spark 1.2 | 排名 | 對照 |
+|-----------|---------------|------|------|
+| Terminal-Bench 2.1 | **82.9** | 第 2 | 僅次 Claude Opus 5 |
+| DeepSWE 1.1 | **59.3** | 第 2 | 僅次 Claude Opus 5 |
+| Meta Internal Coding Bench | **70.6** | 第 2 | 僅次 Claude Opus 5 |
+| Kernel case（speedup） | 68.7% | — | Opus 5 = 74.0% |
+
+**獨立評測（Artificial Analysis）：**
+
+| 指標 | Muse Spark 1.2 | Opus 5 | Fable 5 | GPT-5.6 Sol | Kimi K3 | Grok 4.5 |
+|------|---------------|--------|---------|------------|---------|----------|
+| AA Intelligence Index | 54（xhigh） | 61 | 60 | 59 | 57 | 54 |
+| GDPval-AA Elo | 1631（#5） | 1852 | — | — | — | — |
+
+**與 deepseek-v4-flash 的對照限制（必須明示）：**
+- DeepSeek 官方報 **Terminal-Bench 2.0**（Max 56.9）＋ **SWE Verified 79.0**。
+- Muse 官方報 **Terminal-Bench 2.1** 與 **DeepSWE 1.1**——**不同 benchmark 版本與不同標的**，**無法直接對等比較**。
+- 因此「Muse vs deepseek-v4-flash」**沒有同基準的官方或獨立數據**，不能硬套同表。要公平對照需自行在相同任務集上實測。
+
+**結論**：
+- 官方與獨立評測一致顯示 Muse Spark 1.2 在 coding 上**居第 2、僅次 Claude Opus 5**，高於 Fable 5 之外的多數模型。
+- **與 deepseek-v4-flash 無同基準可比**——DeepSeek 報的是不同 benchmark（Terminal-Bench 2.0 / SWE Verified），不能直接比較；需自行實測才能定論。
+- 對你「Opus/Fable medium 以上」的日常主力，Muse 在官方數據上**低於 Opus 5**，與 Fable 5 接近；是否值得切換，取決於你實際任務的錯誤擴散範圍（見 §4.5 模型分級）。
