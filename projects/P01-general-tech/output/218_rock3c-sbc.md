@@ -102,7 +102,18 @@ RS 商品頁本身提供的背景有限，僅說明這是「ROCK シングルボ
 | [nvidia cosmos](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/nvidia%20cosmos.md) | 判定 **不採用**，理由是「方向有趣但很難使用，且他傾向自己兜 MVP 理解本質」——這是 NVIDIA 的**世界基礎模型（軟體）**，非開發板 | `generated.by: human:fatesaikou`，`status: stable`，首見 2026-06-20 | 見連結 |
 | [AirLLM](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/AirLLM.md) | 判定 **不採用**，理由含「**沒硬體**」（低顯存運行大模型的工具） | 判定總表（`generated.by: ollama-cloud/deepseek-v4-flash`，`status: draft`，**AI 草稿未經本人 review**） | 見連結 |
 
-**與此標的相關的第二大腦判準**（見[技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md)，`draft`，2026-08-01）：他的技術採用與否最強判準是「**能不能影響個人的日常 workflow**」；且**「專案／下一步清單」中沒有任何硬體專案**，[Openship](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Openship.md) 判定時明寫「目前只有一台低價 VPS 且沒打算跑服務」。據此推測：這類「要自建硬體部署服務」的需求在他現況下並不活躍——這是通則與他個人現況的**潛在衝突點**，報告在此明示，不預設他有購入或部署意圖。
+**與此標的相關的第二大腦判準**（見[技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md)，`draft`，2026-08-01）：他的技術採用與否最強判準是「**能不能影響個人的日常 workflow**」，且「理解優先」原則主張「不夠穩定或不熟悉就先自己兜，MVP 是理解的驗證點」。
+
+**R2 追加查詢的既有判定（直接錨定本輪「AI agent 工作區＋硬體」意圖）：**
+
+| 既有判定 | 內容 | 信任層級 | 與本輪結論的關係 |
+|---|---|---|---|
+| [OpenCode](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/OpenCode.md) | 判定**試用**，「大致堪用 並且由於 Ollama 帶來極大自由度 避免綁定」；本人已實測開 opencode 配 Ollama | `generated.by: human:fatesaikou`，`status: stable`，2026-05-01 | **支援本輪結論**：opencode 靠 OllamaCloud／雲端推論、板子只當 CLI 客戶端，與「不綁定、雲端推論」一致 |
+| [Openship](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Openship.md) | 判定 **Reject**，原話「目前只有一台低價 VPS 且沒打算在上面跑服務」，導入控制平面過重 | `generated.by: opencode/deepseek-v4-pro`，`human:fatesaikou` 2026-08-09 `verified`，`status: stable`，2026-07-26 | **與本輪需求潛在衝突**：他想自架常駐 agent，卻又曾明言「不打算開服務」；此衝突必須並陳 |
+| [terminal-browser](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/terminal-browser.md) | 判定 **Reject**，最終目標是「**脫離終端機，在手機／GAS 上調用 code agent**」；mini-PC／固定桌面機是反方向 | `generated.by: claude-code/opus-5`，`status: draft`（**AI 草稿未經本人 review**），2026-08-01 | **與「微型電腦＋跑瀏覽器」需求潛在衝突**：他的長期方向是往手機／GAS 調用，不是固定一台桌面機 |
+| [個人 AiAgent 入口](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/靈感/個人%20AiAgent%20入口.md) | 整個新專案卡在同一個未決問題「**執行環境：GAS vs 自架伺服器跑 opencode**」；已併入「下一步清單」待判定 | `generated.by: claude-code/opus-5`，`status: draft`（**AI 草稿，來源含本人 2026-08-11 登錄 ToDo**） | **本輪 R2 問題 2／3 正是把「自架」側具體化到硬體**，直擊這個未決判定 |
+
+據此：**第二大腦對 ROCK 3C／樹莓派／Jetson／N100 mini-PC／任何 SBC 硬體皆無評估或專案紀錄**（grep 零命中），硬體軸是空白；但與「用這台硬體開 AI agent 工作區」直接相關的軟體判定則高度相關——`OpenCode` 支援、`Openship`「不開服務」立場衝突、`terminal-browser`「脫離終端機往手機」方向衝突、`個人 AiAgent 入口`「執行環境未決」直擊。本節將這些既有判定寫入，**不編造他對硬體的個人結論**。
 
 **同級替代方案與切入點差異（DA 表）**：
 
@@ -119,6 +130,78 @@ RS 商品頁本身提供的背景有限，僅說明這是「ROCK シングルボ
 
 ---
 
+## 5. User Q&A
+
+### Q1：比起樹莓派，ROCK 3C 的優勢是「便宜＋雖不好開發但效能夠」嗎？
+
+**A**：這個拆解有一半成立、一半不精確。「便宜」成立，但「不好開發」與「效能夠」兩個用語都需要校正。
+
+| 宣稱 | 判定 | 理由 |
+|---|---|---|
+| 便宜 | ✅ 大方向成立 | RS 未稅 ¥7,835，屬入門級定價；但同級樹莓派（Pi 4 2GB 約 ¥6,000 級）價格差異不大，「便宜」優勢並非碾壓性，而是**同等入門定位** |
+| 不好開發 | ⚠️ 不精確 | RK3566 有官方 Radxa OS（基於 Debian），**Linux 開發流程與樹莓派同質**（刷映像→SSH→套件管理）。差異在「**社群與文件的密度**」，不是「不能開發」；踩雷要自己查、範例較少，但開發入口一致 |
+| 效能夠 | ⚠️ 需定義「夠」 | 指**通用運算／多媒體**（四核 A55 1.6GHz、1080P@60）夠用，**不是 AI 算力**——本板無 NPU 強調，與 NVIDIA 板在 AI 推論上是兩類東西 |
+
+**關鍵校正**：你對標的「效能夠」若是指**跑 AI agent**，那效能瓶頸不在這塊板子——推論在雲端（OllamaCloud／Claude），板子只當 CLI 客戶端，瓶頸是 **1GB RAM 的多工承載**，不是 CPU 算力。
+
+**與第二大腦對照**：第二大腦無任何樹莓派／ROCK 的個人評估，故無舊結論可比。ROCK 3C 相對樹莓派的差異是「社群成熟度」而非「能否開發」。
+
+**結論**：ROCK 3C 相對樹莓派的正確優勢表述是「**同等的入門 Linux 定位＋相對低的價格**」，代價是「社群與文件較少、踩坑成本高」；「不好開發」應改寫為「社群支援少」，「效能夠」應限定為「通用運算夠，非 AI 算力」——你的假設方向對，但用詞需校正。
+
+---
+
+### Q2：我想用 OllamaCloud／Claude 搭配 opencode／claudecode 開常駐 agent 做事，ROCK 3C 合適嗎？
+
+**A**：分工上「合適」，因為**推論不在本板**；但「1GB RAM 開常駐 agent」這題**不合適**，會被 RAM 掐死。
+
+```
+你設想的架構：
+OllamaCloud / Claude（雲端推論，重算在遠端）
+        ▲ API key / 網路
+        │
+   ROCK 3C（只當 CLI 客戶端，跑 opencode/claudecode 進程 + Node runtime）
+```
+
+**分工判定**：opencode 官方 docs 明示不帶本地模型、靠 provider API keys 連 LLM。所以這塊板子**不需要本地推論能力、不需要 NPU**，只需能跑 CLI agent 進程＋終端＋網路。**就分工而言任何一台能跑 Linux 的機器都行**，算力不是問題。
+
+**但 RAM 是硬瓶頸**：
+
+| 負載 | 1GB（本商品） | 系列 2GB／4GB |
+|---|---|---|
+| 1 個常駐 opencode agent（opencode 進程＋Node runtime＋git 工作樹） | 勉強，接近記憶體上限 | 可行 |
+| 2–3 個常駐 agent（你要的） | **極緊，必然 swap 到儲存**，agent 回應延遲暴增 | 2GB 仍緊、4GB 較可行 |
+| 瀏覽器（問題 3 需求） | **不可行** | 2GB 緊、4GB 勉強單分頁 |
+
+**與第二大腦對照**：
+- [OpenCode](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/OpenCode.md) 已判定**試用**，「大致堪用 並且由於 Ollama 帶來極大自由度」（`human: stable`，2026-05-01）——軟體側你已驗證可行。
+- 但[Openship](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Openship.md) 你判定 **Reject**，原話「目前只有一台低價 VPS 且沒打算在上面跑服務」（`human verified: stable`）——**與你現在「自架常駐 agent 硬體」的意圖直接衝突**，這點必須並陳。
+
+**結論**：架構上 ROCK 3C 可當客戶端（雲端推論），但 **1GB 版開 2–3 個常駐 agent 不成立**，要選至少 4GB 才談得上多 agent；且此意圖與你第二大腦「Openship 不開服務」的既有判定衝突，須先解決「你到底要不要自架」這個未決題。
+
+---
+
+### Q3：還是微型電腦比較適合？預算 <3 萬日幣、開 2–3 個 agent、甚至跑瀏覽器。
+
+**A**：**是的，就你這三項需求（2–3 agent＋瀏覽器＋<3 萬日幣），N100 級 x86 mini-PC 比 ROCK 3C 更貼合。**
+
+| 需求 | ROCK 3C（1GB 版） | x86 mini-PC（N100、8GB RAM） |
+|---|---|---|
+| 2–3 常駐 agent | ❌ 1GB 必 swap | ✅ 8GB 可分 2–3 進程 |
+| 跑瀏覽器 | ❌ 幾乎不可行 | ✅ x86 原生 Chrome／Node |
+| 預算 <3 萬日幣 | ✅ 約 ¥7,835（未稅） | ✅ N100 8GB 機多落在 ¥15,000–¥25,000，仍在預算內 |
+| 原生相容性 | ⚠️ ARM 生態，原生 binary 需有 ARM 版 | ✅ x86 原生，相容性最高 |
+| 代價 | GPIO／嵌入式彈性 | 體積較大、功耗較高、失去 GPIO 直接控制 |
+
+**核心取捨**：你要的「開多個 agent＋跑瀏覽器」是**桌面／伺服器級負載**，不是嵌入式 GPIO 控制場景。ROCK 3C 的價值在「低成本＋40-pin GPIO 控制外部元件」，而你的需求完全用不到 GPIO——這讓 ROCK 3C 的核心優勢落空。
+
+**與第二大腦對照（方向衝突必須指出）**：
+- [terminal-browser](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/terminal-browser.md) 你判定 **Reject**（`draft`，AI 草稿），原話「最終目標是**脫離終端機**，能在**手機／GAS**上調用 code agent」。**「固定一台微型電腦跑瀏覽器＋常駐 agent」與「脫離終端機、往手機／GAS 走」的長期方向相反**——這是你第二大腦裡最實質的方向衝突，必須先對齊。
+- [個人 AiAgent 入口](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/靈感/個人%20AiAgent%20入口.md)（`draft`）：整個專案卡在「**執行環境：GAS vs 自架伺服器跑 opencode**」未決，且該檔明列自架側疑慮「先前判 Openship 時明講『我用 VPS 不是為了開服務』」。你的問題 3 正是把「自架」側落到一台硬體上。
+
+**結論**：若你堅持「2–3 agent＋瀏覽器＋<3 萬日幣」，**x86 mini-PC（N100、8GB）是更貼合載體**，ROCK 3C 1GB 版不適合；但在花錢前，要先解決第二大腦已標記的兩個衝突——「自架 vs 不開服務（Openship）」與「固定桌面機 vs 脫離終端機往手機（terminal-browser）」——否則這台機器買下去會與你既定的方向打架。
+
+---
+
 ## 附錄：資料來源與信任層級
 
 | 來源 | 性質 | 信任層級 |
@@ -129,4 +212,4 @@ RS 商品頁本身提供的背景有限，僅說明這是「ROCK シングルボ
 | RK3566 定位 | 報告補上的通用技術背景 | 一般知識 |
 | Okdo×Radxa co-brand 關係 | 報告補上的品牌背景 | 一般知識 |
 
-**第二大腦查詢結果**：FATESAIKOU/MyBrain 對 SBC／開發板／本板**無任何評估或專案紀錄**。與本標的相關既有判定僅 nvidia cosmos（軟體模型，不採用）與 AirLLM（理由含「沒硬體」），均已在上方 §4 標註 URL 與信任層級；未命中的主題在此明示不存在，不編造為他的結論。
+**第二大腦查詢結果**：FATESAIKOU/MyBrain 對 SBC／開發板／微型電腦／本板**無任何硬體評估或專案紀錄**。與本標的相關既有判定分兩層：(a) 硬體側全部空白（樹莓派／Jetson／ROCK／N100 皆未評估）；(b) 與「用硬體開 AI agent 工作區」意圖直接相關的軟體判定——`OpenCode`（試用，支援）、`Openship`（Reject，不開服務，與自架衝突）、`terminal-browser`（Reject，脫離終端機往手機，與固定桌面機衝突）、`個人 AiAgent 入口`（執行環境未決，直擊）。均已在上方 §4 與 §5 標註 URL 與信任層級；未命中的主題在此明示不存在，不編造為他的硬體結論。
