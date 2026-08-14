@@ -155,3 +155,86 @@ Delta / DeltaDB 的資料模型
 | 影響個人 workflow | 不滿足 | 多人協作為前提，個人單機場景價值弱 |
 
 **結論**：Delta 的資料模型突破（conversation-as-source、delta-anchor）是真實且具參考價值的方案方向；但作為「可採用工具」，它卡在三個既有判準上：① 不影響個人 workflow（MVP→Feature 閘門）；② 封閉生態、非自控（對立於 Aionui 的開放自控方向）；③ 不解決「意圖自我維護／防腐化」這一使用者的團隊記憶核心判準（與 EverOS／TencentDB 同層缺陷）。**因此，Delta 對使用者的價值是「可抽取的方案方向」（以 delta 為 anchor、conversation 入版控），而非「可導入的工具」。若要自幹，DeltaDB 的 delta-anchor 概念是比 Git+PR 更貼近「意圖與變更對應」的設計起點，但其「自我維護」缺口仍需另行設計。**
+
+---
+
+## 5. User Q&A
+
+> 以下為 R2 使用者的四則追問。R2 一手資料來源：delta.dev/docs（concepts/delta-and-git、agents/threads、agents/review-and-sync、concepts/worktrees-and-machines、agents/comments、collaboration/collaborate-thread、privacy-and-security/data-storage、getting-started），官方／stable 層級。
+
+### Q1：保存會話歷史就只是把 user 跟 AI agent 的對話拿來跟 git commit 一一對應？
+
+**A**：不是一對一對應。對話與 file edit 是**同一個 delta 流**裡的兩類 delta，git commit 是另一層、留在 Git 端；DeltaDB 不把「對話」對應到「commit」，而是把「對話＋編輯」一起記成連續的 delta 序列。
+
+```
+DeltaDB 的資料粒度（非 1:1 commit）
+┌─────────────────────────────────────────────────────────┐
+│ Git 層            git commit（留在 git，另層記錄）        │
+├─────────────────────────────────────────────────────────┤
+│ Delta 層   delta 流（連續產生，不需 stage/commit）         │
+│            ├── file edit（程式碼變更）                     │
+│            ├── tree change（檔案樹變更）                   │
+│            ├── message（對話訊息，本身就是 delta）         │
+│            └── comment（註解）                            │
+└─────────────────────────────────────────────────────────┘
+```
+
+| 面向 | 實際機制 | 與「1:1 對應 commit」的差異 |
+|---|---|---|
+| delta 定義 | delta＝對 thread／worktree 的一次記錄變更（file edit、tree change、message、comment） | 粒度**細於** commit，一個 commit 前後可能橫跨多個 delta |
+| 對話的定位 | conversation 訊息**本身就是 delta**，與 file edit 同屬一個 delta 流 | 對話不是「另外對應到某個 commit」，而是嵌入 delta 流 |
+| commit 的關係 | git commit 留在 Git；DeltaDB 另記 delta 流 | 兩層並行，非對話↔commit 的映射 |
+
+**結論**：DeltaDB 的「對話↔程式碼」不是靠「把對話與 commit 一一對應」達成，而是靠「對話與編輯共用同一個 delta 流、以 delta 為 anchor」，使對話能沿著 delta 定位到它觸發的編輯。
+
+---
+
+### Q2：這東西跟我目前的 LearnGhAgent memory 機制是否類似？或者我的機制更好？
+
+**A**：不類似，兩者目的不同層級。Delta 的 conversation 記錄是「協作過程的即時原文留存」；LearnGhAgent 的 `memory/` 是「debug 軌跡」，且**刻意不納入知識**——知識只存在 `output/`。
+
+| 面向 | DeltaDB | 使用者的 LearnGhAgent / MyBrain 機制 |
+|---|---|---|
+| memory/ 定位 | thread 內對話＋worktree 全量即時同步複製 | `memory/`＝275 份執行軌跡（debug），**刻意不納入知識**（LearnGhAgent.md:52）；知識只在 `output/` |
+| 記錄單位 | delta 流（含對話原文與編輯） | 執行 log（step 總結）＋output 最終成果物 |
+| 防腐化 | 無結構化、支援原地編輯與 revert | MyBrain 用 append-only log 檢查＋validate/reindex CI 程式化防腐化 |
+| 寫入閘門 | 對話自動全錄 | 「人 review」當品質守門員 |
+
+對照第二大腦（https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/LearnGhAgent.md，human:fatesaikou / stable，2026-07-26）：他**刻意把執行軌跡與知識分離**——軌跡不進知識庫，知識是經過人 review 的 output。Delta 反過來把「對話原文」當成知識載體本身。
+
+**結論**：Delta 是「把對話當知識保存」；使用者機制是「把對話當軌跡、另以人 review 後的 output 為知識」。兩者哲學相反，不存在「誰更好」的單一答案——若目標是「程式碼與意圖的逐筆追蹤」，Delta 更細；若目標是「可驗證、可自我維護的知識」，使用者機制勝出，且與他 TencentDB/EverOS 的 Reject 判準一致。
+
+---
+
+### Q3：這東西真的是無損留下嗎？既然是 raw data，之後可以無損轉換？
+
+**A**：不是純 append-only 無損。Delta 支援**原地編輯先前訊息並丟棄其後的回應**、以及 **revert 到較早點並一併還原 worktree**——這兩者都會破壞「無損原文留存」的前提。
+
+| 操作 | 官方行為（delta.dev/docs） | 是否無損 |
+|---|---|---|
+| 發送新訊息 | 正常 append | 是 |
+| 原地編輯先前訊息 | **發送後取代該訊息之後的對話（後續回應被丟棄）** | 否——後續原文消失 |
+| revert 到較早點 | thread 回到該點，**並一併還原 worktree** | 否——較晚的對話與編輯狀態被回退 |
+| 刪除 thread | 僅移除本機、伺服器副本不即時移除（retention/backup 可能暫留） | 否（伺服器端可能暫留，但非使用者可控的無損保證） |
+
+儲存機制：DeltaDB 存「deltas in sequence」以重建 thread，本身是**可重建**的，但「可重建」≠「無損原文」——一旦使用者執行原地編輯或 revert，被取代的 delta 就不是可復原的完整原文。
+
+**對使用者「若無損則不需防腐」立場的修正**：使用者正確指出「raw data 無損則之後可無損轉換、防腐只在轉換/收斂時必要」。但這個前提在 Delta 不成立——因為它支援破壞原文的操作（原地編輯、revert）。**Delta 不是無損 raw data 庫，因此防腐缺口比 R1 報告所述更實質**：它不是「沒做防腐化」，而是「連無損留存都不保證」。
+
+**結論**：Delta 的對話留存**不是**無損 append-only；它提供破壞性編輯與回退。因此「raw data 無損即可無損轉換」的免防腐前提在 Delta 上不成立，防腐缺口成立且比 R1 判定更硬。
+
+---
+
+### Q4：這東西的記憶用途是「Code Review」而已？還是也有設計給「新機能開發設計」或「既有程式碼改修」？
+
+**A**：不是只有 Code Review。官方 getting-started 明列的用途含**探索 codebase、修 bug、scaffold 新功能**；review 只是「bring changes in」前的整合閘門，非唯一用途。
+
+| 用途 | 官方佐證（delta.dev/docs） | 定位 |
+|---|---|---|
+| 新功能開發（scaffold feature） | getting-started：「scaffold a feature」 | 明確支援 |
+| 既有程式碼改修（fix a bug） | getting-started：「fix a bug」 | 明確支援 |
+| 程式碼探索 | getting-started：「explore the codebase」 | 明確支援 |
+| Code Review | review-and-sync：review 是 bring changes in 前的整合閘門；agent 在獨立 checkout 工作，review 後才 push local/origin | 整合前閘門，非唯一用途 |
+| review 的載體 | comments：annotation 式 comment（選取文字片段附註、可回覆），agent 把 comment 當針對該段落的回饋 | review 的一種具體形式 |
+
+**結論**：Delta 的用途涵蓋**新功能開發、既有改修、程式碼探索、Code Review** 四者，review 僅是其中一個整合閘門；它是以 thread 為單位的完整開發協作環境，不是 review 專用工具。
