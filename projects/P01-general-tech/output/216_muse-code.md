@@ -3,7 +3,7 @@
 > 調研標的：**Muse Code**（Meta 2026-08-05 發表的終端 coding agent，beta）＋基座模型 **Muse Spark 1.2**。
 > 定位：**個人採用評估**——對照使用者現行 Claude Code（$22/月訂閱）＋ Ollama Cloud（deepseek-v4-flash）跑的 opencode。
 > 資料來源：官方 blog（research.meta.ai）、官方 docs（dev.meta.ai pricing / permissions / cookbook）、OpenRouter、二級分析（agentpedia）。
-> 報告完成日期：2026-08-11。
+> 報告完成日期：2026-08-11（R3 更新：2026-08-14，新增 §5 Q4/Q5 與 Contributor 地區限制歧義注記）。
 
 ---
 
@@ -107,6 +107,7 @@ Muse Code 的解法可拆為「harness（CLI）」「模型（Muse Spark 1.2）�
 - **Web search grounding**：$2.50 / 1,000 次搜尋，另外計。
 - **Rate limits**：Standard 3,000 RPM / 4,000,000 TPM；Contributor 100 RPM / 3,000,000 TPM（per team，非 per key）。
 - Contributor tier 有地區限制（select countries），且僅 `muse-spark-1.2-contributor` 此模型適用。
+  - ⚠️ **R3 更新（地區限制歧義）**：R3 抓取的官方現行 pricing/models 文件**未再載明「select countries」地區限制**，僅說「以授權訓練換取大幅折扣」。此為**待驗證歧義**——R1/R2 的「限地區」可能源自較早或二級來源；若你所在區域被排除，Contributor 可能不可用，需以申請時官方回覆為準。
 
 **「給 Meta 訓練坐到啥地步」的拆解**：
 - 想「不給 Meta 訓練」→ 用 **Standard tier**（`muse-spark-1.2`），官方條款明載不訓練。
@@ -262,3 +263,105 @@ Muse Code 的解法可拆為「harness（CLI）」「模型（Muse Spark 1.2）�
 - 官方與獨立評測一致顯示 Muse Spark 1.2 在 coding 上**居第 2、僅次 Claude Opus 5**，高於 Fable 5 之外的多數模型。
 - **與 deepseek-v4-flash 無同基準可比**——DeepSeek 報的是不同 benchmark（Terminal-Bench 2.0 / SWE Verified），不能直接比較；需自行實測才能定論。
 - 對你「Opus/Fable medium 以上」的日常主力，Muse 在官方數據上**低於 Opus 5**，與 Fable 5 接近；是否值得切換，取決於你實際任務的錯誤擴散範圍（見 §4.5 模型分級）。
+
+---
+
+### Q4：如果我想試用 Muse Spark 1.2，可以用 opencode 嗎？要訂閱哪個專案（我可以接受貢獻）？怎麼設定？給我一步步指令教學
+
+**A**：**可以，opencode 是官方 cookbook 明載的 drop-in 目標**（Use case 11「OpenCode + Muse Spark」的 GitHub repo agent）。你不需要換 harness，只要在 opencode 加一個 provider 設定、改 `base_url` 與 model 即可。
+
+**訂閱哪個 tier（你明說可接受貢獻）：**
+
+| Tier | 模型 ID | Input | Cached | Output | 資料授權 | 適用 |
+|------|---------|------:|-------:|-------:|---------|------|
+| **Standard** | `muse-spark-1.2` | $1.25/M | $0.15/M | $4.25/M | 不訓練 Meta 模型 | 不想授權資料 |
+| **Contributor** | `muse-spark-1.2-contributor` | $0.10/M | $0.002/M | $0.20/M | 授權 Meta 用你的 prompt/completion 訓練未來模型 | **你「可接受貢獻」→ 選這個，-92%** |
+
+- Contributor 折扣：in $1.25→$0.10、cached $0.15→$0.002、out $4.25→$0.20。
+- Rate limits：Standard 3,000 RPM / 4M TPM；Contributor 100 RPM / 3M TPM（**per team，非 per key**）。
+- ⚠️ **地區限制歧義**：R1/R2 引用的「Contributor 限 select countries」在本輪（R3）抓取的官方現行 pricing/models 文件**未再載明**，僅說「以授權訓練換取大幅折扣」。此為**待驗證歧義**——若你所在區域被排除，Contributor 可能不可用，需以申請時官方回覆為準。
+
+**一步步設定（opencode 接 Muse Spark 1.2）：**
+
+官方 cookbook 提供兩版 config，官方建議用 **Responses API 版**（`@ai-sdk/openai`），理由見下方對照。
+
+**步驟 1：取得 API key**
+- 到 dev.meta.ai 註冊、選 Contributor tier（或 Standard）、取得 API key。
+
+**步驟 2：在 opencode 設定 provider（Responses API 建議版）**
+
+在 opencode 的 provider 設定（`opencode.json` 或對應 config）加入：
+
+```jsonc
+{
+  "provider": {
+    "meta": {
+      "npm": "@ai-sdk/openai",
+      "name": "Meta (Muse Spark)",
+      "options": {
+        "baseURL": "https://api.meta.ai/v1",
+        "apiKey": "{你的 API key}"
+      },
+      "models": {
+        "muse-spark-1.2": {
+          "name": "Muse Spark 1.2 (Contributor)",
+          "options": {
+            "model": "muse-spark-1.2-contributor",
+            "reasoning": { "include": ["reasoning.encrypted_content"] },
+            "modalities": ["text"],
+            "limit": { "context": 1000000 }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+**步驟 3：在 opencode 選用該模型**
+- 在 opencode 的 model 選擇中選 `meta/muse-spark-1.2`，即可開始試用。
+
+**兩版 adapter 對照（官方明載 tradeoff）：**
+
+| 接法 | SDK | 優點 | 代價 |
+|------|-----|------|------|
+| **Responses API（建議）** | `@ai-sdk/openai` | 原生多模態輸入（image/PDF）；跨 turn 加密 reasoning 續傳（`reasoning.encrypted_content`），避免每 turn 從零推理、多步 tool loop 失焦 | 設定較繁 |
+| **Chat Completions（簡化）** | `@ai-sdk/openai-compatible` | 設定簡單 | 不保證 reasoning 續傳；無原生 PDF 輸入 |
+
+**結論**：opencode 可直接接 Muse Spark 1.2，不需換 harness；你「可接受貢獻」→ 選 **Contributor tier**（-92%），照上述 config 改 `base_url`＋model 即可。Contributor 的地區限制為待驗證歧義，申請時需確認。
+
+---
+
+### Q5：MuseCode 跟 opencode 比有優勢嗎？優勢是啥？對成本或成果的量化數值影響是多少？
+
+**A**：先釐清比較層級——**MuseCode 與 opencode 都是 harness（CLI 執行框架），不是模型**。R2 已答的是「模型層」（Muse Spark vs Opus/DeepSeek）；此問是「harness 層」。**官方沒有 MuseCode vs opencode 的並排量化數據**，因此「成果量化」只能質性＋標明限制；「成本量化」有可計算部分。
+
+**harness 層優勢對照（MuseCode 官方自述特性 vs opencode）：**
+
+| 面向 | MuseCode | opencode | 差異 |
+|------|----------|----------|------|
+| 長時程 async 持久 agent | **內建**：background agents 常駐、自行決定回報主 agent | 無內建，需自行搭建 | MuseCode 有 |
+| crash 續跑 | **內建**：append-only event log，replay-exact、restart-safe | 無同等內建 | MuseCode 有 |
+| 結構化規劃 skill | **內建**：`/plan`→`/grill`→`/goal` | 無同等內建 | MuseCode 有 |
+| 安全邊界 | **內建**：approvals（on-request/untrusted/never）＋ OS sandbox（Seatbelt/bubblewrap） | 依賴外部設定 | MuseCode 開箱即用 |
+| 專案記憶 | **durable project memory** | 依賴外部方案 | MuseCode 有 |
+| AGENTS.md 相容 | 支援 | 支援 | 同級 |
+| 模型可插性 | 綁 Muse Spark 系 | 任意 provider（含 Muse Spark drop-in） | **opencode 較自由** |
+| 成本結構 | usage-based token 計費（無月費） | 開源免費 harness，成本在模型 | 見下方量化 |
+
+**成本面量化（可計算部分）：**
+
+| 方案 | 固定成本 | 變動成本 | 對你「每週 50~80% 周限額、集中六日」的月費 |
+|------|---------|---------|------------------------------------------|
+| opencode（現行） | $0（開源） | 模型費：Claude $20 + Ollama $20 = **$40/月** | $40/月（固定） |
+| MuseCode + Muse Spark Standard | $0 | token 計費 | $40~$160/月（依每週 5M~20M token，見 Q1） |
+| MuseCode + Muse Spark Contributor | $0 | token 計費 | $2.5~$10/月（依每週 5M~20M token，見 Q1） |
+
+- **換 harness 本身不改變模型成本**——MuseCode 的優勢不在「更便宜」，而在「內建長時程 agent 框架」。
+- 若你**只把 Muse Spark 接進 opencode**（不換 harness），成本與「MuseCode + Muse Spark」相同，但保留 opencode 的模型自由。
+
+**成果面量化限制（必須明示）：**
+- 官方無「MuseCode vs opencode 在同一任務集上的完成率/耗時」並排數據。
+- 唯一可推論的是：MuseCode 的 async background agents＋event log restart-safe 是為「1,000+ tool call、24 小時長任務」設計；opencode 無此內建。**若你的任務多為短時程（單次 session 內完成），此優勢不構成實際差異**；若常跑長時程自主迭代，MuseCode 的內建框架可省去自行搭建成本。
+
+**結論**：MuseCode 對 opencode 的優勢集中在**長時程 async agent、crash 續跑、內建規劃 skill 與安全邊界**；成本上 harness 本身不省錢（模型費才是大頭），成果上無官方並排量化，需以「你的任務是否長時程」判斷此優勢是否落地。若只想試 Muse Spark 模型，**接進 opencode 即可，不必換 harness**。
