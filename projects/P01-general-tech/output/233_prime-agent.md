@@ -173,6 +173,9 @@ RLM 提升長上下文與 token 效率，但**增加時間**（遞迴與程式�
 | **Kimi Code** | **不採用** | 模型品質改善，已有更低價且品質滿足的替代 | 同為「coding agent 產品」 |
 | **OpenCode** | **試用** | 大致堪用，Ollama 整合帶來自由度避免綁定 | 他現行的 coding harness |
 | **HermesAgent** | **採用** | 有自主記憶與自動 context 抽取，browser 比 opencode 強 | 同為「自主記憶 agent」 |
+| **deepseek-harness（`dsh`）** | **無判定（第二大腦無此主題）** | 第二大腦無 `deepseek-harness` ／`dsh` 評估（grep 無命中）。僅有 DeepSeek-Reasonix（cache-first 成本優化，本人 Reject），那與 `dsh` 是**不同技術** | 同為「agent harness 層」，本報告判定與 prime-agent 同層競品 |
+
+> ⚠️ 注意：`deepseek-harness`（DeepSeek AI 的 plugin 化 harness）在你的第二大腦**沒有評估**。你既有的是 **DeepSeek-Reasonix**（`技術/技術評估/DeepSeek-Reasonix.md`，`generated.by: human:fatesaikou`、`status: stable`，本人定稿，**Reject**），那是 cache-first 成本優化框架，不是 `dsh`。`dsh` 是通用 agent harness（everything is a plugin、Cordis 驅動、developer preview、有 breaking changes），核心是「元件可置換」，無成本優化核心。
 
 **與本報告結論的衝突點（查詢最有價值處）**：
 
@@ -188,7 +191,7 @@ RLM 提升長上下文與 token 效率，但**增加時間**（遞迴與程式�
 
 ## 5. User Q&A
 
-> 本節為 R2 追問輪沉澱。使用者對 R1 報告提出 5 個連貫澄清性質問，核心是把 RLM 定位對照他自己的架構（LearnGhAgent harness、MyBrain 外置大腦）講清楚，並收斂到「這東西對他的 AiAgent 入口／workflow 到底改善什麼」。以下依序回答。
+> 本節為追問輪沉澱。R2 起為使用者對 R1 報告的連貫澄清性質問；R3 為使用者標 **NG** 的更正輪（Q3 對照對象誤判）。核心是把 RLM 定位對照他自己的架構（LearnGhAgent harness、MyBrain 外置大腦）講清楚，並收斂到「這東西對他的 AiAgent 入口／workflow 到底改善什麼」。以下依序回答。
 
 ### Q1：RLM 到底是 AiCoding Agent？還是 AiCodingAgent＋harness（類 LearnGhAgent）？還是 AiCodingAgent＋harness＋外置大腦（類 MyBrain）？
 
@@ -231,18 +234,26 @@ RLM 提升長上下文與 token 效率，但**增加時間**（遞迴與程式�
 
 ### Q3：之前看到的 deepseekharness 是不是跟這東西是競品？
 
-**A**：**不是競品，是正交的兩件事**。deepseekharness＝你在第二大腦已判定的 **DeepSeek-Reasonix**（`技術/技術評估/DeepSeek-Reasonix.md`，`generated.by: human:fatesaikou`、`status: stable`，本人定稿，**你已 Reject**）。兩者解決的問題不同：
+> ⚠️ **R3 更正**：本題原答誤把「deepseekharness」判成你在第二大腦已 Reject 的 **DeepSeek-Reasonix**。你標 NG，並指出你指的是實際 repo **`deepseek-ai/deepseek-harness`（`dsh`）**。以下為以實際 repo 為準的更正回答。R2 誤判來源：`deepseekharness` 字面易與你第二大腦裡既有的 `DeepSeek-Reasonix` 評估混淆，但兩者是不同技術。你的第二大腦**沒有實際 deepseek-harness 的評估紀錄**（grep `dsh|deepseek-harness` 無命中，僅有 DeepSeek-Reasonix），本題對照以實際 repo 為準。
 
-| 面向 | prime-agent（RLM） | DeepSeek-Reasonix |
+**A**：**是競品，而且是「同層」的競品**——你指的 `deepseek-ai/deepseek-harness`（`dsh`）是 **DeepSeek AI 開源的 agent harness（`everything is a plugin`，由 Cordis 驅動）**，與 prime-agent 同屬「agent harness 層」。對照如下：
+
+| 面向 | prime-agent（RLM） | deepseek-harness（`dsh`） |
 |---|---|---|
-| 要解決的問題 | 長任務的 context 塞爆＋無狀態＋不會自我改進 | 長會話 token 費用過高（DeepSeek prefix cache hit 率低） |
-| 切入點 | **能力**：把 agent 程式化＋自我改進 harness | **成本**：維持 byte layout 穩定以命中 DeepSeek 磁碟快取 |
-| 核心機制 | persistent IPython kernel＋`/refine` | Cache-First Loop 三分區（ImmutablePrefix／AppendOnlyLog／VolatileScratch） |
-| 你的判定 | 無（本報告不建議直接採用，建議抽取需求理解） | **Reject**：在沒有成功率基線的保障下做成本優化沒有意義 |
+| 出品 | Prime Intellect | DeepSeek AI |
+| 定位 | 自進化 RLM 程式設計／研究 agent | 通用 agent harness，「everything is a plugin」 |
+| 切入點 | **自我改進**：把 harness 程式化並能 `/refine` 自己變好 | **可置換**：把 harness 的 model adapter / tool registry / session log / agent loop 全部 plugin 化，都可從 config 置換 |
+| 驅動核心 | persistent IPython kernel＋Continual Harness | Cordis plugin tree |
+| 成熟度 | 新 repo（16k stars、MIT、TypeScript） | **developer preview、有 compatibility-breaking changes**；123,607 stars、MIT、TypeScript |
+| 你的判定 | 無（本報告不建議直接採用） | **第二大腦無此主題**——僅有 DeepSeek-Reasonix（不同技術，你 Reject） |
 
-**兩者關係**：Reasonix 假設「agent 能力已固定，只優化成本」；prime-agent 假設「agent 能力要能自我改進」。Reasonix 的 cache-first loop 是**成本優化層**，prime-agent 的 RLM 是**能力層**——兩者可以疊加（在 prime-agent 上套 cache-first loop 省 token），不是互斥的競品。
+**兩者關係（同層、不同子層）**：
+- 兩者都是 **agent harness**：dsh 把「harness 的每個元件」變成可從 config 置換的 plugin；prime-agent 把「harness 本身」當成可程式化、可自我改進的狀態。
+- 切入點差異：dsh 主打**模組可置換**（換 model adapter、換 tool、換 agent loop 不重寫 harness），prime-agent 主打**自我進化**（`/refine` 改 harness 狀態）。兩者在「harness 層」競爭同一個位置（agent 怎麼被組裝與驅動），因此是**同層競品**，而非正交。
 
-**結論**：deepseekharness（DeepSeek-Reasonix）不是 prime-agent 的競品。Reasonix 優化成本、prime-agent 優化能力，切入點正交。你對 Reasonix 的 Reject 判定（無成功率基線做成本優化無意義）不影響 prime-agent 的評估——後者根本不在做成本優化。
+**與 DeepSeek-Reasonix 的區別（澄清誤判）**：`dsh` **不是** DeepSeek-Reasonix。Reasonix 是 cache-first loop 成本優化框架（你已 Reject），`dsh` 是通用 plugin 化 agent harness，核心在「元件可置換」，**無成本優化核心**。兩者完全無關。
+
+**結論**：你指的 deepseekharness＝`deepseek-ai/deepseek-harness`（`dsh`）是 **prime-agent 的同層競品**（都是 agent harness 層，前者 plugin 化、後者自我改進），不是正交，也不是你已 Reject 的 DeepSeek-Reasonix。R2 把它判成 Reasonix 是誤判，本題已更正。
 
 ---
 
