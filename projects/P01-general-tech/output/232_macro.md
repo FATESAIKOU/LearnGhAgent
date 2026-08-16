@@ -159,4 +159,78 @@
 
 ## 5. User Q&A
 
-> 本節為使用者對 macro 提出質問後追加。目前 R1 首輪，尚無使用者提問，本節留空待追加。
+> 本節為使用者對 macro 提出質問後追加。R2 使用者已基本偏向 Reject，改問「能借鑑什麼、怎麼套用、可用性矩陣」三題。以下 QA 承接 R1 的 macro 機制與第二大腦既有判定。
+
+### Q1：如果這東西能讓我借鑑，最可能借鑑的地方與借鑑方式為何？
+
+**A**：macro 最值得借鑑的不是「工作台」本身（那正是你已 Reject 的 Buzz 問題域），而是它的**資料模型原語**與**記憶合成方向**。依「技術取捨準則」原則三（Reject ≠ 沒價值，仍抽取需求理解與方案方向），可借鑑點如下：
+
+| 借鑑點 | macro 的做法 | 借鑑方式（套到你的 MyBrain / 個人 AiAgent 入口） | 對照你既有判定 |
+|---|---|---|---|
+| **一切皆 block** | email/chat/doc/task/CRM/call 統一抽象成 block 單位 | 把 MyBrain 的「判定總表＋骨幹索引」從「檔案＋frontmatter」升級為「可被 Agent 當成單一資料源讀取的結構化節點」 | 與你 Reject 的 OKF「結構太固定」不同——block 是「統一原語」而非「固定 schema」，保留擴張性 |
+| **@mention 雙向連結** | block 之間建立雙向 References（@linked 圖） | 讓「判定總表 ↔ 個別評估檔 ↔ 日誌」的關聯可被 Agent 反向追蹤，而非靠 grep 單向找 | 對照你 Reject 的 OKF「知識圖譜需要擴張與自適應性」——雙向連結正是擴張性的來源 |
+| **統一 property 系統** | STRING/NUMBER/BOOLEAN/DATE/SELECT/ENTITY/LINK 跨 block 共用 | 把 MyBrain frontmatter 的 `generated.by`/`status`/`verified` 統一成可被驗證器讀取的欄位型別 | 與你 MyBrain 的 validate.py 程式化防腐化相容，不衝突 |
+| **跨 block 單一 tag 命名空間** | 單一 tag 跨所有 block，Any/All 過濾 | 把「骨幹 tag」從「grep 標記」升級為「跨檔可過濾的索引原語」 | 對照你現行 grep＋骨幹 tag 的確定性檢索，是它的結構化延伸 |
+| **每晚 cron 合成記憶** | 每晚從 email/messages/tasks/docs/calls 合成一次 | 方向可借：定期聚合各來源；但**必須補上防腐化閘門**（見下） | 與你 Reject 的 TencentDB「無防腐化機制」同型，借方向、不借機制 |
+
+**⚠️ 借鑑的界線（反證表）**：
+
+| 借鑑點 | 可借 | 不可借 | 理由 |
+|---|---|---|---|
+| 資料模型原語 | ✅ block＋雙向連結＋property＋tag | — | 是「可計算知識圖」的結構化起點，與你 MyBrain 想達成的「讓資訊可被檢索」同向 |
+| 記憶合成 | ✅ 「定期聚合」的方向 | ❌ 「每晚 cron 一次、無防腐化閘門」的機制 | 你 Reject TencentDB 的核心判準正是「沒有防腐化機制的大腦等同必定過期的文件」；macro 的 cron 合成沒有 dedup／衝突合併／回滾描述，與被批同型 |
+| 工作台整合 | — | ❌ all-in-one 收 email/chat/CRM | 正是你 Reject Buzz 的「規模過大、個人使用不必要」 |
+
+**結論**：借 macro 的「統一 block＋雙向連結＋統一 property＋跨 block tag」資料模型原語，套到 MyBrain 與個人 AiAgent 入口的結構化改造；不借「all-in-one 工作台」與「無防腐化的 cron 合成記憶」——後兩者分別踩中你已 Reject 的 Buzz 與 TencentDB 判準。
+
+---
+
+### Q2：如果要進一步套用到我的個人 workflow，最可能如何活用？可能有幾種 pattern？
+
+**A**：依「技術取捨準則」原則二（MVP→Feature 唯一閘門＝能否影響個人 workflow），macro 的團隊治理功能對你個人 workflow 的直接影響有限，但它的**資料模型原語**可對照你進行中的「個人 AiAgent 入口」與日常在用的 MyBrain。套用 pattern 如下：
+
+| Pattern | 活用方式 | 對照你現有 workflow | 影響個人 workflow 的程度 |
+|---|---|---|---|
+| **P1：統一 block 資料層** | 把個人 AiAgent 入口的 ChatSession 記錄、MyBrain 的判定、Feedly 摘要統一成「可被 Agent 讀取的結構化節點」，而非散落檔案 | 個人 AiAgent 入口（進行中，卡在執行環境）；MyBrain（日常在用） | 高——直接解決「Agent 讀取跨工具脈絡」的結構化起點 |
+| **P2：雙向連結索引** | 讓「判定總表 ↔ 個別評估 ↔ 日誌」可被 Agent 反向追蹤，取代單向 grep | MyBrain 現行 grep＋骨幹 tag 確定性檢索 | 中——是現行檢索的結構化延伸，非替換 |
+| **P3：統一 property 防腐化** | 把 frontmatter 的 `generated.by`/`status`/`verified` 統一成驗證器可讀的型別，強化 validate.py | MyBrain 的 validate.py＋reindex.py＋append-only log 檢查 | 中——與你既有程式化防腐化相容，是強化非新增 |
+| **P4：定期聚合（借方向）** | 借「定期從各來源聚合」的方向，但**補上防腐化閘門**（人 review＋程式化驗證） | MyBrain「人 review 當品質守門員」模型 | 低——你已有更嚴格的防腐化，macro 只是方向印證 |
+
+**⚠️ 不建議的 pattern（反證表）**：
+
+| Pattern | 為何不建議 | 對照你既有判定 |
+|---|---|---|
+| 導入 macro 本體當工作台 | all-in-one 規模大、self-host 非 focus、AGPLv3 copyleft | 踩中 Buzz Reject「規模過大、個人使用不必要」 |
+| 用 macro 的 cron 合成記憶 | 無防腐化閘門，等同必定過期的文件 | 踩中 TencentDB Reject「無防腐化機制」 |
+| 把團隊治理功能搬進個人 workflow | 團隊功能對個人 workflow 無直接影響 | 違反原則二「MVP→Feature 閘門＝能否影響個人 workflow」 |
+
+**結論**：最可能活用的是 P1（統一 block 資料層）與 P2（雙向連結索引）——套到進行中的個人 AiAgent 入口與 MyBrain，讓 Agent 讀取跨工具脈絡的結構化起點；P3 是既有防腐化的強化；P4 只是方向印證。不導入 macro 本體。
+
+---
+
+### Q3：這東西對「利用範圍（個人／團隊／公司）× 利用領域（日常業務／程式開發／非日常業務）」的可用性、應用方式、判定理由為何？
+
+**A**：依 macro 的定位（all-in-one 工作台＋團隊級記憶）、self-host 可行性（非 focus）、授權（AGPLv3 copyleft）與你既有判定，可用性矩陣如下：
+
+| 利用範圍 | 利用領域 | 可用性 | 應用方式 | 判定理由 |
+|---|---|---|---|---|
+| **個人** | 日常業務 | 低 | 收 email/chat/task 進單一系統，Agent 從 unified memory 工作 | 你 Reject Buzz「個人使用不必要」；all-in-one 規模對個人過重；self-host 非 focus 走雲端，個人難落地 |
+| **個人** | 程式開發 | 低 | 個人 coding 用 Agent 讀取跨工具脈絡 | 你 Reject Delta「只是開發過程紀錄機制可自己兜」；個人 coding 已有 opencode＋MyBrain 覆蓋 |
+| **個人** | 非日常業務 | 低 | 個人專案管理、生活事務收進工作台 | 個人層級無團隊治理需求；macro 的團隊記憶功能用不上 |
+| **團隊** | 日常業務 | 中 | 團隊 email/chat/docs/tasks 統一，Agent 共享上下文 | 這是 macro 的核心定位；但記憶無防腐化機制，踩中你 Reject TencentDB 判準 |
+| **團隊** | 程式開發 | 中 | 團隊 coding 協作，Agent 參與 PR/issue | 你 Reject Buzz「規模過大、採用效果未知」；Delta「團隊效果難驗證」；需全員理解機制才能沉澱正確資訊 |
+| **團隊** | 非日常業務 | 中 | 團隊專案管理、跨部門知識累積 | 團隊級記憶是 macro 強項；但無防腐化閘門，長期只剩雜音 |
+| **公司** | 日常業務 | 中 | 全公司 email/chat/CRM 統一，Agent 跨部門搬運上下文 | 對應「公司不可計算」命題；但規模與治理需求遠超 macro 目前驗證範圍，無第三方 benchmark |
+| **公司** | 程式開發 | 中 | 公司級 coding 協作與知識治理 | 你 Reject EverOS「機制複雜規模大、無自組織驗證」；macro 泛用未專門化，導入規模與專案年紀不符 |
+| **公司** | 非日常業務 | 低 | 公司級非技術知識管理 | 泛用未專門化；AGPLv3 copyleft 對商業整合有限制；self-host 非 focus |
+
+**判定理由的橫向歸納**：
+
+| 判定軸 | 個人 | 團隊 | 公司 |
+|---|---|---|---|
+| **規模匹配** | 過重（Buzz Reject） | 中等 | 過大（EverOS Reject） |
+| **記憶防腐化** | 無此需求 | 缺閘門（TencentDB Reject） | 缺閘門＋無驗證（EverOS Reject） |
+| **self-host/授權** | 非 focus、難落地 | 走雲端、AGPL copyleft | AGPL copyleft 對商業整合受限 |
+| **個人 workflow 影響** | 低（原則二閘門） | 團隊功能非個人 workflow | 非個人 workflow |
+
+**結論**：macro 的可用性集中在「團隊 × 日常業務／程式開發」——那是它的核心定位，但記憶無防腐化機制踩中你 Reject TencentDB 的判準；「個人」層級因規模過重與 self-host 非 focus 而低可用；「公司」層級因規模過大、無自組織驗證與 AGPL copyleft 而受限。對你個人 workflow 的直接可用性低，可借鑑的是資料模型原語（見 Q1/Q2）。
