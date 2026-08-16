@@ -186,6 +186,100 @@ RLM 提升長上下文與 token 效率，但**增加時間**（遞迴與程式�
 
 ---
 
+## 5. User Q&A
+
+> 本節為 R2 追問輪沉澱。使用者對 R1 報告提出 5 個連貫澄清性質問，核心是把 RLM 定位對照他自己的架構（LearnGhAgent harness、MyBrain 外置大腦）講清楚，並收斂到「這東西對他的 AiAgent 入口／workflow 到底改善什麼」。以下依序回答。
+
+### Q1：RLM 到底是 AiCoding Agent？還是 AiCodingAgent＋harness（類 LearnGhAgent）？還是 AiCodingAgent＋harness＋外置大腦（類 MyBrain）？
+
+**A**：RLM 是**「AiCodingAgent＋harness」這一層**，不是單獨的 AiCoding Agent，也不是「＋外置大腦」。用你自己的 Harness Engineering 五問（`抽象理解/本質洞察/Harness Engineering.md`，`generated.by: human:fatesaikou`、`status: stable`，本人定稿）拆層對照：
+
+| 層 | prime-agent 的對應 | 你的 LearnGhAgent | 你的 MyBrain |
+|---|---|---|---|
+| **AiCoding Agent（模型＋工具迴圈）** | 底層模型在 persistent IPython kernel 裡工作 | 底層模型＋工具集 | 不屬於 harness，是資料庫 |
+| **harness（五問）** | RLM 程式設計模型＋Continual Harness | LearnGhAgent 的 4-step workflow、AGENTS.md、judge/ | 不屬於 harness |
+| **外置大腦（跨 session 記憶庫）** | **無**——記憶存在 kernel 變數與 durable harness 狀態，不是獨立外置知識庫 | 無 | MyBrain（OKF bundle） |
+
+**RLM 的「記憶」與 MyBrain 的「記憶」是兩種東西**：
+
+| 面向 | prime-agent（RLM） | MyBrain |
+|---|---|---|
+| 記憶的載體 | kernel 變數、durable harness 狀態（prompt/memory/skill/subagent 規格） | 檔案系統上的 OKF markdown bundle |
+| 記憶的用途 | 讓**單一 agent 的長任務**跨 turn 存活 | 讓**你本人**跨 session 查「我是誰／在哪／要去哪」 |
+| 誰在讀 | 模型（程式化存取） | 你＋agent（透過 mybrain-read skill） |
+| 是否自我改進 | 是（`/refine` 改 harness 狀態） | 否（寫入需你 review，`status: draft`→`stable`） |
+
+**結論**：RLM 落在「AiCodingAgent＋harness」層。它沒有「外置大腦」這層——它的記憶是 harness 內部的程式化狀態，不是像 MyBrain 那樣獨立的知識庫。若你要對照，prime-agent ≈ 你的 LearnGhAgent（harness）＋ 一個把「記憶」內建在 harness 裡的機制，而非 LearnGhAgent＋MyBrain 的組合。
+
+---
+
+### Q2：RLM 的特點是比起一般 AiCoding Agent 只多了「自我改善」而已？
+
+**A**：不是。RLM 的差異是**三件事疊加**，「自我改善」只是其中一件，而且它改的是 harness 狀態、不是模型權重：
+
+| 差異點 | 一般 AiCoding Agent | prime-agent（RLM） |
+|---|---|---|
+| **執行模型** | 靠一堆獨立內建工具（讀檔、改檔、跑命令各自為政） | 唯一內建工具是 `ipython`，所有能力用「寫 Python 程式」組合，狀態存在 kernel 變數 |
+| **context 治理** | 靠對話歷史＋手動摘要 | 程式化執行省 token＋自動 compaction，工作狀態在 kernel 變數而非對話歷史 |
+| **自我改善** | 無，能力寫死在 system prompt 與工具集 | `/refine` 小步、evidence-backed 更新 durable harness 狀態（prompt/memory/skill/subagent 規格），可 rollback |
+
+**「自我改善」的邊界（重要）**：`/refine` 改的是**補充 harness 狀態**，永不改寫不可變的 base system prompt，也**不更新模型權重**。所以「自進化」不是「模型自己變強」，是「agent 的 harness 設定會自己變好」。
+
+**結論**：RLM 的差異是「程式化執行＋context 治理＋自我改善 harness」三件一起，不是只多一個「自我改善」。若只看到「＋自我改善」，會漏掉它把 agent 能力全部程式化這個更根本的差異。
+
+---
+
+### Q3：之前看到的 deepseekharness 是不是跟這東西是競品？
+
+**A**：**不是競品，是正交的兩件事**。deepseekharness＝你在第二大腦已判定的 **DeepSeek-Reasonix**（`技術/技術評估/DeepSeek-Reasonix.md`，`generated.by: human:fatesaikou`、`status: stable`，本人定稿，**你已 Reject**）。兩者解決的問題不同：
+
+| 面向 | prime-agent（RLM） | DeepSeek-Reasonix |
+|---|---|---|
+| 要解決的問題 | 長任務的 context 塞爆＋無狀態＋不會自我改進 | 長會話 token 費用過高（DeepSeek prefix cache hit 率低） |
+| 切入點 | **能力**：把 agent 程式化＋自我改進 harness | **成本**：維持 byte layout 穩定以命中 DeepSeek 磁碟快取 |
+| 核心機制 | persistent IPython kernel＋`/refine` | Cache-First Loop 三分區（ImmutablePrefix／AppendOnlyLog／VolatileScratch） |
+| 你的判定 | 無（本報告不建議直接採用，建議抽取需求理解） | **Reject**：在沒有成功率基線的保障下做成本優化沒有意義 |
+
+**兩者關係**：Reasonix 假設「agent 能力已固定，只優化成本」；prime-agent 假設「agent 能力要能自我改進」。Reasonix 的 cache-first loop 是**成本優化層**，prime-agent 的 RLM 是**能力層**——兩者可以疊加（在 prime-agent 上套 cache-first loop 省 token），不是互斥的競品。
+
+**結論**：deepseekharness（DeepSeek-Reasonix）不是 prime-agent 的競品。Reasonix 優化成本、prime-agent 優化能力，切入點正交。你對 Reasonix 的 Reject 判定（無成功率基線做成本優化無意義）不影響 prime-agent 的評估——後者根本不在做成本優化。
+
+---
+
+### Q4：套用這東西，對我是改善「AiAgent 入口」，還是改善「我的 workflow」？
+
+**A**：**兩者都不是直接改善，而是「先卡在執行環境未定」**。你的「個人 AiAgent 入口」專案（`技術/靈感/個人 AiAgent 入口.md`，`generated.by: claude-code/opus-5`、`status: draft`，**AI 草稿，未經你 review**）卡在**執行環境未定**（自架實體 vs 自架雲端 vs 跑在終端，2026-08-14 展開三選項未定案）。prime-agent 的落點要先看它屬於哪一層：
+
+| 你的專案層 | prime-agent 的對應 | 是否被 prime-agent 改善 |
+|---|---|---|
+| **入口（前端 app＋後端）** | 無對應——prime-agent 是 terminal/headless agent，不是 app 入口 | 否 |
+| **執行環境** | daemon-backed 長任務架構，與「跑在終端」選項的常駐性需求相關 | 間接相關，但**執行環境未定，無從套用** |
+| **workflow（你日常怎麼用 agent）** | RLM 的程式化執行＋自我改進 harness | 需先有執行環境才談得上 |
+
+**關鍵**：你的專案**先決問題是執行環境**，不是 agent 形態。prime-agent 屬「AI agent 形態」問題域，但**第二大腦無直接引用**，此為間接關聯。在執行環境定案前，套用 prime-agent 沒有落點——它既不是你的入口，也進不了你的 workflow。
+
+**結論**：套用 prime-agent 對你**既不是改善入口、也不是改善 workflow**，因為你的「個人 AiAgent 入口」卡在執行環境未定，prime-agent 的落點（terminal agent 形態）要等執行環境定案後才談得上。它對你目前是「可抽取的需求理解與方案方向」，不是「可套用的改善」。
+
+---
+
+### Q5：承上，改善的是「維運成本」還是「AI 的產出效果」？
+
+**A**：**prime-agent 改善的是「AI 的產出效果」，不是維運成本**——而且這正是它與你已 Reject 的 DeepSeek-Reasonix 的關鍵分野：
+
+| 面向 | prime-agent（RLM） | DeepSeek-Reasonix（你已 Reject） |
+|---|---|---|
+| 改善的標的 | **產出效果**：長任務能跨 turn 存活、agent 能自我改進 harness | **維運成本**：token 費用 |
+| 改善的機制 | 程式化執行省 token＋自我改進 harness | cache-first loop 命中 DeepSeek 磁碟快取 |
+| 你的判定 | 無（本報告不建議直接採用） | **Reject**：無成功率基線做成本優化無意義 |
+
+**對照你的取捨準則**（`抽象理解/本質洞察/技術取捨準則.md`，`generated.by: claude-code/opus-5`、`status: draft`，**AI 草稿，未經你 review**）：你對 Reasonix 的 Reject 理由是「在沒有成功率基線的保障下做成本優化沒有意義」——你**不把成本優化當成獨立價值**。prime-agent 不做成本優化，它做的是「讓 agent 產出更好」（長任務不中斷、能力會自我改進），這與你的準則方向一致。
+
+**但**：prime-agent 的「自我改進」是**自動的**（`/refine` 自己改 harness），而你的 Harness Engineering（stable，本人定稿）強調「AI Guardrails：驗證規則程式化（Linter／Test＋CI／技術債定期清理／可動權限）」——你要的是「**你怎麼知道自己做對了（verify）**」，不是「agent 自己改自己」。prime-agent 的 `/refine` 有 refinement history 與 rollback，但「自我改進」的驗證機制是否足夠，與你「不要建議加人工審核關卡、要補驗證機制」的立場需要對照——這是你 review 時最值得追問的點。
+
+**結論**：prime-agent 改善的是**產出效果**（長任務能力＋自我改進 harness），不是維運成本。這與你對 Reasonix 的 Reject（成本優化無意義）不衝突，因為兩者切入點正交。但 prime-agent 的「自動自我改進」與你「verify 優先」的 harness 準則存在張力——它改 harness 的驗證機制是否足夠，是你要追問的點。
+
+---
+
 ## 附錄：調研資料來源
 
 | 來源 | 內容 |
