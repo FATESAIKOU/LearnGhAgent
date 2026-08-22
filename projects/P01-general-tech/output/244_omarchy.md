@@ -165,6 +165,67 @@ Omarchy 把配置分成兩層（見 dotfiles 手冊）：
 
 ---
 
+## 5. User Q&A
+
+> 以下 QA 依使用者 R2 追問沉澱。規則：不刪改既有內容；一輪含多子問則拆獨立 QA；遵守「不用比喻、不用情緒語言、不寫可能也許我認為」。
+
+### Q1：具體來說，「AI 為一等公民」是哪幾個 scene？每個 scene 裡人做什麼動作、體驗是什麼？
+
+**A**：「AI 為一等公民」不是一句口號，而是 **7 個可獨立觸發、由 Omarchy 系統層直接綁定**的具體 scene。每個 scene 拆成「人的動作 → OS 的反應 → 你看到的體驗」三層。
+
+| # | Scene | 人的動作 | OS／agent 的反應 | 使用者體驗 |
+|---|---|---|---|---|
+| S1 | **首次使用任一家 coding agent** | 安裝完首次在終端敲 `claude`（或任一） | `~/.local/bin/` 內的 mise stub 偵測到首次執行 → 才實際下載對應 agent binary | 第一印象是「系統已經認識 agent」，不需要自己裝 runtime；下次即瞬間啟動 |
+| S2 | **一鍵拉起 default agent** | 按 `Super+Shift+Ctrl+A` | `omarchy-launch-tui` 開固定 app-id 視窗載入 default agent（未設則開 picker） | 像按一個「打開 AI」的快捷鍵，而不是先想「我要開哪個終端再敲指令」 |
+| S3 | **在任何 editor/終端內聯起 agent** | 按 `a`／`c`／`cx`／`cy` 內聯鍵 | `omarchy-agent` 以對應 agent 的旗標（`-p`/`--auto`/`--permission-mode auto` 等）在目前工作目錄啟動 | agent 以「無停問（auto-approve）」模式直接開工；從 `$HOME` 啟動會自動切到 `~/Work` |
+| S4 | **隨時看各家 agent 用量** | 瞄一眼頂部 bar 的 agents panel | 3 個 collector（claude/codex/fireworks）每 15 分鐘寫 JSON 到 `~/.local/state/omarchy/agents/usage/`，panel watch 目錄即時刷新 | 一眼看到每家 plan、5 小時與週上限百分比、prepaid 餘額、token 使用 |
+| S5 | **程式 crash 自動診斷** | 有 process crash → 收到「Process crashed」通知 → 點通知 | 監 `systemd-coredump` 抓到 pid/comm/signal → 打包給 default agent＋`diagnose-crash` skill 自動追根因 | crash 不是被動等使用者報，而是 OS 主動把 crash 丟給 agent 分析 |
+| S6 | **切換桌面主題連帶 agent 一起換** | 切 Omarchy theme | 實際呼叫 `omarchy-theme-set-claude`／`-pi`／`omarchy-restart-opencode` 同步 agent 的視覺 | 桌面與 AI agent 的樣式是「一套」，不需各自設定 |
+| S7 | **agent 能直接調用系統本身** | 對 agent 下指令調整 Omarchy 設定 | `Omarchy Skill` symlink 進各 agent 的 skill 目錄 → agent 呼叫 `omarchy-*` 指令改參數 | agent 不再只是「改你專案裡的 code」，能直接操作 OS 設定 |
+
+#### 這些 scene 的共相
+
+| 觀察 | 說明 |
+|---|---|
+| **啟動由 stub 延後** | 不做任何 agent 但系統內建整套 stub，首次用到才下載 → 零安裝成本、選擇開放 |
+| **操作介面＝快捷鍵＋面板** | agent 從「重terminal 副程式」升格為「被桌面 shell 直接繫結的一等物件」 |
+| **狀態可視** | 用量、餘額、上限全部集中可視，不靠各自 CLI 慢慢查 |
+| **事故自動化** | crash 由 OS 主動交棒給 agent；theme 變更自動連動 agent |
+| **系統可被 agent 治理** | agent 透過 skill 能碰 `omarchy-*`，即「AI 對 OS 本身有 write access」 |
+
+**結論**：「AI 為一等公民」＝ Omarchy 把 coding agent 從「使用者自己安裝的第三方工具」重新包裝成「OS 內建、可按快捷鍵、可看面板、可自動接管事故、可被 theme 綁定、可反過來調系統」的第七類桌面元件（等同檔案、視窗、bar、theme 的地位）。
+
+### Q2：這些 scene 相比「在一般 Linux 上自己裝 claude-code」體驗差異在哪？
+
+**？**
+
+**A**：「自己裝 claude-code」與「Omarchy 內建 agent」的差異，不是「多裝了幾個指令」，而是**責任歸屬從使用者手上移到 OS 身上**。逐場景對照如下。
+
+| 面向 | 一般 Linux ＋自己裝 claude-code | Omarchy 一等公民 | 差異的本質 |
+|---|---|---|---|
+| 安裝 | 手動 curl/brew 安裝、設 PATH、裝 runtime | 系統預置 stub，首次執行 lazy-load | 安裝從「使用前必做」變成「OS 已處理」 |
+| 啟動 | 自己開 terminal → cd 到專案 → 打 `claude` | `Super+Shift+Ctrl+A` 或 `a`/`c` 直接內鍵 | 啟動從「一段 workflow」變成「一個快捷鍵」 |
+| 授權 | 各自 CLI 每次詢問是否批准指令 | auto-approve 旗標（`--auto` 等）預設跑 | 人不再逐問，信任邊界交給 agent 的 verify 機制 |
+| 工作目錄 | 自己 `cd` 到正確路徑 | 從 `$HOME` 啟動自動切 `~/Work` | 減少「開錯目錄」的上下文錯誤 |
+| 用量可視 | 分別登各 console 查 | 單一面板（plan/上限/餘額/token） | 集中化監看 |
+| crash 處理 | 看到 core dump / 錯 log，自己動手追 | OS 收事故 → 交 default agent 自動診斷 | 從「被動診斷」到「主動接棒」 |
+| 環境變動（theme） | agent 樣式與桌面無關、各自設定 | 切 theme 自動同步 agent | 系統與 agent 樣式綁定 |
+| agent 能管系統 | 不行，agent 只碰專案檔 | agent 有 Omarchy skill 可調 OS 參數 | agent 信任邊界從「檔案層」擴到「系統層」 |
+
+**反證表（這些差異未必都是好處）**：
+
+| Omarchy 做法 | 可能付出的代價 |
+|---|---|
+| auto-approve 預設跑 | 權限過大；若沒有對應的 verify harness，錯誤的影響範圍比「每次確認」大 |
+| crash 自動丟給 agent | agent 需要憑據才能碰 coredump，且預設 agent 要事先設定、品質因設而定 |
+| theme→agent 同步 | 只綁定它能同步的 agent（claude/pi/opencode），非對應者不在此列 |
+| stub lazy-load | 首次執行需連網下載，斷網環境不能開箱即用 |
+| 綁定整套主見 | 換 agent 或不用 Omarchy 的整合時，這些機制全部失效 |
+
+**結論**：差異核心是**「OS 把 agent 當內建元件收編，還是當外部程式各自裝」**。Omarchy 把安裝、啟動、授權、監視、crash、theme、系統治理七個環節全數 OS 化；代價是這些便利綁死在 Omarchy 的整合預設與 agent 選項上，離開 Omarchy 就全數失效。以使用者的第二大腦準則看，這不是「OS 級遷移」的理由，而是「抽取這套收編機制設計」的素材。
+
+---
+
 ## 結語
 
 Omarchy 的解法特徵是：把「一個權威使用者的整套打磨桌面」打包成**可安裝、可持續更新、可回退**的發行版，用 `system/user` 分離避免個人化被更新踩掉，並把 AI coding agent 當成第一公民整合進去。它解決「Linux 桌面開箱即用」的門檻，但代價是接受 DHH 的既有主見與 `alpha` 狀態；對照使用者第二大腦，這是一個「抽取其整合設計、而非整機採用」的標的。
