@@ -107,9 +107,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ~/.config/opencode/skills ~/.config/opencode/commands
-          # 全目錄複製：MyBrain 日後多一支 skill，只要進 .agents/ 就自動生效，
-          # 這裡不必再改。skill 是本體，command 只是薄殼入口。
-          cp -r .agents/skills/. ~/.config/opencode/skills/
+          # skill 是本體，command 只是薄殼入口。commands 用 repo 內的。
           cp .agents/commands/*.md ~/.config/opencode/commands/
           # refresh.sh 的 git fetch 要 gh 認證（private repo）。job 的 GH_TOKEN
           # 是 GITHUB_TOKEN，對 MyBrain 無權限——設好 credential helper 讓
@@ -117,6 +115,14 @@ jobs:
           GH_TOKEN="$MYBRAIN_TOKEN" gh auth setup-git || echo "gh auth setup-git failed (refresh 可能失敗)"
           GH_TOKEN="$MYBRAIN_TOKEN" MYBRAIN_DIR=/tmp/mybrain bash .agents/skills/mybrain-read/refresh.sh || true
           echo "MyBrain @ $(git -C /tmp/mybrain log -1 --format='%h %ad' --date=short 2>/dev/null || echo 'unavailable')"
+          # MyBrain 的 skill 以 MyBrain repo 為單一事實源。讀取路徑拿不到就沿用
+          # 本 repo 的 mybrain-read 副本（bootstrap 用的那份），不中斷流程。
+          if [[ -d /tmp/mybrain/.okf/skills ]]; then
+            cp -r /tmp/mybrain/.okf/skills/. ~/.config/opencode/skills/
+            echo "MyBrain skills (live): $(ls /tmp/mybrain/.okf/skills | tr '\n' ' ')"
+          else
+            echo "WARN: 拿不到 MyBrain 的 live skill，沿用 repo 內的 mybrain-read 副本" >&2
+          fi
 
       - name: Switch to PR branch + build context + round id + paths
         run: |
