@@ -88,29 +88,26 @@ ls "$WORK/日誌/" | tail -5
 
 **規則全在步驟 3 讀到的 `index.md`，本檔不重複**——規則只留一份才不會 drift。這裡只擋四個最常寫錯的點：
 
-- **主題檔一定要在對應日期的日誌留一條相對路徑連結**，否則就是沒有時間座標的孤兒，驗證會擋
+- **主題檔一定要在對應日期的事件檔留一條相對路徑連結**，否則就是沒有時間座標的孤兒，驗證會擋
 - **同主題已有檔案就 append**（檔內用 `## YYYY-MM-DD` 分段），不要新建日期碎片檔
 - **圖片放進 `<報告名>/image1.png`**，就在報告旁邊；丟在日誌或根目錄會被判 error
 - **你是 AI**：產出一律 `status: draft` 且不填 `verified`
 
-另外**手寫**根目錄 `log.md` 的一條記錄（最上面的日期區塊，格式看既有內容）。
-
-**`index.md` 不要手寫**——下一步用腳本重生。
+**不要碰 `log.md`、正式日誌 `日誌/YYYY-MM-DD.md`、任何 `index.md`、判定總表、下一步清單**——它們是共享熱點，PR 改了會被 `PR-HOTSPOT` 擋。給 `log.md` 的記錄與下一步清單的增刪提議，都寫在事件檔的對應區塊裡，merge 後由合成流程套用。**格式看 `mybrain-write` skill 與 `index.md` 規則十，本檔不重複。**
 
 > `--dry-run` 在這裡停下，把打算寫的檔案與內容印出來給使用者看。
 
 ---
 
-## 步驟 5：重生 index，然後驗證
+## 步驟 5：驗證
+
+**只跑 `validate.py`，不要跑 `reindex.py`**——reindex 會改寫既有日誌的摘要與各層 index，那些是共享熱點，跑完會讓 PR 撞上 `PR-HOTSPOT`。index 由 merge 後的合成流程重生。
 
 **這兩支是這個 bundle 的標準操作腳本，一定要跑，不要自己手工做它們的事。**
 
 ```bash
-python3 "$WORK/.okf/reindex.py"  "$WORK"   # 依實際檔案重生各層 index.md、同步日誌摘要
 python3 "$WORK/.okf/validate.py" "$WORK"   # 驗證標頭、連結鏈、圖片配置
 ```
-
-`reindex.py` 會讀各檔 frontmatter 的 `title` / `description` 產生 index 條目，並把日誌裡 `→ [名稱](路徑) — 摘要` 的摘要同步成目標檔現行的 description。它只重生自動區塊，`index.md` 裡手寫的「使用規則」原樣保留。
 
 `validate.py` 的結果：
 

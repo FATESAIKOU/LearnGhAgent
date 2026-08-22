@@ -114,12 +114,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ~/.config/opencode/skills ~/.config/opencode/commands
-          # 全目錄複製：MyBrain 日後多一支 skill，只要進 .agents/ 就自動生效，
-          # 這裡不必再改。skill 是本體，command 只是薄殼入口。
-          cp -r .agents/skills/. ~/.config/opencode/skills/
+          # skill 是本體，command 只是薄殼入口。commands 用 repo 內的，
+          # skills 則以 MyBrain repo 為單一事實源，不用本 repo 的副本——
+          # 舊副本會 drift，而寫入側 drift 的後果是 PR 一定紅（PR-HOTSPOT／
+          # HEAD-VERDICT-REASON）。寫入路徑因此硬性要求拿到活的版本。
           cp .agents/commands/*.md ~/.config/opencode/commands/
           GH_TOKEN="$MYBRAIN_TOKEN" MYBRAIN_DIR=/tmp/mybrain bash .agents/skills/mybrain-read/refresh.sh || true
           echo "MyBrain @ $(git -C /tmp/mybrain log -1 --format='%h %ad' --date=short 2>/dev/null || echo 'unavailable')"
+          if [[ ! -f /tmp/mybrain/.okf/skills/mybrain-write/SKILL.md ]]; then
+            echo "FAIL: /tmp/mybrain 沒有 MyBrain 的 skill，refresh.sh 應該失敗了。" >&2
+            echo "      用舊規則寫入必定產出紅燈 PR，這裡直接停。" >&2
+            exit 1
+          fi
+          cp -r /tmp/mybrain/.okf/skills/. ~/.config/opencode/skills/
+          echo "MyBrain skills (live): $(ls /tmp/mybrain/.okf/skills | tr '\n' ' ')"
           # 讀取只需要 gh；寫入還要 git push，而 git 不看 GH_TOKEN。設定 gh 當
           # credential helper，push 時就會用當下的 GH_TOKEN（= MYBRAIN_TOKEN）。
           # LearnGhAgent 自己的 push 走 checkout 寫進 local config 的 extraheader，
