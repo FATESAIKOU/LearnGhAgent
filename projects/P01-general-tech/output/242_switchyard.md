@@ -103,7 +103,7 @@ Switchyard 屬「LLM 流量 proxy / API Gateway / Model Routing」問題域。�
 | 技術名 | 技術解法 | 技術使用前提 | 技術使用副作用 | 技術使用預期效果 |
 |---|---|---|---|---|
 | **Switchyard（本標的）** | Rust proxy/libsy，協議翻譯（OpenAI↔Anthropic）+ 多演算法路由 + Prometheus metrics | 有 Rust 工具鏈；接受 pre-alpha/API 未到 v1.0；需自建/自備後端 | 每次 judge（llm_classifier/escalation/advisor）多一個 model call 與 schema 依賴；capable_first 未經 bench；不 production-ready | 既有 agent 不改語法即可接開放模型，同一個 proxy 內做 A/B、訊號路由、自寫演算法 |
-| **OmniRoute**（第二腦：Accept, draft） | 本機開源 AI gateway，單一 OpenAI 相容 endpoint，統一 250+ Provider，聚合免費額度 | 個人/本機環境；要統一 Endpoint 切 Provider；「解耦」優先於「細緻路由」 | 需開機常駐 proxy；免費額度來源變動；僅「解耦/切換」非「細路由決策」 | app 與 provider 解耦，切換/cost 優化；無需自己兜 gateway |
+| **OmniRoute**（第二：Accept, draft） | 本機開源，統一 OpenAI 兼容 endpoint，**340 Provider / 90+ free / 1200+ models / 43 provider pools / ~1.53B 免費 token/月**（2026-08-22 live metadata，v3.8.50，53k★） | 個人自機環境；要統一 Endpoint 切 Provider；「解耦」優先於「細路由」 | 需開機常駐 proxy；免費額度來源變動；僅「解耦/切換」非「細路由決策」 | app 與 provider 解耦，切換/cost 優化；無需自己兜 gateway |
 | **LiteLLM**（第二腦：對照組, 未評） | Python SDK/Proxy，100 Provider 統一接，round-robin/fallback 等基礎路由 | Python 專案；要 SDK 彈性而非 standalone proxy；接受輕度路由 | 路由演算法偏 basic，少「能力分階/訊號驅動」；要自己寫進既有 app | 統一 Provider 存取 + 基礎切換/fallback，適合嵌入 app |
 | **OpenRouter**（第二腦：對照組, 未評） | 商業 SaaS，單一 endpoint 掛大量模型，request/response 一致 | 接受第三方 SaaS 集中路由與定價；不在乎資料出本機 | 資料經第三方；固定費用 markup；不適合自託開放模型 | 免架設即用多模型，聚焦「切模型」而非自建 infra |
 | **（思考方式）自兜一層 LLM client wrapper** | 自己寫個薄抽象層，讓 app 只 call 一個 local endpoint，切 target | 專案夠小；不介意 handle 各 provider 的細微差別 | 每個 provider 的怪異都要自己處理；重造輪子 | 與「理解優先/先自己兜」準則一致，學到本質但不疊演算法 |
@@ -117,3 +117,149 @@ Switchyard 屬「LLM 流量 proxy / API Gateway / Model Routing」問題域。�
 與使用者決策的落點：若依 DeepSeek V4「降低 Model Routing 優先級」+ 準則「先自己兜、MVP→Feature 看是否影響 workflow」，**Switchyard 不應被當「新研究方向」投入，而是作為已 Accept 的 OmniRoute（decoupling）路線上的「細部路由補強」選項**，且其 pre-alpha 狀態正好符合「不夠穩定→先自己兜」的觸發條件（但「自己兜」指的是自己寫一層，而非導入一套 pre-alpha 依賴）。
 
 **結論**：Switchyard 解決「agent 原生語法 ↔ 開放模型 + 多模型路由」的解耦與路由問題；但其「精準 Model Routing」主體與使用者 stable 判定「降低 Model Routing 優先級」直接衝突，故正確用法是把它當 OmniRoute 路線的補充（第二腦的 decoupling 目的），不是新的研究方向。導入前須先明確「解耦（已 Accept）」與「細路由（他降優先）何者是要做」。
+
+---
+
+## 5. User Q&A
+
+> 本節收錄使用者對本技術的追問（Round R2，2026-08-22）。既有 QA 不可刪改，僅可追加。
+
+### Q1：這東西跟 OmniRoute 比，支援 Model 廣度有沒有差異？我 Accept OmniRoute 是因為他聚合很多免費額度
+
+**A**：**有，而且是結構性的差異，不是數字大小的差異。** 兩者「支援 Model 廣度」的來源根本不是同一層，直接比 Provider 數量會誤判。
+
+| 面向 | Switchyard（NVIDIA-NeMo） | OmniRoute（diegosouzapw） |
+|---|---|---|
+| Provider 目錄 | **無內建**。必須使用者手寫 TOML 逐個 `base_url`＋`api_key_env` 指定 | **內建聚合**。340 Provider / 90+ free / 1200+ models / 43 provider pools / ~1.53B 免費 token/月 |
+| 免費額度聚合 | **無**。不收集任何免費來源 | **有，是核心賣點**。聚合 90+ 免費 Provider 與 40+ pool |
+| 廣度來源 | 使用者的手動 route 清單 | repo 內建維護的 provider 資料庫 |
+| 更新方式 | 你自己改 TOML | 官方 3.8.50 持續更新（v3.8.47→3.8.50 由 250+ 升到 340） |
+| 資料基準 | 需自備 API Key/額度 | 開箱即有免費 pool |
+
+```
+你的採納動機「聚合免費額度」
+        │
+        ▼
+OmniRoute: 內建 → 開箱即用 ✅ 正中你動機
+Switchyard: 無 → 你得自己把每一家免費額度寫進 TOML，等於你親自當 aggregation 層
+```
+
+**與第二大腦判定對照**（§4 已詳列）：第二腦 `OmniRoute.md` 判定為 Accept，理由是「本質是 LLM Provider 解耦層，有學習必要」，引用快照數字 250+ Provider（draft，未經你 review）。本次抓到官方 repo live metadata 為 **340 Provider / 1200+ models / 53k★ / 3.8.50**，廣度比快照更大。Switchyard 在第二腦 grep「switchyard」**零命中**，無既有判定。
+
+**在「Model 廣度 / 免費額度」這條你真正在意的軸上：OmniRoute 完勝，Switchyard 是空白。**
+
+**結論**：若你的採納判準是「聚合很多免費額度」，Switchyard 在這一項不構成對 OmniRoute 的替代——它根本沒有聚合層，Model 廣度要你手動拼。兩者不在同一層比較。
+
+### Q2：我想要安裝這東西讓我的 claudecode 跟 opencode 能用，一步步的步驟為何（我已有 OllamaCloud / Claude 訂閱）
+
+**A**：先講承接關係，再給一一步驟。**你的既有訂閱（OllamaCloud / Claude）就是 Switchyard 的「上游 client」**——你要在 `routes.toml` 裡把它們定義成 llm client + target，然後把 opencode 指到 `/v1`、claude code 指到 Anthropic endpoint。
+
+**承接兩側的關鍵**：
+
+| 工具 | 走什麼協定 | 指到 Switchyard 哪個 endpoint | 注意 |
+|---|---|---|---|
+| opencode | OpenAI 兼容 | `http://localhost:4000/v1` | 用 OpenAI Chat/Responses 口 |
+| claude code | Anthropic Messages | `ANTHROPIC_BASE_URL=http://localhost:4000` | **不加 `/v1`**；auth 用 `forward_auth=true` 或 `api_key_env`+token |
+
+**一階步驟（Switchyard，port 4000）**：
+
+```bash
+# 1. 安裝（Rust native server，pre-alpha）
+cargo install --locked switchyard-server
+
+# 2. 寫 routes.toml（把既有訂閱註冊成 llm_client + target + route）
+cat > routes.toml <<'TOML'
+[llm_clients.ollama_cloud]
+type = "openai_chat"
+base_url = "https://<你的 OllamaCloud endpoint>"
+api_key_env = "OLLAMA_KEY"
+[llm_clients.claude]
+type = "anthropic_messages"
+api_key_env = "ANTHROPIC_AUTH_TOKEN"
+[targets.weak]
+model = "deepseek-.../把你想走的 model id"
+client = "ollama_cloud"
+[targets.strong]
+model = "claude-.../"
+client = "claude"
+[routes.smart]
+targets = ["weak","strong"]
+# 路由演算法（passthrough / random / stage_router ...）
+TOML
+
+# 3. 啟動 server
+switchyard-server --config routes.toml --host 127.0.0.1 --port 4000
+
+# 4a. opencode → 指到 OpenAI 口
+# opencode.json:
+#   "provider": { "baseURL": "http://localhost:4000/v1", ... }  ← 實際 model ID 填 route 的 id
+
+# 4b. claude code → 指到 Anthropic 口
+# 環境變數：
+#   ANTHROPIC_BASE_URL=http://localhost:4000   （不加 /v1）
+#   ANTHROPIC_AUTH_TOKEN=<你的 token>           （或 server 端 forward_auth=true）
+```
+
+**必須注意的坑**：
+1. **`cargo install` 編譯**需 Rust toolchain，非一鍵 npm。
+2. **`routes.toml` 你必須自己寫**——Switchyard 不給你 Provider 目錄，`base_url`/`api_key_env` 全要你填。
+3. **pre-alpha**：README 明示 Not for production；API 到 v1.0 前還會大改。
+4. 你的 Claude 訂閱走 `ANTHROPIC_AUTH_TOKEN`，OllamaCloud 走各自的 `api_key_env`——token 不進 TOML，只走 env。
+
+**結論**：可行，但「讓 claudecode/opencode 能用」這一步沒有官方一鍵 setup，全部手動寫 TOML＋設 env，且預設只做 `passthrough` 才算「能用」，要路由再疊演算法。**你已「完整整理成功」claude/opencode 的 Hook/Skill/MCP 環境（MyBrain：追加功能/整理 claudecode-opencode 環境.md, human stable），導入 Switchyard 是再疊一層本地 proxy。**
+
+### Q3：另外如果我想要安裝使用 OmniRoute 讓我的 claudecode 跟 opencode 能用，一階步驟？給我指令（我已有 OllamaCloud / Claude 訂閱）
+
+**A**：OmniRoute 有**原生整合指令**，與 Switchyard 完全相反——它**開箱即用**，幾乎零 TOML 設定。它 boot 在 `localhost:20128`，且提供 `setup-opencode` / `setup-claude` 一鍵寫 config。
+
+**承接關係**：opencode 走 OpenAI 兼容口，claude code 走 Anthropic 口，都指到 `localhost:20128`。你的 OllamaCloud/Claude 訂閱可透過 `omniroute` 的 provider pool 一起納入或走 `api_key` 手動註冊。
+
+**步驟（OmniRoute，v3.8.50）**：
+
+```bash
+# 1. 安裝（npm global）
+npm install -g omniroute
+
+# 2. 啟動（boot localhost:20128，零 config 即用）
+omniroute
+#   或指定 profile
+#   omniroute launch --profile <name>
+
+# 3a. 一鍵接 opencode（自動寫 ~/.config/opencode/opencode.json）
+omniroute setup-opencode
+#    產生 provider: omniroute, npm:@ai-sdk/openai-compatible,
+#    baseURL: http://localhost:20128/v1
+
+# 3b. 一鍵接 claude code
+omniroute setup-claude --profile <name>
+#    寫 ~/.claude/profiles/<name>/settings.json
+#    + 注入 ANTHROPIC_AUTH_TOKEN
+#   （或手動 ANTHROPIC_BASE_URL=http://localhost:20128，不加 /v1）
+
+# 4. 設定 model：直接填 auto / auto/coding 或 combo 名
+#   opencode 側 model 填 auto
+#   claude 側 model 填 auto
+```
+
+**與「你已接受 OmniRoute」的銜接**：第二腦 `下一步清單` 有「LLM APIGateway 試用（解耦）——OmniRoute」，對照組 LiteLLM/OpenRouter/Portkey，**尚未 MVP 驗證**；`OmniRoute.md` 判定 `Accept`（draft）。你現在是在執行那條下一步。
+
+**坑**：
+1. **節點開機常駐**（proxy 需要一直在跑），switchyard 一樣。
+2. 免費 pool 來源會變動；部分是 OAuth/Cookie 型 executor，不是每個都純 API key。
+3. `setup-claude` 是 profile 綁定，要 profile 名對齊。
+
+**結論**：OmniRoute 對 claudecode/opencode 的接入**有官方一鍵 setup**，比 Switchyard 的「全手動 TOML+env」少很多步，且直接把免費/訂閱 pool 聚合好，正中你的採納動機。兩者都要求本地常駐 proxy，但 OmniRoute 的「廣度」是內建、Switchyard 是手動拼。
+
+### Q3 附：Switchyard vs OmniRoute 對「我的 claudecode/opencode」落地難度對照
+
+| 面向 | Switchyard | OmniRoute |
+|---|---|---|
+| 安裝 | cargo 編譯（Rust 需環境） | npm global（零編譯） |
+| 設定 opencode | 手動寫 opencode.json + env | `omniroute setup-opencode`（自動寫） |
+| 設定 claude | 手動 `ANTHROPIC_BASE_URL` + env | `omniroute setup-claude` + launch |
+| config 檔 | 手寫 `routes.toml`（必填 base_url/目標） | 零 config 或 dashboard 圖形 |
+| Model 廣度 | 手動建 list | 內建 340/90+ free/1200+ |
+| 免費額度 | 無聚合 | 聚合 90+ free / ~1.53B token/月 |
+| 就緒狀態 | pre-alpha, API 到 v1.0 前會大改 | release v3.8.50（53k★） |
+
+**結論**：以「我要讓 claudecode/opencode 能用＋我要免費額度」為判準，OmniRoute 的落地路徑更短、廣度內建、直接命中你 Accept 它的理由；Switchyard 是「細路由/協定翻譯」強者，但不是「廣度/免費」工具，落地要全手動。**你的採納動機（聚合免費額度）指向 OmniRoute；Switchyard 只能當 OmniRoute 上的細部路由補強，單獨導入它不會帶給你免費額度。**
