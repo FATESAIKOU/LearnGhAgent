@@ -88,7 +88,7 @@ Switchyard 屬「LLM 流量 proxy / API Gateway / Model Routing」問題域。�
 | 標的 | 第二大腦判定 | 信任層級 / 時間 | 對本報告 §4 的影響 |
 |---|---|---|---|
 | **Switchyard** | **無任何評估紀錄**（grep「switchyard」零命中） | 查無 | 無法引用個人判定，只依 repo 事實與通則 |
-| **OmniRoute** | **Accept**——「本質是 LLM Provider 解耦層（API Gateway），因解耦所以有學習必要，MVP 階段導入」 | AI draft（opencode/deepseek-v4-pro, status: draft）2026-07-26 | 已拍板「LLM gateway 解耦要學」，Switchyard 屬同域，需與之並列 |
+| **OmniRoute** | **Accept**——「本質是 LLM Provider 解耦層（API Gateway），因解耦所以有學習必要，**MVP 階段導入**」；其原生「三層 Resilience（Circuit Breaker / Connection Cooldown / Model Lockout）」即為「用量用完自動 fallback」的實作 | AI 2026-07-26 | 已拍板「LLM gateway 解耦要學」，Switchyard 屬同域；且「fallback/免費聚合」能力在 OmniRoute，不在 Switchyard（R3 已證） |
 | **LiteLLM / OpenRouter / Portkey** | 無獨立評估，但在「下一步清單」被列為 OmniRoute 的「對照組」，標明「MVP 階段要比較多個應用，那個比較還沒做」 | draft｜2026-08-11 | 對照組選用與第二腦一致，建議納入比較 |
 | **DeepSeek V4** | **human 本人 stable**：「**降低 Model Routing 研究優先級**——不要把心力花在『如何精準路由不同 LLM』的 legacy 機制上，把精力集中在 Domain 領域知識（AxrossRecipe 商業邏輯）」 | human:fatesaikou, **stable**｜2026-04-26 | **與本標的直接衝突**（見下「衝突聲明」） |
 
@@ -122,7 +122,7 @@ Switchyard 屬「LLM 流量 proxy / API Gateway / Model Routing」問題域。�
 
 ## 5. User Q&A
 
-> 本節收錄使用者對本技術的追問（Round R2，2026-08-22）。既有 QA 不可刪改，僅可追加。
+> 本節收錄使用者對本技術的追問（Round R2 2026-08-22：Q1-Q3；Round R3：Q4-Q6）。既有 QA 不可刪改，僅可追加。
 
 ### Q1：這東西跟 OmniRoute 比，支援 Model 廣度有沒有差異？我 Accept OmniRoute 是因為他聚合很多免費額度
 
@@ -262,4 +262,128 @@ omniroute setup-claude --profile <name>
 | 免費額度 | 無聚合 | 聚合 90+ free / ~1.53B token/月 |
 | 就緒狀態 | pre-alpha, API 到 v1.0 前會大改 | release v3.8.50（53k★） |
 
-**結論**：以「我要讓 claudecode/opencode 能用＋我要免費額度」為判準，OmniRoute 的落地路徑更短、廣度內建、直接命中你 Accept 它的理由；Switchyard 是「細路由/協定翻譯」強者，但不是「廣度/免費」工具，落地要全手動。**你的採納動機（聚合免費額度）指向 OmniRoute；Switchyard 只能當 OmniRoute 上的細部路由補強，單獨導入它不會帶給你免費額度。**
+**結論**：以「我要讓 claudecode/opencode 能用＋我要免費額度」為判準，OmniRoute 的落地路徑更短、廣度內建、直接命中你 Accept 它的理由；**你的採納動機（聚合免費額度）指向 OmniRoute；Switchyard 只能當 OmniRoute 上的細部路由補強，單獨導入它不會帶給你免費額度。**
+
+---
+
+### Q4：我有辦法結合 OmniRoute 的免費 Route 聚合放到 Switchyard 上，讓它實現「用量用完自動 fallback」嗎？
+
+**A**：**不能照你想的那個方向做。** 你要的「用量用完自動 fallback」這件事，能力根本不在 Switchyard 身上——它在 OmniRoute 身上。把「聚合免費 Provider 的 fallback」餵給 Switchyard 承載，是方向顛倒。
+
+**先拆清楚「用量用完自動 fallback」這件事，兩端各自有沒有：**
+
+| 面向 | Switchyard | OmniRoute |
+|---|---|---|
+| Circuit breaker（斷路器） | **無**。只有 `max_retries`（llm_client 層） | **有**。三層 Resilience：Circuit Breaker / Connection Cooldown / Model Lockout |
+| 用量/配額感知 | **無**。不知道上游剩多少額度 | **有**。Quota Telemetry：額度 `exhausted` → 標 ineligible、開 circuit，路由時直接排除 |
+| 跨 Provider 自動切 | **無**。只能 retry + judge fail-open 到 strong | **有**。Provider Failover，circuit closed/open/half_open，跨 provider 最多 3 次 attempt |
+| 免費 Provider 聚合 | 無目錄，手動 TOML | 內建 90+ free / 348 Provider |
+
+```
+「用量用完 → 自動 fallback」 這整件事
+   ├── 偵測「用完」   → OmniRoute 有（quota telemetry / circuit）
+   │                    Switchyard 沒有（只有 retry 計數）
+   └── 決定「換哪家」 → OmniRoute 有（failover policy，可排除 ineligible）
+                          Switchyard 沒有（只能 fail-open 到 strong，不會「切到另一家免費」）
+```
+
+**你的想像指令查證結果（Step 2 C1 已實際查 CLI）：**
+- `omniroute gen-switchyard.toml` → **不存在**。OmniRoute `bin/cli/commands` 只有 `setup-*`（opencode/claude 等）、`auth export`、`policy export/import`、`sync bundle`，沒有 switchyard 格式匯出。
+- `switchyard update opencode/claudecode` → **不存在**。Switchyard 只有單一 `switchyard-server --config <toml>` 二進位，沒有 update/setup 指令、沒有 provider 目錄 autodiscovery。
+
+**若要兜，兜出來的東西在重複 OmniRoute 已擁有的能力**：你等於自己重寫 Quota Telemetry + Circuit Breaker + Provider Failover——這些 OmniRoute 原生就有且維護中。依你的取捨準則「不夠穩定或不熟悉就先自己兜，MVP 是理解驗證點」，「自己兜」的目的是**理解**；但這裡兜出來不是為了理解，而是為了複製一個現成且更完整的機制，無收益。
+
+**真正可行的結合是反向（見 Q5）**：讓 Switchyard 把 `base_url` 指向 OmniRoute，由 OmniRoute 原生做免費聚合+fallback，Switchyard 只負責「路由政策（weak/strong/classifier）」。Switchyard 不需要也不懂免費額度。
+
+**結論**：照你的方向（把 OmniRoute 免費聚合餵給 Switchyard 去 fallback）不可行——「用量用完 fallback」的原生能力在 OmniRoute，Switchyard 根本沒有可承接該機制的 hook；要結合必須反向，讓 Switchyard 吃 OmniRoute 的 endpoint。
+
+### Q5：那具體結合的配置步驟為何？（反向接法）
+
+**A**：可行方向是**反向**——`Switchyard` 指到 `OmniRoute`，不是相反。你已有 OmniRoute（localhost:20128）與 Switchyard（R2 已裝，port 4000）。**分工**：OmniRoute 做「免費聚合 + 用量用完 fallback」（它原生），Switchyard 做「路由政策（把請求導到 weak/strong 目標）」。
+
+**承接關係圖：**
+```
+opencode/claude code
+        │  (原生 API：openai / anthropic)
+        ▼
+  Switchyard :4000        ← 只做「路由決策」+ 協議翻譯
+        │ base_url 指向 OmniRoute
+        ▼
+  OmniRoute :20128        ← 做「免費聚合 + 用量用完 fallback」（原生）
+        ▼
+  348 Provider / 90+ free pool
+```
+
+**步驟：**
+
+```bash
+# 1. 先起 OmniRoute（免費聚合 + fallback 的工作在此做）
+omniroute                      # boot localhost:20128
+
+# 2. 寫 Switchyard 的 routes.toml：
+#    把 OmniRoute 當成唯一的上游 client（base_url 指到 localhost:20128）
+cat > routes.toml <<'TOML'
+[llm_clients.omniroute]
+type = "openai_chat"
+base_url = "http://localhost:20128/v1"
+# OmniRoute 自己管 API key / 免費 pool，Switchyard 不需 api_key_env
+[targets.weak]
+model = "auto"          # 讓 OmniRoute 用 auto 挑便宜的免費模型
+client = "omniroute"
+[targets.strong]
+model = "claude-..."    # 你的 Claude 訂閱，走 OmniRoute 也可
+client = "omniroute"
+[routes.smart]
+targets = ["weak","strong"]
+# 路由演算法：stage_router / llm_classifier 由你在這層決定
+TOML
+
+# 3. 起 Switchyard，指到上面 routes.toml
+switchyard-server --config routes.toml --host 127.0.0.1 --port 4000
+
+# 4. claude code / opencode 一樣指到 Switchyard（沿用 R2 Q2 的接法）
+#   opencode  → http://localhost:4000/v1
+#   claude    → ANTHROPIC_BASE_URL=http://localhost:4000（不加 /v1）
+```
+
+**為什麼這樣就能「自動 fallback」：** 用量用完時，是 **OmniRoute** 在 `:20128` 偵測到 quota exhausted → 自動切到另一家免費/付費。Switchyard 只在 `:4000` 做「這一個 request 該給 weak 還是 strong」的政策決策，它不必知道「哪家免費額度剩多少」——那已由 OmniRoute 處理。
+
+**對照你的想像 vs 可行做法：**
+
+| 面向 | 你想的（不可行） | 可行的反向 |
+|---|---|---|
+| fallback 在哪層 | Switchyard | OmniRoute |
+| TOML 來源 | `omniroute gen-switchyard.toml`（不存在） | 你手寫 routes.toml，`base_url=http://localhost:20128` |
+| Switchyard 懂不懂免費額 | 要懂（不存在） | 不必懂，Omni 全包 |
+| fallback 品質 | 你自己兜（會重複 Omni 功能） | OmniRoute 原生三層 Resilience |
+
+**結論**：可行的結合是**反向**——OmniRoute 在底層做「免費回復 + 用量用完 fallback」（它原生就是幹這個的），Switchyard 在上層做「路由政策」。你不需要 `gen-switchyard.toml`，只需在 routes.toml 把 `base_url` 指到 `localhost:20128`。你的想像方向要整個倒過來。
+
+### Q6：用 AI wrapping 產「確定性程式碼」來做轉換，prompt 骨子為何？
+
+**A**：你明講可接受 AI 產「確定性 wrapping」處理轉換，前提是「思想能對上」。而 R3 的核心結論是：**「思想對不上」——你想的轉換方向（O→S 承載 fallback）不存在、且會重複 Omni 已有能力**。所以 AI wrapping 不該做「把 fallback 搬進 Switchyard」這種重複工程，而該做**「把 OmniRoute 的 provider/failover 設定，合成成 Switchyard 可讀的 routes.toml」**——這才是確定性、值得自動化的轉換，也才對得上「OmniRoute 維護免費 Provider + failback 規則 → Switchyard 給 opencode/claudecode 對應 model」的原始構想。
+
+**Prompt 骨子（你直接改用，把它當「生成器」而非「fallback 引擎」）：**
+
+```
+你是個確定性設定檔產生器，輸入 OmniRoute 的 provider 清單，輸出 Switchyard 的 routes.toml。
+
+輸入格式（來自 OmniRoute 的可用 pool / failover 清單）：
+<這裡放 OmniRoute 的 provider 清單：name, endpoint, model_ids, quota 狀態>
+
+輸出規則（**務必遵守、不得自由發揮**）：
+1. 把「剩額度」對映到 Switchyard 的 [targets.<id>]：額度充足→target weak；額度低→target strong。
+2. 每個 target 的 client 固定指到 base_url=http://localhost:20128（OmniRoute），不得自設別的 base_url。
+3. 不要產生任何「fallback/retry 邏輯」進 routes.toml——用量用完的切換由 OmniRoute 自己處理，Switchyard 的 job 只做路由決策。
+4. 若有 provider 在 OmniRoute 端標成「ineligible/lockout」，就把它從輸出 target 清單移除。
+5. 輸出必須是可被 switchyard-server --config 直接解析的合法 TOML。
+
+反向驗證（自檢）：
+- 這個 routes.toml 不含任何「自動切換免費 provider」的邏輯 → 對（該邏輯在 OmniRoute）。
+- 所有 target 都指到 localhost:20128 → 對。
+- 沒有用任何 gen-switchyard 這種不存在的指令 → 對。
+```
+
+**重點提示**：這層「確定性 wrapping」的價值在「**把 OmniRoute 的狀態（哪家免費、額度如何）轉成 Switchyard 能吃的 target 配置**」——也就是維護「免費 pool ↔ Switchyard target」的對映，而不是實作 fallback。fallback 留在 OmniRoute。用你「Harness 驗證程式化」的精神：這支 wrapper 的輸出是可被 TOML parser + switchyard 冷啟動驗證的確定性產物。
+
+**結論**：可以也值得用 AI 產確定性 wrapper，但它的正確職責是「**把 OmniRoute 的可用 provider 合成成 Switchyard 的 routes**」，不是「把 fallback 邏輯搬進 Switchyard」。方向修正後，這層 wrapper 才對得上你原始的「OmniRoute 維護免費聚合 + failback 規則 → Switchyard 給 opencode/claudecode 對應 model」分工，且產出可被確定性驗證（符合你的 Harness 驗證取向）。
