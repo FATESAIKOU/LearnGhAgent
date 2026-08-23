@@ -122,7 +122,7 @@ Switchyard 屬「LLM 流量 proxy / API Gateway / Model Routing」問題域。�
 
 ## 5. User Q&A
 
-> 本節收錄使用者對本技術的追問（Round R2 2026-08-22：Q1-Q3；Round R3：Q4-Q6）。既有 QA 不可刪改，僅可追加。
+> 本節收錄使用者對本技術的追問（Round R2 2026-08-22：Q1-Q3；Round R3：Q4-Q6；Round R4 2026-08-23：Q7）。既有 QA 不可刪改，僅可追加。
 
 ### Q1：這東西跟 OmniRoute 比，支援 Model 廣度有沒有差異？我 Accept OmniRoute 是因為他聚合很多免費額度
 
@@ -386,4 +386,67 @@ switchyard-server --config routes.toml --host 127.0.0.1 --port 4000
 
 **重點提示**：這層「確定性 wrapping」的價值在「**把 OmniRoute 的狀態（哪家免費、額度如何）轉成 Switchyard 能吃的 target 配置**」——也就是維護「免費 pool ↔ Switchyard target」的對映，而不是實作 fallback。fallback 留在 OmniRoute。用你「Harness 驗證程式化」的精神：這支 wrapper 的輸出是可被 TOML parser + switchyard 冷啟動驗證的確定性產物。
 
-**結論**：可以也值得用 AI 產確定性 wrapper，但它的正確職責是「**把 OmniRoute 的可用 provider 合成成 Switchyard 的 routes**」，不是「把 fallback 邏輯搬進 Switchyard」。方向修正後，這層 wrapper 才對得上你原始的「OmniRoute 維護免費聚合 + failback 規則 → Switchyard 給 opencode/claudecode 對應 model」分工，且產出可被確定性驗證（符合你的 Harness 驗證取向）。
+**結論**：可以也值得用 AI 產確定 wrapper，但它的正確職責是「**把 OmniRoute 的可用 provider 合成成 Switchyard 的 routes**」，不是「把 fallback 邏輯搬進 Switchyard」。方向修正後，這層 wrapper 才對得上你原始的「OmniRoute 維護免費聚合 + failback 規則 → Switchyard 給 opencode/claudecode 對應 model」的邏輯，且產出可被確定性驗證（符合你的 Harness 驗證取向）。
+
+---
+
+### Q7：照你所說「Switchyard 指到 OmniRoute」的架構，用 Switchyard 對我的意義在哪？是因為 OllamaCloud/ClaudeCode 訂閱掛不進 OmniRoute？還是啥效能議題？
+
+**A**：你的兩個候選猜測，**先證偽再收斂意義**。
+
+**猜測①（訂閱掛不進 OmniRoute）——不成立。** 你的 OllamaCloud 與 Claude 訂閱都能掛進 OmniRoute：
+
+| 訂閱 | 掛進 OmniRoute 的層級 | 依據 |
+|---|---|---|
+| Claude 訂閱 | Tier 1 = Subscription（Claude Code / Codex / Copilot） | OmniRoute tier 結構 |
+| OllamaCloud | Tier 2 = API Key（DeepSeek、Groq 等同層） | 屬 API key tier |
+
+所以「因為 Switchyard 才能掛訂閱」這個理由不成立——你即使完全不裝 Switchyard，OmniRoute 也能承接這兩者。
+
+**猜測②「效能議題」——方向對一半，但因果要倒過來。** 你裝 Switchyard 不是為了「加速」，而是你**自己決定要**在 OmniRoute 之上多疊一層路由政策（weak/strong/stage_router/llm_classifier）。這一層不是免費的：
+
+| 多疊 Switchyard 的成本 | 說明 |
+|---|---|
+| 多一跳 proxy | opencode/claude → Switchyard(:4000) → OmniRoute(:20128) → provider |
+| 每次 judge（llm_classifier/escalation/advisor） | 多一個額外 model call |
+| 一套 pre-alpha 依賴要維護 | README 明示 Not for production |
+
+**「意義在哪」的正確答案——不是訂閱、也不是效能，而是「路由政策層」。** 反向架構下 Switchyard 唯一的、且是你手動加上去的職責，是把請求在「weak vs strong」之間做**策略性分流**：
+
+```
+opencode / claude code
+        │ 原生 API（openai / anthropic）
+        ▼
+   Switchyard :4000    ← 你唯一新增的：把 turn 分流到 weak/strong
+        │ base_url 指向 OmniRoute
+        ▼
+   OmniRoute :20128    ← 免費聚合 + 用量用完 fallback（原生）
+```
+
+對照你第二大腦的取捨準則（`技術取捨準則.md`，骨幹 tag）：準則是「**MVP→Feature 唯一閘門＝能否影響個人 workflow**」「**先自己兜，MVP 是理解驗證點**」。用這個判準看：
+
+| 判準 | Switchyard 這層路由政策的回答 |
+|---|---|
+| 影響 workflow？ | 你已有「Claude Code + opencode 環境完整整理成功」（human stable）；Switchyard 是在之上加一層「分弱/強」，影響的是「省不省免費額度/品質取捨」，非你原本的「能不能用」 |
+| 值得為它多一跳？ | 若你只是要「統一接 + fallback」→ 那層已由 OmniRoute 全包，Switchyard 是**重複的解耦外殼**，不影響 workflow |
+| 與 DeepSeek V4 準則 | 你本人 stable 判定「**降低 Model Routing 優先級**——不要把心力花在『如何精準路由不同 LLM』的 legacy 機制上」。而 Switchyard 的主體正是「精準路由」，**這一條與你想在 OmniRoute 上再疊 Switchyard 直接衝突** |
+
+```
+你想加 Switchyard（精準 Model Routing）
+        │  對照
+        ▼
+你本人 stable 判定：「降低 Model Routing 優先級」⚠️ 衝突
+        │
+        ▼
+真正有價值的層 = OmniRoute 的「解耦 + 免費聚合 + fallback」（已 Accept）
+```
+
+**反證表：**
+
+| 假設「用 Switchyard 有意義」的理由 | 反證 |
+|---|---|
+| 因為訂閱掛不進 OmniRoute | ❌ 訂閱（Tier 1）與 OllamaCloud（API key）都能掛進 |
+| 因為效能更好 | ❌ Switchyard 是多加一跳與（judge 時）額外 model call，只增不減 |
+| 因為我要路由分流 | ⚠️ 這是你手動加的意圖，但它踩在你本人「降低 Model Routing 優先級」的 stable 判定上 |
+
+**結論**：在「Switchyard 指到 OmniRoute」的架構下，用 Switchyard 的意義**不是訂閱承接、也不是效能**——那兩者你猜的都不成立。它的唯一職能是你自己決定要疊的「weak/strong 路由政策層」，而這恰好撞上你本人 stable 判定「降低 Model Routing 優先級」；若你的目標是「統一 endpoint + 免費額度 + 自動 fallback」，OmniRoute 已全包，Switchyard 是重複外殼，無收益。（`技術取捨準則.md` 與 DeepSeek V4 判定皆為 AI/本人 mixed 來源，DeepSeek V4 的「降低 Model Routing 優先級」為 human:fatesaikou stable，見 §4。）
