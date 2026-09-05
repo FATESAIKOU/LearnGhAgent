@@ -157,6 +157,105 @@ request → Router 挑 (highest priority ∧ key healthy ∧ 未超 rate-limit)
 - 但他的取捨準則（理解優先、不追新、MVP→Feature 看 workflow）會傾向「不因此替換已判採用的 OmniRoute」，而是抽取 freellmapi 的「per-key 上限管理 + ToS 審查」作為可借鑑方案方向。此為技術面結論與個人取捨準則之間的衝突點。
 - 兩者的 OmniRoute / Switchyard 判定皆為 **AI draft、未 review**，本報告不將之當成定稿結論；若後續 QA，宜以他本人 review 後的判定為準。
 
+### 4.5 依使用者五面向（a–e）的橫向比較（R2 追加）
+
+使用者 R2 追問給出五個評價面向，要求把第二大腦所有類似技術拉入深入比較。以下對照 freellmapi（本標的）、OmniRoute（採用，draft）、Switchyard（試用，draft）、LiteLLM/OpenRouter/Portkey（無獨立評估，僅對照組）。
+
+| 面向 | freellmapi（本標的） | OmniRoute（採用，draft） | Switchyard（試用，draft） | LiteLLM/OpenRouter/Portkey（無獨立評估） |
+|---|---|---|---|---|
+| **a. 免費額度網羅** | 34 providers、635 免費 endpoint、7.4B tokens/月；自更新 signed catalog（免費版落後 30 天、Premium 即時） | 250+ Provider、90+ free、1200+ models | 無 Provider 目錄，廣度＝手動 route 清單 | LiteLLM ~100、OpenRouter ~50、Portkey ~30 |
+| **b. 私有訂閱登錄** | 可：custom provider 指到任何 OpenAI 相容 endpoint（llama.cpp/LM Studio/vLLM/本地 Ollama/遠端 gateway） | 可：Claude Tier1、OllamaCloud API key 皆可掛（見 Switchyard QA） | 可：手動 route 清單可指到 Claude/OllamaCloud | 依方案而定 |
+| **c. 自擴調度規則** | 6 種 routing 策略＋命名 fallback-chain profile＋dashboard/PUT API 切換；**新增 provider 需改程式碼**（Platform union＋adapter＋catalog），非純設定 | 18 種路由策略（priority/cost-optimized/auto 等） | 路由政策層，手動 route 清單 | 依方案而定 |
+| **d. 輕量/無多餘 GUI** | Express proxy＋React dashboard（admin 用）；~40MB RSS idle；可跑 Node 20+ 任何處（含 ARM SBC）；dashboard 屬管理面非強制 | 本機單一 Endpoint | Rust proxy，無 GUI | 依方案而定 |
+| **e. 維護者/穩定度** | 24.3k stars、3314 forks、2026-04 建立、活躍（2026-09-05 更新）、MIT、單人主導但社群大 | 採用（draft，未 review） | 試用（draft，未 review）、pre-alpha | 無獨立評估 |
+
+**五面向下的定位結論**：
+- 以 a（免費網羅）與 c（自擴調度）看，**OmniRoute 全面優於 freellmapi**（Provider 廣度 250+ vs 34、策略 18 vs 6）。
+- freellmapi 的相對優勢集中在 **b（私有訂閱登錄的彈性）與 d（輕量、可跑 ARM SBC）**，以及 R1 已指出的 per-key 上限管理與 ToS 審查。
+- 以 e（維護者/穩定度）看，freellmapi 社群活躍度（24.3k stars）高於 Switchyard（pre-alpha），但兩者皆為 AI draft 判定、未 review。
+
 ---
 
-*（本輪 R1 無使用者追問，無 ## 5. User Q&A 章節。）*
+## 5. User Q&A
+
+### Q1：這類 LLMGateway 對我的評價標準是 a–e 五面向，憑什麼把第二大腦所有類似技術拉進來比？
+
+**A**：依你給的五面向（a.免費額度網羅 b.私有訂閱登錄 c.能否簡單自擴調度規則 d.無多餘 GUI/TUI、輕量 e.維護者/穩定度），把第二大腦中所有類似技術拉入比較。比較清單與判定來源如下：
+
+| 技術 | 第二大腦判定 | 信任層級 | 來源 |
+|---|---|---|---|
+| OmniRoute | 採用 | `opencode/deepseek-v4-pro`、`draft`（未 review） | https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/OmniRoute.md |
+| Switchyard | 試用 | `opencode/deepseek-v4-flash`、`draft`（未 review） | https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Switchyard.md |
+| LiteLLM/OpenRouter/Portkey | 無獨立評估 | 僅在 OmniRoute.md 與下一步清單第 71 條作對照組 | https://github.com/FATESAIKOU/MyBrain/blob/main/專案/下一步清單.md |
+| freellmapi | 無評估紀錄 | 本報告（draft） | — |
+
+**五面向逐項對照**（詳見 §4.5 表格）：
+
+| 面向 | 最強 | 次強 | 最弱 |
+|---|---|---|---|
+| a. 免費網羅 | OmniRoute（250+/90+ free） | freellmapi（34/635） | Switchyard（無目錄） |
+| b. 私有訂閱登錄 | freellmapi（custom provider 指任意 OpenAI 相容 endpoint） | OmniRoute（Claude/OllamaCloud 可掛） | Switchyard（手動 route） |
+| c. 自擴調度 | OmniRoute（18 策略） | freellmapi（6 策略＋profile，但新增 provider 需改碼） | Switchyard（手動） |
+| d. 輕量/無 GUI | Switchyard（純 Rust proxy） | freellmapi（~40MB、可跑 ARM SBC） | OmniRoute（功能多、較重） |
+| e. 維護者/穩定度 | freellmapi（24.3k stars、活躍） | OmniRoute（採用判定） | Switchyard（pre-alpha） |
+
+**反證表（避免只看單一面向）**：
+
+| 若只看 | 會誤判成 | 但 |
+|---|---|---|
+| a（免費網羅） | OmniRoute 完勝 | freellmapi 在 b/d 與 per-key 管理上仍有差異價值 |
+| e（stars 數） | freellmapi 最穩 | stars 高不等於已 review；OmniRoute/Switchyard 判定皆為未 review 的 AI draft |
+| c（策略數） | OmniRoute 最好擴 | freellmapi 的「新增 provider 需改程式碼」是 c 面向的硬傷 |
+
+**結論**：以五面向綜合看，OmniRoute 在 a/c 領先、freellmapi 在 b/d 有相對優勢、Switchyard 是不同層（路由政策層）的搭配而非替代；LiteLLM/OpenRouter/Portkey 在你的第二大腦中無獨立評估，僅作對照組。
+
+---
+
+### Q2：基於 1，要接上我的個人 AI 入口該怎麼做（一步一步＋指令）？GAS/Serverless/VPS/私有機器哪個好？
+
+**A**：先講關鍵前提——**freellmapi 是 Node/Express 常駐 proxy，需要一個能長期跑 Node 20+ 程序的環境**。這直接決定 GAS/Serverless/VPS/私有機器哪個可行。
+
+**你的個人 AI 入口既有脈絡**（來源：https://github.com/FATESAIKOU/MyBrain/blob/main/技術/靈感/個人%20AiAgent%20入口.md，`claude-code/opus-5`、`draft`、2026-08-11，08-14/08-16/08-30 更新）：
+- 專案卡在「執行環境三選項」：自架實體 / 自架雲端 / 跑在終端，尚未定案。
+- GAS 白嫖路線（gas-aiagent-core）的**殼已完成，但 Exec Provider 只有介面無實作，不能執行程式碼**。
+- 下一步清單第 79 條：MultiProvider 機制方向（接既有 LLMGateway / 自建 / App 內嵌）**尚未比較**。
+
+**四種環境對照（DA 表）**：
+
+| 環境 | 能否跑 freellmapi | 技術解法 | 使用前提 | 使用副作用 | 預期效果 |
+|---|---|---|---|---|---|
+| **GAS** | ❌ 不能 | GAS 是 gas-aiagent-core 的宿主，非 Node 常駐 proxy 的宿主 | 需把 freellmapi 換成 GAS 可跑的形態（不可行，Express 需常駐） | 無法承載 Node/Express 常駐程序 | 不適用於跑 freellmapi |
+| **Serverless** | ⚠️ 勉強 | 無狀態函式＋外部持久化（DB/Redis）存 rate-limit ledger 與 bandit 狀態 | 需重構 freellmapi 為無狀態、冷啟動可接受 | 狀態外移、冷啟動延遲、bandit 學習狀態需持久化 | 可跑但偏離 freellmapi 的 local-first 設計 |
+| **VPS** | ✅ 可以 | 常駐 Node 20+ 跑 Express proxy | 需一台 VPS；**與你判 Openship 時「我用 VPS 不是為了開服務」的立場衝突** | 月費、維運、常駐 | 最直接可跑 freellmapi |
+| **私有機器** | ✅ 可以 | 常駐 Node 20+ 跑 Express proxy | 需一台常開機的機器（如 N100 mini-PC）；**與執行環境三選項的「自架實體」同題** | 需常開機、耗電/噪音、維運 | 可跑，但依賴機器常在線 |
+
+**一步一步接上個人 AI 入口**（以 VPS/私有機器為例，因 GAS 不可行）：
+
+```
+1. 準備環境（Node 20+）
+   node -v   # 需 >= 20
+
+2. 取得 freellmapi 並安裝
+   git clone https://github.com/tashfeenahmed/freellmapi.git
+   cd freellmapi
+   npm install
+
+3. 設定 Provider 金鑰（含私有訂閱，指向你的 OpenAI 相容 endpoint）
+   # 依 README 的 Keys 頁，把 chat/embedding/image/audio 指到你的 endpoint
+   # 例：本地 Ollama / vLLM / 遠端 gateway
+
+4. 啟動 proxy（常駐）
+   npm start   # 預設監聽 /v1，OpenAI 相容
+
+5. 把個人 AI 入口的 LLM Provider 指到 freellmapi 的 /v1
+   # 你的 app 後端（gas-aiagent-core 的 LLM Provider 抽象）改 base_url 到 freellmapi
+   # 即「接既有 LLMGateway」方向（下一步清單第 79 條三選一之一）
+```
+
+**與你既有立場的衝突點（明確指出）**：
+- **GAS 路線與 freellmapi 不相容**：gas-aiagent-core 的 Exec Provider 無實作、不能跑程式碼，且 GAS 無法承載 Node/Express 常駐 proxy。若你的入口走 GAS 白嫖路線，freellmapi 不適用——兩者是不同執行環境。
+- **VPS 與你「不是為了開服務」的立場衝突**：你判 Openship 時明講「我用 VPS 不是為了開服務」。選 VPS 跑 freellmapi 需重新評估是否違反該立場。
+- **私有機器與執行環境三選項同題**：跑 freellmapi 的「自架實體」正是你尚未定案的三選項之一，ROCK 3C（1GB SBC）已 Reject，需另選機型。
+- **MultiProvider 方向未定**：下一步清單第 79 條三方向（接既有 LLMGateway / 自建 / App 內嵌）尚未比較。freellmapi 屬「接既有 LLMGateway」方向，但你的第二大腦已判 OmniRoute 採用，接 freellmapi 與接 OmniRoute 是同一方向的兩個候選。
+
+**結論**：GAS 不能跑 freellmapi（執行環境不相容）；Serverless 需重構且偏離 local-first 設計；VPS 與私有機器皆可跑，但前者與你「不是為了開服務」的立場衝突、後者與執行環境三選項同題。**在執行環境三選項與 MultiProvider 方向（第 79 條）定案前，接 freellmapi 的落地應先解這兩題，而非直接選環境。**
