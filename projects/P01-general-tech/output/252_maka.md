@@ -170,6 +170,81 @@ Maka 所處的問題域是「**agent 工作台 / agent harness**」——即以�
 - **與「技術取捨準則」的關係**：`抽象理解/本質洞察/技術取捨準則.md` 載明「理解優先：先自己兜→MVP」「Reject ≠ 沒價值」「MVP→Feature 唯一閘門是能否影響個人 workflow」。據此，**本報告對 maka 不下「採用／不採用」結論**——這是使用者本人的決策，不在此代決。
 - **衝突點需指出**：Buzz 與 macro 的「不採用」判定是 **AI／流程草稿**（前者 `opencode/deepseek-v4-pro`，後者 `process:learn-gh-agent`），非使用者本人定稿。若把這些草稿當成使用者的既定立場，會高估其信任依據。此為查詢第二大腦時需特別留意之處。
 - **Aionui 為使用者本人採用的同域工具**（`human:fatesaikou`／`stable`），在評估 Maka 的替代價值時，Aionui 是既有已採用選項，Maka 與之的定位（事件溯源 vs 多 agent 協同）明顯不同。
+- **LLMGateway 軸的替代方案**（R2 追問把問題軸擴到 LLMGateway，補對照）：第二大腦中直接相關的判定為 **OmniRoute** `採用`（`opencode/deepseek-v4-pro`／`draft`，MVP 導入實測）、**Switchyard** `試用`（`opencode/deepseek-v4-flash`／`draft`，作為路由政策層試玩）、**munder-difflin** `未判定`（多 agent 辦公室形態的參考實作）。Maka 在此軸是 gateway 的 **consumer（消費者）非 builder**——不提供也不取代 LLMGateway，故與 OmniRoute/Switchyard 不構成直接替代（詳見 §5 Q4）。
+
+---
+
+## 5. User Q&A
+
+### Q1：所以這東西就是個「會留稽核紀錄」的「多AI工作台」？
+
+**A**：不是。此簡化把 maka 講淺了。稽核紀錄是 maka 的**副作用**，不是目的。
+
+| 面向 | maka 的實際主張 | 此簡化的落差 |
+|---|---|---|
+| 真相來源 | append-only Runtime Event Log 是**語意真相來源**（semantic source of truth），其他一切狀態由它投影 | 只看到「有紀錄」，沒看到紀錄是權威、狀態由它重建 |
+| 目的 | 狀態由 log 重建：可復原、多 surface 行為一致、可重現 | 把「可稽核」當目的，漏掉「log 即 runtime」的核心 |
+| 多 AI 面向 | Agent Swarm 是 orchestration mode（走 explicit workflow graph），非定義 | 「多 AI」只是其中一個使用情境，不是本質 |
+| 稽核定位 | 稽核是 append-only、不可竄改 log 設計的自然結果 | 誤把結果當成因 |
+
+**結論**：maka 是「以 append-only Runtime Event Log 為真相來源的事件溯源 harness」，稽核與「多 AI」都只是外觀，不是核心主張。
+
+### Q2：採用它對「個人 AI 入口（手機/電腦）」的建構有何幫助
+
+**A**：直接對應你卡住的「執行環境未定」與「ChatSession 記錄切換」兩個卡點。
+
+**執行環境**（`docs/runtime-host-remote-access.md`）：
+- Desktop／TUI／CLI 可經 **TLS／SSH／WebSocket** 連遠端 Runtime Host
+- `maka runtime-host setup` 可裝 **systemd／LaunchAgent 常駐服務**（關前端仍持續跑）
+- `--project-root` 白名單＋`access issue` 發 credential
+
+這正是你 `個人 AiAgent 入口`（`claude-code/opus-5`／`draft`）「執行環境三選項」要的形狀——常駐後端＋多 client 連線。執行環境決策仍掛在你身上，maka 不代答，但提供現成的「app＋拆開後端」解耦形狀。
+
+**ChatSession 記錄**：session／UI／next-prompt／crash-recovery 皆為 log 的 projection（log-is-the-runtime 文件），對應你入口的「ChatSession 記錄、切換與載入」需求。
+
+**價值判定（非採用結論）**：
+
+| 幫助 | 內容 | 代價 |
+|---|---|---|
+| 後端形狀模板 | remote Runtime Host 的常駐＋多 client＋credential 機制可當入口後端參考 | 事件溯源架構複雜度 |
+| ChatSession | log projection 給出「切換＝切投影」的架構答案 | 需接受 log 重建狀態 |
+| 執行環境 | 不強制先定自架實體/雲端/終端三選一，可先以 remote host 解耦 | 仍須維運一個 host |
+
+**結論**：maka 對「個人 AI 入口」的價值在提供「常駐後端＋session 切換」的現成形狀，可當架構參考或模板；是否採用是你的決策（依 `技術取捨準則`「MVP→Feature 唯一閘門＝能否影響個人 workflow」）。
+
+### Q3：採用它對「MyBrain」的建構有何幫助
+
+**A**：直接助益弱，哲學同構。maka 是 agent harness（執行層），MyBrain 是知識／記憶系統（資料層），兩者不同層。
+
+| 面向 | maka | MyBrain | 關係 |
+|---|---|---|---|
+| 角色 | harness／執行權威 | 記憶／知識庫 | 不同層，maka 不取代 MyBrain |
+| log 哲學 | append-only Runtime Event Log 為真相 | log.md append-only（`mybrain-read`／`write`／`okf-format` 閉環） | **同構**：皆以 append-only log 為真相 |
+| 稽核 | 工具呼叫／權限決定進 log | validate.py＋reindex.py＋Actions 驗證 | 信念一致（約束放 harness 不放權限） |
+
+**可抽取方向**：maka 的「log 為真相、狀態由 log 重建」與你 MyBrain 的 append-only log.md 是同一思路的兩個實現。若要擴張 MyBrain 讀寫權限（`個人 AiAgent 入口` 需求），maka 沒有記憶機制可直接搬，其價值在確認「append-only 真相＋投影」的架構方向。
+
+**結論**：maka 對 MyBrain 的建構助益是方向性確認（append-only log 即真相），非可搬運組件；MyBrain 的 OKF 格式與三 skill 閉環不被 maka 取代。
+
+### Q4：採用它對「LLMGateway」的建構有何幫助
+
+**A**：maka 是 LLMGateway 的 **consumer（消費者），不是 builder（建構者）**——不提供也不取代 gateway。
+
+`packages/core/src/provider-registry.ts`：
+- 有 `openai-compatible`／`openai-responses-compatible`／`anthropic-compatible` **custom relay**，`baseUrl` 可指任意 gateway（含你的 OmniRoute）
+- 內建 openrouter、vercel ai-gateway；model 目錄來自 models.dev（44 providers）
+
+對照你的 LLMGateway 現況（`技術/靈感/個人 AiAgent 入口.md`，`claude-code/opus-5`／`draft`）：
+
+| 你的 MultiProvider 三方向 | maka 的角色 |
+|---|---|
+| 接既有 LLMGateway（OmniRoute 已採用 `human/stable`、Switchyard 試用） | maka 可當這個 consumer 的測試端 |
+| 自建 LLMGateway | maka 不提供 gateway 邏輯，無助於自建 |
+| App 內嵌 MultiProvider | maka 的 custom relay 是「內嵌切換」的現成實作參考 |
+
+**價值**：採用 maka 不會建構你的 LLMGateway，只會消費它。對 LLMGateway 建構的幫助限於「custom relay 作為 consumer 的驗證端」，可測你的 OmniRoute／Switchyard 路線是否通。
+
+**結論**：maka 對 LLMGateway 無建構性幫助（consumer 非 builder）；對其驗證有邊際價值（當測試端）。
 
 ---
 
