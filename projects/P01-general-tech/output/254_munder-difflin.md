@@ -179,6 +179,67 @@ Electron 32 / React 18 / Pixi 8 / xterm 5 / node-pty / better-sqlite3 / zustand 
 
 ---
 
+## 5. User Q&A
+
+> 使用者於 R2 提出 4 題追問，將「機制描述」推進到「對他的三件事（個人 AiAgent 入口／MyBrain／LLMGateway）有沒有用、值不值得自己建」的決策支援。QA 引用的第二大腦判定均標註 GitHub URL 與信任層級；`draft` 者為未經他 review 的 AI 草稿。
+
+### Q1：這東西執行環境為何？可以是 no desktop VPS？
+
+**A**：munder-difflin 的執行環境是**桌面 Electron 單體**，控制面已經 local-first，但**沒有無頭 server entry**，「無頭 VPS 常駐」不是官方設計路徑。
+
+| 層 | 是否依賴桌面 | 說明 |
+|---|---|---|
+| 控制面（router／scheduler／mailboxes／audit log） | 否，local-first | 邏輯在 main process 內，純本機執行 |
+| 模型呼叫 | 唯一的外部依賴 | 可指到本地 Ollama／LM Studio（OpenAI-compatible endpoint）即完全離線 |
+| app 本體 | 是，Electron 單體 | 引擎是 CLI 程序、app 是 Electron，無獨立 headless server entry |
+| 官方無頭場景 | 是，仍跑 Electron | 官方指南是「Mac Mini 上當 always-on box」，仍跑 Electron＋本機模型 |
+
+**結論**：它「可以離線」但「不是無頭服務」。引擎是 CLI、殼是 Electron，官方對無頭的唯一描述是常駐桌機（Mac Mini），沒有把控制面抽成可掛在 VPS 的 server 的設計。若你的執行環境是無頭 VPS，這工具不是現成的答案——它的架構取向正是你的「個人 AiAgent 入口」想拆開的「桌面單體」形態（見 Q3）。
+
+### Q2：刨除外觀，跟 herdr／orca 等工具的本質差異在哪？
+
+**A**：刨掉辦公室視覺化外殼，本質差異在一條軸——**「協調層在人的頭腦／終端，還是在系統裡」，以及「人在圈內當 driver 還是圈外當 manager」**。
+
+| 工具 | 提供什麼 | 協調層位置 | 你扮演的角色 |
+|---|---|---|---|
+| **tmux** | 純 pane 多工，不知 agent 狀態 | 全在人 | Driver |
+| **herdr**（他實測中，`claude-code/opus-5`／`draft`，[herdr 配置](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/herdr%20配置.md)） | 認得 pane 裡哪個 agent＋追蹤 idle/working/blocked/done＋開放給 CLI | 仍靠人 | Driver |
+| **orca**（Stably AI，Agent IDE/ADE，官方 `orca-vs-munder-difflin` 文） | 平行 agents 在隔離 worktree，你在鍵盤前驅動 | 人在圈內 | **Driver**（官方界線） |
+| **munder-difflin** | GOD orchestrator 路由／裁決／升級；work 由 Slack／webhook／schedule／voice 觸發；有 approval／budget／circuit-breaker | 在系統 | **Manager**（官方界線） |
+
+**herdr 與 munder-difflin 的關鍵差異**：
+- herdr 是**程序層／UI 層**，不提供共享記憶、路由、仲裁、自主觸發。它能把「送指令給另一個 agent 並等待」做成 CLI，但**誰派工、誰裁決、記憶放哪仍由你決定**。
+- 證據：你的 herdr 實測記了一條通則「**驗收 agent 任務要看實際產出，不可看 exit code**」（`claude-code/opus-5`／`draft`，[herdr 配置](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/herdr%20配置.md)）——這正是「**你當 message bus**」的直接證據，協調工作落在你身上，不在工具。
+
+**結論**：herdr／tmux 把「多工」系統化，但把「協調」留給你；munder-difflin 把「協調」（共享記憶＋信箱＋路由＋仲裁＋自主觸發）也系統化。orca 與 munder-difflin 的界線則在「驅動 vs 管理」——orca 要你逐個驅動，munder-difflin 要你授權後讓 orchestrator 排程。orca 在第二大腦無此主題紀錄，此對照為官方文與通用知識補上。
+
+### Q3：這個差異對「個人 Ai入口（電腦/手機）」「MyBrain」「LLMGateway」三件事有沒有幫助？
+
+**A**：三件事的幫助程度不同——對「個人 AiAgent 入口」直接相關、對「MyBrain」是同構驗證、對「LLMGateway」無直接幫助（路由域不同）。
+
+| 三件事 | munder-difflin 的對應 | 判定 |
+|---|---|---|
+| **個人 AiAgent 入口**（`claude-code/opus-5`／`draft`，[個人 AiAgent 入口](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/靈感/個人%20AiAgent%20入口.md)，卡在執行環境未定） | 問的是同一題的下一層：入口卡「後端跑在哪」，它已預設「跑在桌機」，直接回答「多 agent 怎麼分工、記憶放哪、誰裁決」 | **直接相關**。hive layer（per-agent 記憶／mailbox／append-only 事件記錄）是可抽取的方案方向。但**衝突**：你的入口要「拆開前後端＋手機 app」，它是「桌面單體」——形態不一致，協作機制可參考、形態不可照搬 |
+| **MyBrain**（git repo＋markdown-first＋PR review 寫入） | git-as-audit＋single-committer＋檔案信箱 的基底 | **同構驗證**。MyBrain 本就有 git 基底、AI 產出一律 draft 待 review、寫入走 PR——與 munder-difflin 的「git-as-audit＋single-committer＋PR review」**同構**。hive layer 的核心對 MyBrain 是既有事實，不是新增概念，幫助在「確認方向」而非「引進新物」 |
+| **LLMGateway**（OmniRoute 採用／Switchyard 試用，[判定總表](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/判定總表.md)，`generated: ollama-cloud/deepseek-v4-flash`／`draft`） | orchestrator 路由「工作給哪個 agent」 | **無直接幫助**。munder-difflin 的 orchestrator 路由域是「agent」，你的 LLMGateway（OmniRoute/Switchyard）路由域是「model/provider」。兩者解決不同問題，不互補也不衝突 |
+
+**結論**：幫助集中在「個人 AiAgent 入口」——munder-difflin 是它「多 agent 協作」子題的現成參考實作，可抽取 hive layer 機制；對 MyBrain 是方向驗證；對 LLMGateway 無關。注意入口檔明寫「判的是形態不是產品」，且它與你「拆後端＋手機」的形狀不同，不會是那條路線的成品。
+
+### Q4：要取得這個差異獲得的價值，我只能安裝這個工具嗎，還是只需要一個薄的擴張？
+
+**A**：不需要安裝。依你的「理解優先」準則，v0.4.6 pre-release、單人維護、80 open issues 屬「不穩定／不熟悉」，正是「先自己兜」的觸發條件（`claude-code/opus-5`／`draft`，[技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md)）。價值所在是機制不是 Electron 外殼。
+
+| 取得方式 | 內容 | 成本 | 是否匹配他的準則 |
+|---|---|---|---|
+| **安裝 munder-difflin** | 拿到全部（含座位視覺化、GOD、approval/budget） | 桌面單體；掛真 agent＝真 token 成本；pre-release | 與「先自己兜」準則相反；且視覺化非重點 |
+| **薄的擴張（自建）** | 共享 git repo 當 hive＋mailbox 目錄慣例＋單一 router script＋Stop-hook 自主迴圈 | 遠低於安裝整套 | 命中「理解優先」；抽取的是需求理解＋方案方向 |
+
+**薄的擴張具體長什麼樣**：把 munder-difflin 的 hive 基底還原成最小件——一個共享 git repo 當記憶與訊息載體、`agents/<id>/inbox|outbox/` 目錄慣例、一個搬移 outbox→inbox 的 router、用既有 CLI agent 的 Stop hook 形成自主迴圈。這三件套在你的終端 agent（herdr＋opencode）上即可，不需要 Electron、不需要座位視覺化。
+
+**結論**：要取的「差異價值」是協調層機制（git-as-audit 單 committer、single-writer-per-file、Stop-hook 自主迴圈、信箱路由），這些是薄的擴張，不是這套 app 的專利。你的準則會選「先自己兜」——且「若決定自建，才寫 app 接上它」已在你的下一步清單（[判定總表](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/判定總表.md)，`draft`）。安裝工具不是取得價值的必要條件。
+
+---
+
 ## 附錄：調研資料來源
 
 - README.md（374 行）：產品定位、架構、功能
