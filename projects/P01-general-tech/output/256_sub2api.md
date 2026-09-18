@@ -160,6 +160,149 @@ Grok API Key 帳號 ──► https://api.x.ai/v1/responses
 
 ---
 
+## 5. User Q&A
+
+> 本節依 R2 使用者的三問（適用性與手續／harness 切換／合約風險）沉澱。
+> 前提：使用者實際持有的訂閱組合 = 個人 Claude + OllamaCloud + Antigravity，公司另有份 Claude（私人算能用）。
+
+### Q1：我手上這個訂閱組合（Claude／OllamaCloud／Antigravity）能不能用這工具？
+
+**A**：能用，但三者的「能接」不是同一件事——sub2api 對這三個的接法、額度型態與成熟度差異很大，且**最核心的「個人 Claude 訂閱額度拆分」恰恰是其中支援最弱的一塊**。
+
+先看 sub2api 的平台白名單（`backend/internal/domain/constants.go` 實測）：
+
+| 平台 | 帳號型態 | 對應他的訂閱 | 能不能接 |
+|---|---|---|---|
+| `anthropic` | oauth / setup-token / apikey / upstream / service_account | 個人 Claude Pro/Max、公司 Claude | 技術上可掛 API-key / OAuth 帳號，但**無 Grok 式公開「訂閱額度 proxy」**，分發的是你手上的 key/OAuth，不是把訂閱額度轉 API |
+| `antigravity` | oauth（走 `/antigravity/v1/messages` 與 `/v1beta/`） | Antigravity 訂閱 | **能接**，README 明載 Claude Code 設定，且有專屬排障文件 |
+| （OllamaCloud） | api key（掛在 `anthropic` 平台，`ollama_cloud_usage.go` 專屬適配） | OllamaCloud | **能接**，但只走 `Authorization: Bearer`，且需 dashboard 設 web session 才能看用量 |
+
+**關鍵分界**：
+
+- **Grok** 是唯一有「官方公開訂閱 proxy（`cli-chat-proxy.grok.com`）＋ OAuth 授權」的供應商——sub2api 能真正「把訂閱額度」變 API 的，主要就是這類。README 的「訂閱統一接入」宣傳，實作上最完整的是 Grok。
+- **Claude**：程式碼顯示 Anthropic 走 OAuth／API-key／passthrough，**未見 Grok 那類「訂閱 proxy」通道**。也就是說 sub2api 對 Claude 的支援是「把你的 Claude API key 或 OAuth 掛進來統一管理」，**不是**「把你的 Claude Pro/Max 訂閱額度拆成 API」。想達到的「用訂閱價格走 API」效果，Claude 這條在 sub2api 上沒有 Grok 那樣的現成通道。
+- **Antigravity 與 OllamaCloud** 是真正的「額度型訂閱」且 sub2api 有明確對接——這兩者才是你的組合裡「sub2api 現成就能吃」的部分。
+
+**反證／對照表**：
+
+| 我以為 sub2api 能做的 | sub2api 實際支援 |
+|---|---|
+| 把個人 Claude 訂閱額度拆成 API 分給多個 harness | 不完整——無 Grok 式公開 Claude 訂閱 proxy；只能管理 key/OAuth 帳號 |
+| 把 OllamaCloud／Antigravity 訂閱統一接 | 完整——有專屬適配與設定文件 |
+| 一個 API Key 對多協定（OpenAI/Anthropic/Responses） | 完整——`chat_completions`/`anthropic`/`responses` 三協定齊全 |
+
+**結論**：你的組合「能接」，但**若動機是「拆分個人 Claude 訂閱額度」，sub2api 現階段幫不上那塊**；它幫上的是 Antigravity／OllamaCloud 的統一接入，以及把多個供應商的 API key 收成一把對外。
+
+---
+
+### Q2：如果用上這工具，具體手續為何？
+
+**A**：以「把一個訂閱帳號接進 sub2api，再讓下游 harness 使用」為主線，手續分三段：
+
+**第一段：部署 sub2api（一次）**
+```
+自架一台伺服器（repo 要求）→ 依 README 建 PostgreSQL + Redis → 起 handler/service/gateway
+→ 進 Admin dashboard（URL allowlist、TLS 建議開）
+```
+
+**第二段：把某個訂閱帳號掛成平台帳號（每個供應商各一次）**
+
+| 供應商 | 手續 |
+|---|---|
+| Antigravity | Admin dashboard 新增 Antigravity OAuth 帳號 → 完成授權 → 取得專屬端點 `/antigravity/v1/messages`（Claude 模型）、`/v1beta/`（Gemini 模型） |
+| OllamaCloud | 在 dashboard 設 web session（`https://ollama.com/settings`）以便同步用量 → 新增 API-key 帳號掛在 Anthropic 平台（只認 `Authorization: Bearer`）→ 可選 hybrid scheduling |
+| Claude（API key） | 新增 `anthropic` 平台 API-key 帳號（`x-api-key` 或 `Authorization: Bearer`） |
+
+**第三段：讓 harness 指向 sub2api**
+
+- **Claude Code**：`ANTHROPIC_BASE_URL=<sub2api>/antigravity` ＋ `ANTHROPIC_AUTH_TOKEN=sk-xxx`（README 明載）。⚠️ README 警示 **Anthropic Claude 與 Antigravity Claude 不能在同一個 conversation 混用**，要用 group 隔離。
+- **OpenCode**：README 的「Use Key」頁面直接提供 **OpenCode 設定 tab**，貼上即用。
+- **Grok CLI**：Use Key 頁面選 Grok CLI 自動產生設定。
+
+**手續的具體代價**（對照表）：
+
+| 面向 | 成本 |
+|---|---|
+| 部署 | 要一台常駐伺服器自維運，非零成本 |
+| 帳號授權 | Antigravity/OllamaCloud 各要完成 OAuth/web session 設定，非「貼上 key 就好」 |
+| 上游風控調校 | `429`/`401`/`403` 排程、cooldown、attribution header 都要實機排（見 Q4 的 Antigravity 429 記錄） |
+| harness 設定 | 每個 harness 都要設對應的 base_url／token（Claude Code、OpenCode、Grok CLI 各不同） |
+
+**結論**：手續完整但非「零設定」——部署自維運 + 每供應商授權 + 每 harness 設 base_url，三層都要動手。對「想省掉切換成本」的使用者，這套手續本身就是要算進成本的成本。
+
+---
+
+### Q3：用上後能不能自由切換 claudecode、opencode、agy 這些 harness？
+
+**A**：能——**只要 harness 支援讀 `base_url`（或 `ANTHROPIC_BASE_URL`）＋ API token**，切換是 harness 側的事，跟 sub2api 無關。sub2api 提供的是「一把 key + 多協定端點」，下游 harness 各自接上即可。
+
+**層次拆解**（sub2api 管的是「上游→平台」，不是「平台→harness」）：
+
+```
+   上游訂閱（Antigravity/OllamaCloud/Claude key）
+        ▼
+   sub2api（統一 API Key + 三協定端點：OpenAI chat / Anthropic / Responses）
+        ▼
+   harness A（claudecode）──┬─ 讀 ANTHROPIC_BASE_URL + token
+   harness B（opencode）───┤─ 讀 OpenAI 相容 base_url + key（README 有 Use Key tab）
+   harness C（agy）───────┘─ 需視其是否支援 OpenAI/Anthropic 協定（見下）
+```
+
+**三 harness 個別狀態**：
+
+| harness | sub2api 對應設定 | 是否已在他的第二大腦被採用 |
+|---|---|---|
+| **claudecode** | Anthropic 協定（`/v1/messages`）；Antigravity 用 `ANTHROPIC_BASE_URL` | 已整理環境（MyBrain「整理 claudecode-opencode 環境.md」`human:fatesaikou` + `stable`） |
+| **opencode** | OpenAI 相容協定；README 有 OpenCode Use Key 設定 tab | **已採用**，判定「試用」（MyBrain `OpenCode.md`），且他已實測「自由切 Harness／LLM」（MyBrain `LLM降本增效.md`：原話「可以自由切Harness/LLM真的太棒了」，`human:fatesaikou` + `stable`） |
+| **agy** | **sub2api 未明示**——無 agy 專屬設定文件，需視其是否吃 OpenAI／Anthropic 協定 | 第二大腦**無 agy 記錄** |
+
+**關鍵限制**（來自第二大腦與 repo）：
+
+1. **agy 是空白**：sub2api README 無 agy 設定，第二大腦也無 agy 評估。要接需「agy 是否支援 OpenAI 相容 base_url」——這是未知數，屬推測缺口，需實測。
+2. **混用同一 conversation 被禁止**：repo 明示 Anthropic Claude 與 Antigravity Claude 不能在同一 conversation 混，需 group 隔離。切 harness 若同時跨這兩家，得先切 group。
+3. **Muse Code 換 harness 被他自己暫緩**（MyBrain `Muse Code.md`，`process:learn-gh-agent` + `draft`）——他對「換 harness」本身是審慎的，理由「不追新＋已覆蓋需求」。所以「技術上能切」與「他願不願意切」是兩件事。
+
+**反證／對照表**：
+
+| 論點 | 反證 |
+|---|---|
+| sub2api 讓 harness 切換更方便 | 切換能力是 harness 自己支援 base_url 才成立；sub2api 只提供統一 key。若 harness 不支援多協定，sub2api 幫不上 |
+| 三個 harness 都能自由切 | claudecode/opencode 有現成設定；**agy 無設定、無第二大腦記錄，是缺口** |
+| 切換零風險 | Antigravity 有 attribution 429 坑（Q4）、Anthropic/Antigravity 不可混 conversation——切換有已知代價 |
+
+**結論**：claudecode 與 opencode 可自由切換（皆可接 sub2api，且 he 已採用自由切）；**agy 因 sub2api 無設定、第二大腦無評估而無法直接斷言**，需先確認 agy 是否支援 OpenAI 相容 base_url。
+
+---
+
+### Q4：技術上可行，但合約上有沒有風險？我的訂閱方案中有沒有「被停號」的案例？
+
+**A**：**有明確合約風險；但「明確被停號」的案例，第二大腦與 repo 都沒有一手紀錄——這一段不能冒充他的結論，只能列既有聲明與通用條款層。**
+
+**風險的三個來源**：
+
+| 來源 | 內容 | 信任層級 |
+|---|---|---|
+| sub2api README（明載） | 「使用本專案可能違反 Anthropic 等上游供應商的服務條款……所有風險由使用者自負」 | repo 作者明寫 |
+| sub2api legal 文件 | 部署者須「自行審閱並遵守 OpenAI、Anthropic、Google 等上游 ToS／AUP／轉售限制／風控」 | repo 作者明寫 |
+| 他的第二大腦（Anthropic 消費者方案） | **Anthropic 消費者方案（Free/Pro/Max，含 Claude Code）自 2025-08 起預設拿對話去訓練，需手動 opt out；2026-06 政策另訂：被安全審查標記的對話即使關掉仍可能用於訓練** | MyBrain「個人 AiAgent 入口.md」`claude-code/opus-5` + `draft`（含本人原話引用） |
+
+**停號案例的查證結果（重要）**：
+
+- **第二大腦無任何「停號／封號／帳號被終止」主題**（grep `停號`、`封號`、`被停`、`termination`、`被終止` 等無命中）→ **查不到，明說沒有，不編**。
+- **repo 與 docs 也無一手停號案例**——只有風險聲明，沒有「某某帳號被停」的實例紀錄。
+- 因此「他的訂閱方案中有沒有被停號案例」這題，**現有資料無法回答**；要做嚴謹回答需以各上游（Anthropic／Google／Ollama）現行 ToS 與公開申訴案例補，但那是外部來源，且不能標成他的結論。
+
+**與第二大腦的衝突點（最值得講）**：
+
+| 我這輪的發現 | 第二大腦既有 | 衝突 |
+|---|---|---|
+| sub2api 主要幫你接的是 Antigravity／OllamaCloud／Grok，Claude 訂閱拆分薄弱 | 他的 `LLM降本增效.md` 已判定「個人開發強烈推薦 Ollama Cloud」、Claude 屬「企業或重安全治理場景」 | **方向一致**——他想把個人重活放 Ollama Cloud，sub2api 對 OllamaCloud 剛好有專屬適配；但這不改變「Claude 訂閱額度拆分不可行」的事實 |
+| 用 sub2api 拆分公司那份 Claude 訂閱 | 公司資產 + Anthropic 消費者方案訓練風險 | **風險疊加**——公司訂閱走第三方中轉既有資產合規問題，又撞 Anthropic 預設訓練取用 |
+
+**結論**：合約風險明確（sub2api 自述違反 Anthropic 等 ToS；Anthropic 消費者方案預設拿對話訓練需 opt out）。**但「明確被停號」在你的訂閱方案中——第二大腦與 repo 皆無此類紀錄，無法據此斷言有或沒有**；要斷言需補外部 ToS 與公開案例，而那非本文既有結論。
+
+---
+
 ## 附錄：資料來源與信任層級
 
 | 來源 | 內容 | 信任層級 |
