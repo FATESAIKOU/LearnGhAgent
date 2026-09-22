@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: "Ollama Cloud model id (e.g. deepseek-v4-flash:0731)"
+        description: "Ollama Cloud model id (e.g. deepseek-v4.1-flash)"
         required: false
-        default: "deepseek-v4-flash:0731"
+        default: "deepseek-v4.1-flash"
       prompt:
         description: "Prompt to send to the model"
         required: false
