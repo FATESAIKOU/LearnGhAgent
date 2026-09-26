@@ -3,7 +3,7 @@
 > 標的：`NandhaKishorM/laya`（https://github.com/NandhaKishorM/laya）／HF `convaiinnovations/laya`
 > 本報告依「技術解析助理」Step 3 產出，僅回答 5 個固定問題，不延伸。
 > 資料來源：repo README／BENCHMARKS.md／HF model card／AGENTS.md／pyproject.toml／tests/test_training.py（2026-09-26 快照），並對照第二大腦 FATESAIKOU/MyBrain 的既有判定。
-> 本輪為 R1，無使用者提問，故無 `## 5. User Q&A`。
+> R1（無提問）產出 §1–§4；R2 追問輪追加 `## 5. User Q&A`（Q1–Q5），既有 §1–§4 內容保留並局部補正。
 
 ---
 
@@ -79,6 +79,18 @@ typed answers：choice／score／noul ＋ 機率分布 ＋ confidence／answer_c
 - **可驗證性**：repo 內 `tests/test_training.py` 對 `proper_reward` 的「properness」做檢驗——若 reward 能被「非真分布」最大化，README 的校準宣稱就不成立。這是把宣稱變成可確定性驗證的設計。
 - **微調是價值所在**：base checkpoint zero-shot 近隨機（0.362／0.352 對 majority 0.461）；在 typed-decisions 上微調後達 0.766。官方立場明講：**Laya 是「快速可特化的底座」，不是 zero-shot 決策引擎**。微調 notebook 跑在 Kaggle 免費 2xT4，約 4–5 小時、4 epochs、~30k questions。
 
+### 三個 checkpoint 的實體位置（R2 精確化）
+
+三個權重是**三個獨立的 HF repo**，不是同一 repo 內的三個資料夾：
+
+| checkpoint | HF repo | 子資料夾 | 骨幹 |
+|---|---|---|---|
+| `laya`（英文） | `convaiinnovations/laya` | root（含 `multilingual/`、`typed-decisions/` 的**備份副本**） | ModernBERT-large, 421M |
+| `laya-multilingual` | `convaiinnovations/laya-multilingual` | 獨立 repo | mmBERT-base, 322M |
+| `laya-typed-decisions` | `convaiinnovations/laya-typed-decisions` | 獨立 repo | ModernBERT-large, 421M |
+
+三個 repo 皆 `license: apache-2.0` ＋ `commercial-use` tag。**repo 本體不含權重**，權重只在 HF；`pip install laya` 只裝軟體，首次 `Router()` 才從 HF 下載。
+
 ### 部署與接入面
 
 | 面 | 內容 |
@@ -124,7 +136,7 @@ Laya 屬「**非生成式／小模型結構化決策**」問題域。以下替�
 | **DeepSeek V4** | **human 本人 stable**：「**降低 Model Routing 研究優先級**——不要把心力花在『如何精準路由不同 LLM』的 legacy 機制上，把精力集中在 Domain 領域知識」 | `generated.by: human:fatesaikou` ＋ `status: stable`；2026-04-26 | **與 Laya 的內建 `router_questions()` preset（Intelligent Model Router：把請求路由到 small vs frontier models）直接衝突**，見下 |
 | **Switchyard / OmniRoute / Model Router 線** | Switchyard、OmniRoute 皆已於 2026-09-06 翻為**不採用**；整條 Model Router 線放棄，理由為「真正握有 GPU 的供給者只有個位數，為個位數做路由政策層成本高於收益」 | Switchyard：`opencode/deepseek-v4-flash` draft；OmniRoute：判定總表 draft；皆為 AI 草稿 | 同上的衝突源：Laya 的**語言 router 不是**這條線（它是 checkpoint 選擇），但它的 **model-router preset** 是 |
 | **技術取捨準則** | 骨幹。**理解優先**：「不夠穩定或我不夠熟悉 → 先自己兜，理解本質（MVP）之後才決定下一步」；**MVP→Feature 唯一閘門＝能否影響個人 workflow**；Reject≠沒價值 | `claude-code/opus-5` ＋ `status: draft`（含「原話：」引用） | 決定 §4 落點：Laya 的正確用法是**「先自己兜」的底座**，不是導入一套服務 |
-| **統一的兩端稅** | 骨幹。「不要用同一套機制同時管確定性執行與語意判斷」——確定的留 code、語意的切給模型 | `claude-code/opus-5` ＋ `status: draft` | Laya 是這條洞察在控制流上的**機制化版本**：它只做語意判斷，不執行 |
+| **統一的兩端稅** | 骨幹。「不要用同一套機制同時管確定性執行與語意判斷」——確定的留 code、語意的切給模型 | [`統一的兩端稅`](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/統一的兩端稅.md)：`generated.by: claude-code/opus-5` ＋ `status: draft`（AI 草稿，未經他 review） | Laya 是這條洞察在控制流上的**機制化版本**：它只做語意判斷，不執行 |
 
 #### ⚠️ 衝突聲明（對照最有價值之處）
 
@@ -161,3 +173,127 @@ Laya 屬「**非生成式／小模型結構化決策**」問題域。以下替�
 | Model Routing 優先級 | **衝突（僅 preset）。** `router_questions()` 的「小模型 vs 前沿模型路由」踩在他 stable 判定上；Laya 的語言 Router 不在此列。 |
 
 **結論**：Laya 解決「判斷被包在生成裡」的形態錯配，做法是用非生成式 encoder＋決策頭＋proper scoring rule 訓練，並以 Apache-2.0 開源權重與微調碼，使「小模型負責判斷」這套模式可下載、可特化、可在地部署。對照第二大腦：它與 `Jev` 判試用的**構想**同型，且能解掉 Jev 的 hosted 資料邊界；正確用法是當「先自己兜」的底座去驗證能力邊界，**不是**當生產依賴，也**不是**拿它的 model-router preset 去重啟已被放棄的 Model Routing 線。
+
+---
+
+## 5. User Q&A
+
+> 本節為 R2 追問輪追加。使用者對 R1 報告提出 5 個界定向與判準向的問題，依 AGENTS.md「同一輪多子問題不可合併」拆為 5 個獨立 QA。
+
+### Q1：這東西到底是一個模型，還是一組內含模型的軟體？
+
+**A**：兩者是**分離的兩件實體**，Laya 同時發布軟體與模型的權重，但放在不同位置、可各自獨立取得。
+
+| 層 | 實體 | 實際位置 | 內容 |
+|---|---|---|---|
+| **模型（權重）** | encoder ＋ 自訓 decision head 的 `safetensors` | **Hugging Face**：`convaiinnovations/laya`、`/laya-multilingual`、`/laya-typed-decisions`（三個獨立 repo） | 骨幹（ModernBERT-large 421M／mmBERT-base 322M）＋ 2 層 transformer head ＋ option-marker scorer ＋ act head |
+| **軟體（框架）** | pip 套件 `laya` 0.3.20 | **PyPI／GitHub repo**（`NandhaKishorM/laya`） | `Router`、CLI（`laya`）、HTTP（`laya-serve`）、MCP（`laya-mcp-server`）、LangChain 整合、ONNX、hooks |
+
+驗證方式：
+
+```
+pip install laya          # 只裝「軟體」，repo 本體不含權重
+Router()                  # 首次呼叫才從 HF 下載「模型」權重
+```
+
+| 對照項 | 事實 |
+|---|---|
+| repo 內是否有權重檔 | **否**。repo 只有套件碼、訓練數學（`laya/common.py`）、微調 notebook、docs |
+| 套件可否不裝模型單獨存在 | **可**。`Router` 的路由（語言偵測）在 forward 前以純 Python 執行，<0.5 ms，不需載入模型 |
+| 模型可否脫離套件使用 | **可**。權重是標準 HF safetensors，任何載入 ModernBERT 的程式皆可取用；套件只是官方封裝的入口 |
+
+**結論**：Laya 是一組軟體（框架）＋ 一組可獨立下載的模型權重，兩者分離；「一個模型」與「一組內含模型的軟體」兩種描述各只說對一半。
+
+---
+
+### Q2：這東西到底有沒有包含要雲端付費的部分？
+
+**A**：**沒有。** 官方沒有任何 hosted endpoint、訂閱、metering 或 API key 販售；全部成本是自備硬體或自備雲資源，這部分由使用者自己的雲廠商收費，不流向 Laya。
+
+| 可能的收費面 | 事實 | 查證來源 |
+|---|---|---|
+| 授權費 | **無**。Apache-2.0，HF 三個權重 repo 皆掛 `commercial-use` tag | `pyproject.toml`、HF API |
+| Hosted API | **無**。README 自列 `$0 self-hosted`；沒有官方 SaaS 端點 | repo README |
+| 訂閱／metering | **無**。依賴清單只有 `torch`／`transformers`／`safetensors`／`huggingface_hub`／`numpy`，**無任何雲端 SDK** | `pyproject.toml` `dependencies` |
+| API key 販售 | **無**。`LAYA_API_KEY` 只是**自架** `laya-serve` 的 bearer auth 開關 | repo README、`laya/serve.py` |
+| 唯一金流 | Buy Me a Coffee 贊助按鈕（**自願捐贈，非服務費**） | repo README badge |
+
+**反證（是否存在隱藏付費）**：無。若存在付費層，會出現計費 SDK、hosted URL、或「免費額度」字樣——三者在 repo 全文皆零命中。使用者的實際帳單只會有兩項：①自己的 GPU／CPU 電費或雲主機費；②（可選）HF 下載權重的網路流量。
+
+**結論**：Laya 本身零雲端付費；花費完全取決於使用者自己的執行環境，這與 Jev 的 hosted 按量計費是相反的成本結構。
+
+---
+
+### Q3：這到底是一組把 Jev 包起來的軟體，還是看到 Jev 沒開源、做一個 Local 複製版，再順便配上軟體框架？
+
+**A**：是**後者**，但「複製版」三字要拆精確——它複製的是**回答形態與問題定位**，不是 Jev 的模型本體；它與 Jev **無程式碼或權重上的依賴關係**。
+
+| 三種可能關係 | 是否成立 | 證據 |
+|---|---|---|
+| 包裝 Jev（wrapper／proxy） | **否** | Laya 不呼叫 Jev；權重來自 ModernBERT／mmBERT＋自訓 head，無任何 Jev 端點呼叫 |
+| Fork Jev 權重／架構 | **否** | Jev 未開源權重；Laya 權重為自行訓練，骨幹是公開的 ModernBERT／mmBERT |
+| 看到 Jev 沒開源 → 做本地複製版＋軟體框架 | **是（精確版）** | 作者自陳 2025-03（arXiv 2503.23303）已做非自迴歸決策、PPO／RL；Jev（09-15）出現時感到被忽視 → Laya 是把原方向開源化 |
+
+「複製」的精確範圍：
+
+| 被複製的 | 未被複製的 |
+|---|---|
+| 回答形式：choice／score／noul 三原語 | 模型權重／參數量／訓練資料 |
+| 定位：System 1、非生成式、「smart if statements」 | 內部架構（Jev 未公開；Laya 用現成 encoder） |
+| **相容** Jev `POST /v1/systemone` wire protocol | 無任何執行期依賴；換 `baseUrl` 即可互換 client |
+
+**結論**：Laya 是「同一問題定位的獨立同型實作」，不是 Jev 的包裝；它沿用回答形式並相容協定以降低替換成本，但模型來源與訓練完全自建。
+
+---
+
+### Q4：說它的效能不好，是指判斷品質目前不好嗎？
+
+**A**：是，指**判斷品質**，不是速度。速度上 Laya 反而快（官方與第三方皆然）；品質上要分三層看，**base zero-shot 確實差，微調後可用，但與 Jev 比仍落後**。
+
+| 效能維度 | Laya | 對照 | 判定 |
+|---|---|---|---|
+| **速度** | T4 單題 32.8 ms、批次 7.2 ms/題 | 快 Jev 6–7×（第三方量測） | **好**（但未統一基準） |
+| **判斷品質（base zero-shot）** | 0.362／0.352 | majority baseline 0.461 | **差**，低於多數類別基線 |
+| **判斷品質（微調後）** | typed-decisions 0.766 | base 0.362 | **可用**，微調是關鍵 |
+| **判斷品質（vs Jev，獨立第三方）** | #555：0.686／#450：0.780 | Jev 0.907／0.919 | **落後**（#555 中 9 套件有 8 個顯著） |
+| **校準** | 出廠 over-confident，ECE 0.466／0.314 | Jev 原始 ECE 0.144 | **落後**，需自行 fit temperature |
+
+品質內部的**維度衝突**（同一份官方 benchmark）：
+
+| 指標 | Laya typed-decisions | Jev | 誰贏 |
+|---|---|---|---|
+| argmax accuracy | **0.766** | 0.727 | Laya |
+| soft accuracy | 0.471 | **0.580** | Jev |
+| 原始 ECE（越低越好） | 0.213 | **0.144** | Jev |
+
+**結論**：「效能不好」精確指**判斷品質**；但不可一句話概括——base zero-shot 差、微調後可、與 Jev 比落後，且連官方 benchmark 都有 argmax 贏、soft accuracy 與校準輸的維度分歧。
+
+---
+
+### Q5：要借機制，借的是它的模型架構／訓練手法，還是外層的系統架構方法？模型架構跟訓練手法沒廣泛驗證的話，也沒必要學吧？
+
+**A**：**該借的是系統層；模型層中「架構」不必學，「訓練目標的設計」值得抽取。** 使用者的質疑（沒廣泛驗證就不必學）在**架構層成立**，在**訓練目標層不成立**——該層的價值不是新穎性，是它把宣稱變成可驗證。
+
+先分層：
+
+| 層 | 內容 | 是否值得借 | 理由 |
+|---|---|---|---|
+| **模型架構** | encoder（ModernBERT／mmBERT）＋ 2 層 head＋option-marker scorer | **不必學** | 骨幹是**現成的公開模型**，head 是 2 層 transformer；無新架構範式可抽，且未勝 Jev |
+| **訓練手法** | RLCD：reward＝strictly proper scoring rule（log＋spherical＋RPS）＋ REINFORCE／group-mean baseline | **抽取「方案方向」，不照搬** | 價值在**目標函數設計**：把「報誠實機率」設成唯一最優策略，並用 `tests/test_training.py` 對 properness 做確定性檢驗 |
+| **系統架構** | 語言 Router（forward 前選 checkpoint）、Jev 相容協定、`docs/staged-adoption.md` 的 shadow→compare→policy→bounded promote、hooks 觀測 | **可借方法** | 與模型品質脫鉤，屬流程／協定層，可在自己的判斷點上用 |
+
+#### 對照第二大腦（判準來源，非通則）
+
+| 標的 | 判定 | 對本題的意涵 |
+|---|---|---|
+| [`技術取捨準則`](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md)（骨幹，`generated.by: claude-code/opus-5` ＋ `status: draft`，**AI 草稿未經他 review**） | **理解優先**：不夠穩定或不熟悉 → 先自己兜，MVP 是理解驗證點；**Reject≠沒價值**，可抽取「需求理解＋方案方向」；MVP→Feature 閘門＝能否影響個人 workflow | Laya 是「先自己兜」的底座，**不是**要照搬的架構範式；抽取訓練目標與系統流程兩樣方向即可 |
+| [`DeepSeek V4`](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/DeepSeek%20V4.md)（`generated.by: human:fatesaikou` ＋ `status: stable`） | 「**降低 Model Routing 研究優先級**，不要把心力花在精準路由不同 LLM 的 legacy 機制」 | 與 Laya 的 `router_questions()` preset（small vs frontier model 路由）**直接衝突**；但與語言 Router 不衝突 |
+| [`Switchyard`](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Switchyard.md)／[`OmniRoute`](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/OmniRoute.md) | 整條 Model Router 線已翻為**不採用** | 同上：別把 Laya 的 model-router preset 當成重啟該線的理由 |
+| [`判定總表`](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/判定總表.md)（骨幹索引） | 查無 Laya 條目 | 第二大腦**沒有對 Laya 的判定**；本題判準取自上述骨幹與評估，非既有 Laya 結論 |
+
+#### ⚠️ 衝突聲明
+
+1. **語言 Router ≠ Model Router。** Laya 的 `Router` 本體是在 forward 前依 script／language 選 checkpoint（`router.route(...).model` 只回 `english`／`multilingual`），**不涉及任務難度或不同 LLM 的比較**。他 stable 判定的「降低 Model Routing 優先級」不適用於此。衝突只落在 `router_questions()` 這個**選用 preset**（README 的 Intelligent Model Router，routes to small vs frontier models）。
+2. **「沒廣泛驗證」的兩種下場不同。** 用在**架構**上：成立，跳過。用在**訓練目標**上：不成立，因為 proper scoring rule 的可驗證性與第三方是否驗證無關——它由 `tests/test_training.py` 的數學性質保證。用在**系統流程**上：也不成立，因為 shadow／compare／bounded promote 是流程設計，其有效性可在自己的資料上量。
+
+**結論**：借系統層（語言 Router、Jev 相容協定、staged adoption 流程）；模型層只抽「proper scoring rule 當訓練目標＋可驗證性設計」這個方案方向，架構與權重不學；並且不可把其 model-router preset 當成重啟已被 stable 判定關閉的 Model Routing 線。
