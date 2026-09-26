@@ -261,7 +261,7 @@ README 的自我對照句為 "If you have used Kubernetes, `ax` will feel simila
 
 ### 4.2 對照第二大腦（FATESAIKOU/MyBrain）
 
-> 鏡像 `d2aeff7`（2026-09-26 同步）。以下每則標信任層級；`draft` 者為未經使用者 review 的 AI 草稿。**這些是他的判定，不是本報告的判定。**
+> 鏡像 `530133b`（2026-09-26 同步）。以下每則標信任層級；`draft` 者為未經使用者 review 的 AI 草稿。**這些是他的判定，不是本報告的判定。**
 
 #### 4.2.1 直接命中：他手上的座標
 
@@ -270,6 +270,8 @@ README 的自我對照句為 "If you have used Kubernetes, `ax` will feel simila
 | [MyLinuxPool](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/MyLinuxPool.md)：「把三台各自為政的機器變成可託管叢集」；明確邊界為「**沒有排程、沒有佇列、沒有自動擴縮**。它是讓機器可達的基礎設施，不是工作調度器」；worker 無狀態、provider 之間不互連、沒有多租戶 | `draft`，`by: ai:claude-opus-5`（日誌作者 `human:fatesaikou`，09-15／09-25／09-26 證實為當期實際推進） | **同問題域的自建版**。AX 補上的正是他刻意標為「沒有」的四項：排程、佇列、自動擴縮、多租戶隔離 |
 | [AIContainer](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/靈感/AIContainer.md)：「一台 Linux ＋ CodeAgent 的完整作業環境」；三件事為遠端機器啟停、永續連線、與入口的非同步通訊 | `draft`，`by: claude-code/opus-5.5` | AIContainer 的「永續連線」與 AX 的 durable execution／connection recovery 解同題；AIContainer 明言「必須是一台電腦，不是被包成幾個 tool 的受限沙箱」，與 AX 的 sandbox 定位方向相反 |
 | [個人 AiAgent 入口](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/%E5%80%8B%E4%BA%BA%20AiAgent%20%E5%85%A5%E5%8F%A3.md)：2026-09-06 **放棄大一統架構**，拆成「簡單問答」與「複雜任務」兩個互不為前提的東西 | `draft`，`by: claude-code/opus-5.5` | 他的架構決策是「拆」，AX 的形狀是「以三個 primitive 統管所有 agent workload」 |
+| [herdr 配置](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/herdr%20配置.md)：**正在使用**的多 agent 協作層。終端多工器，認得 pane 內 agent 的 `idle`／`working`／`blocked`／`done`；核心是 `herdr agent prompt <name> --wait`；已在 2026-08-16 以 1 PM＋2 member 實跑完整專案（[AI開發workflow實測](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/AI開發workflow實測.md)） | `draft`，`by: claude-code/opus-5` | **與 AX 不同層**：herdr 管「對話與人機接力」，AX 管「算力與隔離」。二者互補非替代（詳見 §5 Q2） |
+| [AiStorage](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/AiStorage.md)：**正在設計的資料層**，四要素 MyBrain／Atelier／Agora／Foundry，各自獨立只共用約定 | `draft`，`by: claude-code/opus-5.5` | AX 無對應資料層；AX 的持久化止於單一 task 的 `/workspace` 卷（詳見 §5 Q1a） |
 
 #### 4.2.2 判定過的替代方案
 
@@ -311,6 +313,20 @@ AX 的設計方向與此一致：
 
 同時，[統一的兩端稅](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/統一的兩端稅.md)（`draft`，`claude-code/opus-5`）的判準為：「先問這兩個是同一件事的不同實作，還是不同的事」。AX 把互動式 coding、長命 agent server、Jupyter、無頭瀏覽器測試全部收進同一組 Task／Workspace／Model。依此準則，需先回答這些 workload 是否為「同一件事」；若是不同的事，統一介面裝不下它們各自真正需要的控制粒度。
 
+#### 4.2.5 「AI 公司」這條線的既有座標（R2 新增）
+
+使用者在 R2 揭露「真正的目的是建立一個 AI 公司」。第二大腦中這條線的既有座標如下；**這些是他已下的判定**：
+
+| MyBrain 檔案與判定 | 信任層級 | 與 AX 的關係 |
+|---|---|---|
+| [munder-difflin](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/munder-difflin.md)：判**不採用**。理由一明寫「我雖然打算打造一個 **AI Container／AI Company**，但沒打算被限制 UI」；理由二是「它引入的解決方案本質上就是多 Agent 協作的**一種拓樸**，而我實際需要的是**能自由切換的拓樸**」；理由三「還太早而且包太多」 | `draft`，`by: process:learn-gh-agent`（**未經他 review 的流程產出草稿**） | AX 的 Task／Workspace／Model 三 primitive **同樣固定了一種執行拓樸**，與理由二同構 |
+| [AIContainer](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/靈感/AIContainer.md)：**員工**所在的專案。「一台 Linux ＋ CodeAgent 的完整作業環境」；員工 harness 來自 Atelier 的**職務**（know／do／judge／dont）；與入口**絕對不能以互相為前提** | `draft`，`by: claude-code/opus-5.5` | AX 的 atespace 是**隔離邊界**，不是**部門**；AX 無職務概念 |
+| [個人 AiAgent 入口](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/%E5%80%8B%E4%BA%BA%20AiAgent%20%E5%85%A5%E5%8F%A3.md)：2026-09-23 **有意識地推翻** 9/6 的「六要素作廢」；Harness 歸 Atelier、LLMGateway 另成獨立專案、交接經 Agora | `draft`，`by: claude-code/opus-5.5` | 他對「AI 公司」的邊界已重新定義為「透過 AiStorage 交接」，不是「用一套 orchestrator 統管」 |
+| [統一的兩端稅](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/統一的兩端稅.md)（骨幹）：「把兩個性質不同的東西收進同一套機制，代價由差異最大的兩端付」；判準是「這兩個是同一件事的不同實作，還是不同的事」 | `draft`，`by: claude-code/opus-5` | 直接可用於判 AX：它把互動式 coding、長命 agent server、Jupyter、無頭瀏覽器全收進同一組 primitive |
+| [技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md)（骨幹）：MVP→Feature 唯一閘門＝「**要真的能影響到我個人 workflow 我才會立刻進 Feature**」 | `draft`，`by: claude-code/opus-5`（內含他原話） | AX 需 K8s＋Substrate＋Go＋`ko`＋registry；依此準則停在 Judge（理解）階段 |
+
+**查不到（明寫）**：第二大腦**沒有** `google/ax`／Agent Executor／Open Agentic Orchestration 任何紀錄（0 命中）；**沒有** herdr 與 AX／編排器的直接對比；**沒有**「AX 是否滿足 AI 公司需求」的既有判定——該判定屬本輪（R2）新作。
+
 ### 4.3 小結（不評論優劣，僅定位）
 
 | 若使用者的問題是… | 對應的切入層 |
@@ -320,8 +336,149 @@ AX 的設計方向與此一致：
 | 「我要在 K8s 上管理 agent 的生命週期與框架整合」 | kagent |
 | 「我要編排單一應用內的 agent 步驟」 | 應用層框架（LangGraph／Temporal／ADK／A2A） |
 | 「我要讓手上的三台機器可達、可跑 worker」 | 他自己的 MyLinuxPool（刻意無排程、無佇列） |
+| 「我要建立 AI 公司，需要員工身分、職務與交接」 | 他自己的 AiStorage ＋ AIContainer（AX 無此層） |
+| 「我要讓多個對話 agent 互相接力、感知誰在做什麼」 | 他正在用的 herdr（AX 無此層） |
 
 ---
+
+## 5. User Q&A
+
+> R2（2026-09-26）使用者揭露真正的目的為「建立一個 AI 公司」，並提出三組質問。依「子問題不可合併」規則，Q1 的 a／b 拆為兩題，本輪共 4 則 QA。
+
+### Q1：AX 這麼重型，到底有沒有內建「產出持久化」？
+
+使用者原意：我真正的目的是建立一個 AI 公司，因此在意 AX 是否已內建如 AiStorage（MyBrain／Session／成果物）的產出持久化。
+
+**A**：**沒有。** AX 的持久化止於「讓這個 sandbox 睡醒後還在」，不是「記住這家公司做過什麼」。
+
+AX 的持久面只有一處：單一 Task 的 `/workspace` **DurableDir 卷**，由 Agent Substrate 提供。證據鏈如下：
+
+| 層 | 事實 | 來源 |
+|---|---|---|
+| AX Task 規格 | `TaskSpec` 只有 image／command／env／resources／workspaces／debug，**無任何資料庫或儲存欄位** | `pkg/apis/v1alpha1/types.go` |
+| 持久化機制 | suspend 時 checkpoint actor 狀態，resume 時還原；卷綁**單一 actor template** | `docs/runner.md`、`docs/sandbox.md` |
+| 真本落點 | Substrate 的 `SnapshotsConfig` 走 bucket（預設 `gs://snapshot-substrate-test-.../ate-env/`，可用 `AX_SNAPSHOTS_BUCKET` 覆寫） | `internal/substrate/client.go` |
+| 快照 scope | 標記為 `DATA`，**只保 volume 內容，不保 process memory** | 同上 |
+| 控制面狀態 | Redis 存 Task Hashes ＋ Event Streams ＋ PubSub，供 server↔controller——**這是工作佇列，不是住民資料層** | `DESIGN.md` |
+
+**對照他的 AiStorage 四要素**：
+
+| 面向 | AX 現況 | 他的 AiStorage |
+|---|---|---|
+| 持久單位 | 單一 Task 的 `/workspace` 卷；**per-actor** | MyBrain／Atelier／Agora／Foundry 四個獨立要素 |
+| 跨任務共享 | **無**。卷不跨任務 | 依「案件」跨 Session 彙整 |
+| 真本落點 | bucket（DATA scope 快照） | Google Drive 上的 git-annex |
+| 檢索／重播 | **無查詢介面** | Agora 附可擴充搜尋；Foundry 有產出目錄 |
+| 身分 | **無 profile／無使用者模型** | 身分綁 profile；授權依 profile |
+
+**結論**：AX 的四個持久化面向（跨任務共享、檢索、身分、成果物庫）在 AiStorage 四要素中**無一有對應物**。AX 提供的是「沙箱存活」，不是「公司記憶」。
+
+---
+
+### Q2：worker 之間如何通訊？AX 有沒有內建通訊手段？
+
+使用者原意：worker 之間如何通訊，或者有沒有通訊手段。
+
+**A**：**AX 的內建答案是「不允許，且沒有內建手段」。** 任務之間預設隔離，可用的只有間接共享與外部逐 task 路由。
+
+四種通訊方向逐一檢視：
+
+```
+   外部 ──[atenet-router header]──▶ Task        ✅ 內建
+   Task ──[atunnel egress gateway]──▶ 外部        ✅ 內建
+   Task ◀──────── ??? ────────▶ Task             ❌ default-deny
+   Task ──[建 sibling]──▶ AX 控制面              ❌ 無憑證
+```
+
+| 通訊方向 | 現行機制 | 是否內建 |
+|---|---|---|
+| 外部 → Task | Substrate `atenet-router` ＋ header `ate-target-actor: <atespace>/<task>` | ✅ |
+| Task → 外部 | `atunnel` → egress gateway（有政策 allowlist；WebSocket 與 CONNECT 被擋） | ✅ |
+| Task ↔ Task | Substrate **default-deny**（threat-model T-17）；A2A 呼叫模型列在 Substrate roadmap 第 97 行，**未實作** | ❌ |
+| Task → AX 控制面（建 sibling） | `TaskSpec` **無 service account／無 AX API token** | ❌ |
+| 共享媒介 | Workspace 可共同 clone 同一 git remote 或指向同一 MCP endpoint（**間接**） | ⚠️ 非訊息匯流排 |
+
+**關鍵校正**：README 說 task「可以是大量被 spawned 的任務樹的 root」，但**現行沒有沙箱內 spawn 的介面**——該敘述是概念描述，不是現行能力。
+
+**結論**：AX 的 task 對 task 通訊在 Substrate 層被顯式拒絕（T-17），在 AX 層沒有補上任何訊息匯流排。要達成任務協作，只能靠「共同 git remote」這類外部媒介，或由外部客戶端逐 task 路由指令。
+
+---
+
+### Q3：這東西跟 herdr 這類東西的差別是什麼？
+
+使用者原意：AX 跟 herdr 這類東西的差別是什麼。
+
+**A**：**兩者不在同一層，不是替代關係，是互補關係。**
+
+| 面向 | herdr | AX |
+|---|---|---|
+| 所在層 | agent **互動／注意力**層（終端 server） | agent **工作負載**層（叢集控制平面） |
+| 協調單位 | pane 裡的**對話** | 沙箱化的 **Task** |
+| 跨機 | SSH 串多機，同一 herd | K8s＋Substrate 排程 actor |
+| 狀態感知 | `working`／`blocked`／`idle`／`done` | 只認 Task phase／condition |
+| 交棒機制 | `herdr agent prompt <name> --wait` | **無**；task 不可變、無 prompt 介面 |
+| 隔離 | 終端 session，共用使用者環境 | gVisor／microVM 強隔離 |
+
+```
+        ┌─────────────────────────────────────┐
+        │  herdr：編排「誰在做什麼、誰卡住等你」  │  ← 對話與人機接力
+        ├─────────────────────────────────────┤
+        │  AX：編排「沙箱開幾個、睡醒多快」        │  ← 算力與隔離
+        └─────────────────────────────────────┘
+```
+
+**一句話定位**：herdr 管**對話**，AX 管**沙箱**。herdr 的核心能力是「知道 agent 何時做完並接棒」，AX 的核心能力是「大量隔離環境的建立與 sub-second 恢復」——兩者解決的問題不重疊。
+
+**反證表（若把 herdr 當 AX 的替代，會缺什麼）**：
+
+| 若用 herdr 取代 AX | 缺什麼 |
+|---|---|
+| 隔離 | 終端 session 不是強隔離，共用使用者環境 |
+| 規模 | 受單機 pane 數與 SSH 連線數限制 |
+| 恢復 | 無 sub-second checkpoint／resume 機制 |
+| 若用 AX 取代 herdr | 缺什麼 |
+| 交棒 | task 無 prompt 介面，無法「送一句話給另一個 agent 並等它做完」 |
+| 狀態感知 | 只認 phase／condition，不認 agent 的 working／blocked |
+| 人機接力 | 無 pane 級互動，`ax ssh` 需開 `debug: true` 且是純程序存取 |
+
+**結論**：他的 AI 公司若同時要「多 agent 對話接力」與「大量隔離算力」，herdr 與 AX 是可以並存的兩層，不是二選一。
+
+---
+
+### Q4：AX 有「AI 團隊運作」的概念嗎？
+
+使用者原意：這東西有「AI 團隊運作」的概念嗎。
+
+**A**：**AX 有「多任務」，沒有「多職務」。** atespace 最接近組織概念，但它是隔離邊界，不是團隊。
+
+| 組織要素 | AX | 他的既有座標 |
+|---|---|---|
+| 職務（know／do／judge／dont） | ❌ 無 | Atelier 以職務為單位（`draft`，claude-code/opus-5.5） |
+| 員工身分／profile | ❌ 無（atespace＝隔離邊界，非部門） | AiStorage：身分綁 profile（`draft`） |
+| 交接／信箱 | ❌ 無（A2A 未實作） | Agora 交接單（`draft`） |
+| 團隊拓樸 | ❌ 無；primitive 只有 Task／Workspace／Model | munder-difflin 判**不採用**（GUI 限制、固定拓樸、還太早，`draft`） |
+
+AX 的三個 primitive 各自對應的是**執行要素**而非**組織要素**：
+
+| Primitive | 真實角色 | 不是什麼 |
+|---|---|---|
+| Task | 隔離執行單位 | 不是「員工」——task 不可變、無身分、跑完或 suspend |
+| Workspace | 共享環境定義 | 不是「部門」——只是 git／skill／MCP 的宣告 |
+| Model | 憑證與模型設定集中 | 不是「角色」——只是 provider 設定 |
+
+**結論**：AX 提供的是「企業級的 agent 執行底座」，其組織模型是空白。他「AI 公司」所需的職務、身分、交接三層，仍須由 AiStorage（Atelier／Agora）與 AIContainer 自建。
+
+**與他既有判定的衝突（明列）**：
+
+| # | 衝突 | 內容 |
+|---|---|---|
+| Q4-C1 | 「需要能自由切換的拓樸」vs AX 固定拓樸 | munder-difflin 因「引入**一種**拓樸」被拒（`draft`，未經 review）。AX 同樣以三 primitive 固定執行拓樸；且它更底層，切換拓樸的自由度更低 |
+| Q4-C2 | 「外部控制平面過重」vs AX 是更大的控制平面 | Openship 因「為一台 VPS 導入外部控制平面過重」被拒（`stable`，2026-08-09 經他 verify）。AX 是叢集級控制平面，為個人導入的規模落差更大——**但問題域不同**：Openship 管部署，AX 管 agent workload，AX 真正對照的是他自建的 MyLinuxPool |
+| Q4-C3 | 「還太早而且包太多」vs AX 現況 | munder-difflin 的第三條理由指向 pre-1.0 且範圍過寬。AX 現為 v0.3.1、README 明載「stable release 前會有 major breaking changes」，結構相同 |
+
+**與他既有準則方向一致處**：[技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md)「AI agent 的信任邊界：約束在 harness，不在權限」的例外明確寫道「把邊界挪到該機器上的執行身分、憑證有無、網路規則」。AX 的設計方向與此一致——roadmap 的 SPIFFE 身分與 mTLS、Model 的 K8s Secret 憑證、Substrate 的網路隔離分別對應這三者；其中 Secret 與網路隔離已實作，SPIFFE 尚未。
+
+
 
 ## 附錄 A：影片觀點的事實校正
 
