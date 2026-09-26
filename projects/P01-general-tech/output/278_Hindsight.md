@@ -243,6 +243,96 @@ reflect 不是檢索，而是一個最多 **10 迭代**的 agentic loop，可用
 2. 但它**未完全通過**他的防腐化判準——固化是 LLM 背景過程，缺獨立驗證閘門；也**未通過**workflow 閘門——他目前沒有需要長期對話記憶的 agent 場景。
 3. 依準則③，可抽取的是**機制方向**（TEMPR 檢索組合、observations 的證據＋proof＋refine、分層檢索、軟硬約束分離），而非導入本體。這與他在 TencentDB／macro 的處理方式一致。
 
+### 4.7 本輪新增判準：統一的兩端稅（Q3 的對照尺）
+
+來源：https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/統一的兩端稅.md
+信任層級：`generated.by: claude-code/opus-5` / `status: draft`——**AI 草稿，未經他本人 review**。
+
+| 判準 | 內容 | 對 Hindsight 的套用 |
+|---|---|---|
+| 唯一一句 | 這兩個是「同一件事的不同實作」，還是「不同的事」？ | 證據（`world`/`experience`）與推論（`observation`）是**不同的事** → 分開為獨立型別、不同生命週期屬正確分界 |
+| 重量不是判準 | 統一的代價由差異最大的兩端付，且付法相反 | Hindsight 的複雜度集中在「取」（四路檢索＋融合＋rerank），不在事實／推論的分界上 |
+| 診斷訊號 | 相反方向的抱怨（一端嫌重、一端嫌細）＝分界劃錯 | 未出現事實端嫌重、推論端嫌細的相反抱怨 |
+
+與 R1 §4.2 的關係：此判準**強化** C1 的方向——Hindsight 的三層分界（raw／derived／curated）劃得對，但「固化缺獨立於 LLM 的驗證閘門」這一扣分仍成立。即：**分界對，不代表品質閘門也對**，兩者是獨立軸。
+
+---
+
+## 5. User Q&A
+
+### Q1：這東西要解決的問題，我就不能單純對資訊打「事實」或「推論」兩個標就好了嗎？
+
+**A**：這個直覺與 Hindsight 的**儲存層**一致，但兩者的二元軸不同。
+
+| 對照 | 你的二元 | Hindsight 儲存端的二元 |
+|---|---|---|
+| 標籤值 | 事實／推論 | `world`／`experience` |
+| 判準軸 | 這條資訊是證據還是推論 | **誰在說**：bank 自己的 agent（`experience`）vs 外部（`world`） |
+| 標在什麼上 | 每一條資訊 | 每一條 fact（可寫入的 memory unit） |
+| 「推論」標哪 | 打「推論」 | **不存在可寫的「推論」標**；推論是 `observation`，由系統衍生，不可寫入（對它 PATCH 回 400） |
+
+- 儲存端實際只有兩個可寫型別，這一點與你「兩個標」的極簡直覺相同；但它拿二元切「發話者」，不是切「事實／推論」。
+- 你要的「事實／推論」在 Hindsight 裡對應的不是兩個平行的標，而是**三層不同型別**：`world`/`experience`（證據）→ `observation`（衍生的信念）→ `mental model`（策展的 standing answer）。
+- **標籤是單條資訊的屬性；observation 是多條 fact 的乘積。** 打標這個動作不會自己合併重複、不會自己算 proof count、不會自己保留「曾熱衷 React → 改用 Vue」的演進。若問題只有「這條是誰說的、可不可信」，兩標就夠；Hindsight 要解的是「跨多條事實合成當前信念並隨時間演化」，標籤在結構上做不到這件事。
+
+你已經有一套二元標：MyBrain 的 `status: draft/stable` ＋ `generated.by` ＋ `🔄`（AI 事後校正標記）。它標的是「誰寫的、review 了沒」，屬信任層級，與 Hindsight 的 `world`/`experience` 同族（都在標來源），都不是在標「事實／推論」。
+
+**結論**：兩標足以表達「來源」，不足以產生「跨條合成後的當前信念」。Hindsight 的儲存端確實極簡為二類，但它沒把你的「事實／推論」當標籤處理，而是把它拆成三個獨立型別。
+
+### Q2：「推論升級成事實」是應用層另外設計的吧，這東西是不是被包在系統裡？
+
+**A**：前提要先修正——**Hindsight 中不存在「推論升級成事實」這條路徑。**
+
+| 層 | 型別 | 會不會升格成下層 |
+|---|---|---|
+| 證據 | `world`／`experience` | — |
+| 衍生信念 | `observation` | **不會**。它是獨立型別，永不變成 `world`／`experience` |
+| 策展答案 | `mental model` | 獨立，由你定義問題、系統產出 |
+
+三層是「越上層越已定」的並存結構，不是晉升鏈。`observation` 只會 refine（保留演進）、不會 overwrite、也不會被 promote。
+
+| 你問的「升級規則」 | Hindsight 是否內建 |
+|---|---|
+| 何時把推論當成事實 | **沒有這條機制**（因為不存在升格） |
+| 從事實衍生出推論 | **有，且預設開啟**：retain 後背景自動 consolidate（`enable_auto_consolidation`，可關） |
+| 誰來判定信念成真 | 無獨立判準；固化是背景 LLM 過程，靠 dedup threshold（0.97）、evidence quote、proof count、stale 標記維持品質 |
+
+- 「應用層另外設計」的那個東西（升格規則）**沒有被包進系統**——因為它根本不被需要。
+- 被包進系統的是**另一個東西**：從證據衍生信念的自動合成。這兩者不是同一件事。
+- 對照你的 MyBrain：`draft`→`stable` 由**人 review** 決定，是你系統外的應用層規則；Hindsight 把相近位置換成 LLM 背景 consolidation，沒有獨立於 LLM 的驗證閘門。
+
+**結論**：升格機制不在 Hindsight 內（且 Hindsight 不做升格）；它內建的是衍生合成。你把「升格」歸為應用層是對的，但 Hindsight 並非把那條規則收進來，而是改以另一條路徑（衍生＋固化）取代。
+
+### Q3：存跟取「推論跟事實」的方式，是否被包成複雜的架構設計？如果是，我可能會 reject
+
+**A**：事實層面——**是，存與取都是工程化的多階段架構。**
+
+| 面向 | 複雜度證據 | 有無輕量路徑 |
+|---|---|---|
+| 存（retain） | 每個 chunk 跑 LLM 抽取 fact＋實體解析＋建 entity／time／meaning／causal 四類連結＋embedding；需 PostgreSQL 14+ 與向量擴充 | 有：`retain_extraction_mode=chunks`（不呼叫 LLM）、`verbatim`（僅抽 metadata） |
+| 取（recall） | TEMPR 四路並行（semantic／BM25×5 後端／graph／temporal）→ RRF → cross-encoder rerank 前 300 → recency／temporal／proof 三項乘性加成 → token 截斷 | 有：`budget=low`；無 cross-encoder 時退回 RRF 分數 |
+| 固化 | 背景 consolidate 生成 observation；mental model 背景重寫 | 有：`enable_observations=false` 整包關閉，改手動觸發 |
+| 部署 | full image ~9GB／1.5–2GB RAM；retain 500ms–2s/批（LLM 抽取為瓶頸）；recall 100–600ms | slim image ~500MB；可外接 embeddings／reranker |
+
+套你自己的判準（〈統一的兩端稅〉，`claude-code/opus-5`／draft，未 review）：
+
+| 判準 | 套用結果 |
+|---|---|
+| 重量不是判準，**分界**才是 | Hindsight 把 raw（`world`／`experience`）／derived（`observation`）／curated（`mental model`）分成不同型別與不同生命週期 |
+| 「同一件事的不同實作」還是「不同的事」 | 證據與推論是**不同的事** → 分開是對的；Hindsight 沒有強迫它們共用同一套儲存語意 |
+| 檢驗：抱怨方向 | 分界點在「取」——四路檢索為了融合而共用 RRF 與 rerank。那屬**同一件事（檢索）的多元實作**，非不同的事被硬收 |
+
+| 支持 reject | 不構成 reject |
+|---|---|
+| 個人無對應 agent 場景（workflow 閘門未過） | 事實／推論未被混進同一機制（分界正確） |
+| 完整部署重型、retain 依賴 LLM | 存在 `chunks` 無 LLM 與 slim 路徑 |
+| 固化為背景 LLM、無獨立驗證閘門 | 有 evidence／proof／stale／refine-not-overwrite 可觀測性 |
+
+- 若 reject 觸發點是「**事實與推論被塞進同一套複雜機制**」→ 這一點不成立：Hindsight 把它們分成三層獨立型別。
+- 若觸發點是「**為個人場景引入多階段服務化架構**」→ 這一點成立：完整架構對個人自架是重型，且依〈技術取捨準則〉準則②的 workflow 閘門，目前沒有需要 recall／reflect 的 agent 場景。
+
+**結論**：複雜為真；但「複雜」是否構成 reject，取決於判的是分界（Hindsight 過）還是 workflow 影響（Hindsight 不過）。以你既有判準，後者才是主判準。
+
 ---
 
 ## 附錄：來源清單
