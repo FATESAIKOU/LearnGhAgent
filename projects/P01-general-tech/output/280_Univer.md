@@ -2,9 +2,9 @@
 
 > 調研標的：https://github.com/dream-num/univer
 > 官網／文件：https://univer.ai/ ｜ https://docs.univer.ai
-> 來源：GitHub 一週熱點 132 期（https://youtu.be/q7HMQLM93qY）；issue #275，PR #280（R1）
-> 對齊版本：v1.0.2（2026-09-24 發布）；metadata 取自 2026-09-24 pushed、18,824 stars、Apache-2.0、TypeScript
-> 產出時間：2026-09-26
+> 來源：GitHub 一週熱點 132 期（https://youtu.be/q7HMQLM93qY）；issue #275，PR #280（R1 初版、R2 追加 Q&A）
+> 對齊版本：v1.0.2（2026-09-24 發布）；metadata 取自 2026-09-24 pushed、18,824 stars、Apache-2.0、TypeScript（R2 複查：18,993 stars／1,618 forks）
+> 產出時間：2026-09-26（R2 更新）
 
 ---
 
@@ -186,6 +186,127 @@ load/edit Unit ──▶ Office file import/export ──▶ visual inspection �
 | C3 | **判準層級** | 依技術取捨準則，**「會不會進日常 workflow」強於技術優劣**。Univer 需要一個宿主產品；`下一步清單`（draft）無此條目，故現階段不具備進入 Feature 的條件。 |
 
 > **結論**：第二大腦無 Univer 判定；相鄰判定中，**OfficeCLI（試用／human stable）方向不同但已覆蓋其 agent-office 需求，Aionui（採用／human stable）** 為辦公＋agent 整合脈絡。若要採用 Univer，觸發條件是「出現需要嵌入編輯器的自有產品」，而非本輪調研的「agent 操作 Office 檔」。
+
+### 4.4 R2 補充對照：第二大腦新增判定與衝突更新
+
+> 查詢方式：`mybrain-read` skill，鏡像 `/tmp/mybrain` @ `530133b`（2026-09-26 同步）。R1 對照見 §4.3，本節只追加 R2 新讀到的檔案與衝突列。
+
+| 條目 | MyBrain 判定 | 信任層級 | 時間座標 | 與 Univer 的關係 |
+|---|---|---|---|---|
+| [整備 claude web chat](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/整備%20claude%20web%20chat.md) | 實測：`officeCLI` 在 Claude web chat 環境「需要外裝工具的基本不能用」，內部自動改用 `pptxgenjs` | `human:fatesaikou` / `stable`（**本人紀錄**） | 2026-07-14 | **反面證據**：他對 CLI 型 office 工具有環境限制的實測，並非無條件偏好 |
+| [AI 產出的人類 Review 策略](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/AI%20產出的人類%20Review%20策略.md) | 四層級 review 粒度：依「壞了的影響」決定 review 深度，並盡量把變更推向低影響層 | `ollama-cloud/deepseek-v4-flash` / `draft`（**AI 草稿，未經他 review**） | 2026-08-15 | 他明確認定人類仍需 review，且需要「能 verify」的機制；對應 Univer 的 Worktree／Viewer 人審段 |
+| [DeepSeek Harness](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/DeepSeek%20Harness.md) | **觀望**（重型，機制可參考入口設計） | `process:learn-gh-agent` / `draft`（**自動流程產出，未經他 review**） | 2026-08-16 | Univer 是 DSH 的官方 Office 插件來源（`dsh-univer-office`），兩者在生態上相鄰 |
+| [Buzz](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Buzz.md) | 規模過大難以採用；統一工作平台值得觀察 | `process:learn-gh-agent` / `draft`（**未經他 review**） | 2026-07-26 | 「大而全」前例 |
+| [Semantica](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Semantica.md) | **Reject**：對個人過度重型 | `process:learn-gh-agent` / `draft`（**未經他 review**） | 2026-08-16 | 「重型＝不採用」前例 |
+| [macro](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/macro.md) | **Reject**：太重型 | `process:learn-gh-agent` / `draft`（**未經他 review**） | 2026-08-16 | 同屬重型否決 |
+| [判定總表](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/判定總表.md) | 117 筆：採用 17／試用 19／觀望 8／不採用 65／未判定 8 | `ollama-cloud/deepseek-v4-flash` / `draft`（**未經他 review**） | 2026-08-22 | 不採用佔比最高，重型方案多次落此區 |
+
+#### 明確指出的衝突（R2 追加）
+
+| # | 衝突點 | 說明 |
+|---|---|---|
+| C4 | **「更該用 OfficeCLI」與本人實測衝突** | Q3 的預設（OfficeCLI 更精確因而更該用）與 [整備 claude web chat](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/整備%20claude%20web%20chat.md)（human/stable）記載的「officeCLI 在 Claude web chat 基本不能用」相衝。精確性只在可操作的環境成立；跨宿主環境的可用性未定。 |
+| C5 | **「人類只負責最終確認」與其 review 策略衝突** | Q3 假設人類只做形式確認，但他的 [AI 產出的人類 Review 策略](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/AI%20產出的人類%20Review%20策略.md)（draft）明定依影響分四層級、且要能 verify。純形式確認與此定見不符；人審需要「看得見、改得動、可回滾」的介面，而 Worktree 屬 Pro。 |
+| C6 | **重型方案的否決前例** | Buzz、Semantica、macro、munder-difflin 皆因「太重型／規模過大／包太多」落於不採用或觀望。Univer 為 60+ 套件的完整框架，同屬重型候選；依技術取捨準則（draft），是否採用取決於有無宿主產品，而非技術優劣。 |
+
+> **結論**：R2 追加對照並未改變 R1 結論，且強化兩點——(1) 他對 CLI 型 office 工具有環境限制的實測，Q3 的預設不成立於所有環境；(2) 他明確認定人類 review 仍需要，且需要 verify 機制，故「看得見、改得動」的編輯介面在其判準下有位置，但該位置的完整形態依賴 Univer Pro。
+
+---
+
+## 5. User Q&A
+
+> R2 追加。使用者對 R1 提出三則質問型追問，拆為 Q1～Q3（一子題一 QA）。既有 §1～§4 內容保留，僅補充 §4.4 對照。
+
+### Q1：「這東西到底想解決什麼問題？是在自有網頁中搞出一個 Office365 編輯頁面的意思？」
+
+**A**：方向成立，但命題需拆成三層才精確。Univer 解的是「**自建可編輯 Office 介面**」的問題，不是「取得一個 Office365」。
+
+| 面向 | Office365 編輯頁面 | Univer |
+|---|---|---|
+| 形態 | hosted 完整應用（連微軟伺服器） | 可嵌入 SDK／runtime（裝進你的 app） |
+| 整合方式 | 開網頁使用；被他人嵌入靠 iframe | 開發者給容器 `div`，SDK 在頁面內掛載；README 明示「Without forcing you into a hosted app or a fixed UI」 |
+| 產出歸屬 | 微軟的產品 | 開發者自己的編輯表面（README：「a framework for building your own productivity surface」） |
+| 工具範圍 | Excel／Word／PowerPoint 網頁版 | 六工具一 runtime：Sheets／Docs／Slides／Canvas／Relational Tables ＋ PDF（規劃中） |
+| 協作／import-export | 內建 | 屬 Univer Pro |
+
+三個層次：
+
+1. **它是不是 hosted app？** 不是。開發者提供容器，SDK 掛載；不強制連 Univer 的伺服器。
+2. **它是不是 iframe 嵌入？** 不是。iframe 是嵌入一個現成完整應用；Univer 是提供零件，由開發者組出編輯器。
+3. **它是否只做編輯頁面？** 不止。同構 runtime 讓同一套邏輯在 Node.js 無介面執行（伺服器端批次處理）；這是 Office365 沒有的層。
+
+反證表：
+
+| 若需求是 | 則 |
+|---|---|
+| 只是顯示一份 `.xlsx` | Univer 過重，file viewer 即可 |
+| 要完整協作 Office 套件 | OSS 核心不足，需 Pro 或改用 ONLYOFFICE Docs |
+| 要 agent 操作既有成品檔 | 方向不同，屬 OfficeCLI／univer-cli 類 |
+
+**結論**：是「在自己的網頁內掛載出可編輯 Office 介面」的意思，但**非 hosted、非 iframe、範圍大於單一編輯頁**。
+
+### Q2：「這東西看起來根本踩微軟紅線，難道其實有官方背景？或維護團隊夠大、亦或年紀很長？」
+
+**A**：先給結論——**無微軟官方背景，但非個人專案**。四項命題逐一查證，資料取自 GitHub API 與官網／docs footer。
+
+| 提問 | 查證結果 | 來源 |
+|---|---|---|
+| 有官方背景？ | 無微軟關聯。DreamNum 為獨立公司；但與 DeepSeek Harness 等有官方合作（`dsh-univer-office` 為 DSH 官方 Office 插件） | `gh api orgs/dream-num`；`gh api repos/dream-num/dsh-univer-office` |
+| 維護團隊夠大？ | 是。GitHub org 建於 **2020-02-25**、90 public repos；**8 位公開成員**；實名 contributors **68 人**（含匿名 78）。Top：`jikkai` 1177、`DR-Univer` 623、`wzhudev` 574、`Dushusir` 547、`wpxp123456` 534 commits | members／contributors API |
+| 年紀很長？ | Univer repo 首 commit **2022-12-30**（約 4 年）；前身 **Luckysheet 2020-05-15**（約 6 年，2025-08 封存併入）；官網「10+ yrs」自 Luckysheet 血緣與團隊更早工作起算 | commits API；`gh api repos/dream-num/Luckysheet` |
+| 公司實體 | 官網 footer「© 2026 **DreamNum Inc.**」；docs footer「© 2026 **DreamNum Co., Ltd.**」 | 官網／docs |
+
+為何外觀像踩紅線：
+
+| 觀察 | 事實 |
+|---|---|
+| 功能對標 Excel／Word／PPT | 對標的是公開檔案格式標準 **OOXML（ECMA-376／ISO/IEC 29500）**，非微軟私有源碼 |
+| 似乎需官方背景才做得到 | 瀏覽器端試算表、公式引擎、Canvas 渲染為公開技術領域；Luckysheet、Handsontable、Grist 皆為獨立實作前例 |
+| 相容 Office 格式的授權風險 | 核心 Apache-2.0；C1 未發現複製微軟源碼或相依的跡象；檔案格式相容與獨立實作本身不構成侵權 |
+
+⚠️ **範圍界定**：專利、商標、Trade dress 等法律判斷超出本次調研。上表為可查事實，非法律結論。Step 2 review 建議的法源層（C2）本輪未執行，正式採用前須專業複核。
+
+**結論**：身世為公司化營運、68 貢獻者、血緣可溯 2020；**無微軟官方背景**。可查事實層面未見紅線，法律層面須專業複核。
+
+### Q3：「如果 office 成品基本上都是 AI 在編輯、人類只負責最終確認，那這東西會不會其實沒用、更該用 OfficeCLI？」
+
+**A**：這題要先拆前提，再分機制。AI 編輯＋人類確認不是單一能力，而是三段：
+
+```
+AI 產生／修改內容 ──▶ 人類確認（看得見＋改得動） ──▶ 定稿交付
+      CLI 即可           需要可視化／可回饋介面         檔案操作
+```
+
+OfficeCLI 與 Univer 解的不是同一題：
+
+| 面向 | OfficeCLI | Univer |
+|---|---|---|
+| 定位 | 操作既有成品檔（.docx／.xlsx／.pptx）的 CLI | 提供編輯能力＋人類協作 UI 的可嵌入 SDK |
+| 切入點 | 直接對 OOXML 元素 `get`／`set`／`query`（可到 XPath 層） | 自有 document model ＋同構 runtime |
+| 人能看／改？ | CLI ＋ HTML 預覽（`watch`） | 完整 GUI 編輯器（可組裝）＋ Worktree Viewer 人審 |
+| agent 路徑 | 有（CLI／MCP） | 家族另有 `univer-cli`；Worktree 審查在 Pro |
+| 精確修改既有檔 | 強（元素層） | 需 import／export（Pro） |
+
+第二大腦對照（附 URL 與信任層級）：
+
+| 條目 | 判定 | 信任層級 | 對 Q3 的意義 |
+|---|---|---|---|
+| [OfficeCLI](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/OfficeCLI.md) | 試用 | `human:fatesaikou` / `stable`（**本人結論**） | 已在 terminal 使用 |
+| [嘗試使用 OfficeCLI](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/嘗試使用%20OfficeCLI.md) | `officecli watch` 編 pptx，結論「完美」 | `human:fatesaikou` / `stable` | 產檔用途實證可用 |
+| [整備 claude web chat](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/整備%20claude%20web%20chat.md) | officeCLI「需要外裝工具的基本不能用」，被自動換 `pptxgenjs` | `human:fatesaikou` / `stable` | **與「更該用 OfficeCLI」直接衝突** |
+| [Aionui](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Aionui.md) | 採用 | `human:fatesaikou` / `stable` | 在意 OfficeCLI 連動與 agent 整合 |
+| [AI 產出的人類 Review 策略](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/AI%20產出的人類%20Review%20策略.md) | 四層級 review，放棄逐行看 code | `ollama-cloud/deepseek-v4-flash` / `draft`（**未經他 review**） | 人類仍要 review，且需能 verify |
+| [技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md) | 不用技術優劣評估；進 Feature 閘門＝影響 workflow | `claude-code/opus-5` / `draft`（**未經他 review**） | Univer 需宿主產品 |
+
+反證表：
+
+| Q3 的論點 | 反證 |
+|---|---|
+| 更該用 OfficeCLI，因為更精確 | 他實測 OfficeCLI 在 Claude web chat 環境不可用（被換 `pptxgenjs`）；「精確」只在其能操作的環境成立 |
+| AI 編輯後 Univer 沒用 | 他的 review 策略顯示人類仍需分層 review；確認階段需要可視化／可改介面，Univer 提供的正是這一段 |
+| Univer 與 OfficeCLI 二選一 | 兩者解不同題；Univer 家族自身也提供 `univer-cli`（同 OfficeCLI 類），可並存 |
+
+**結論**：若流程為「agent 產檔 → 自動驗證 → 交付」（人可信任、不需人工檢視），OfficeCLI 類 CLI 足夠，Univer 的 GUI 無用武之地。若人類仍需依影響分層 review（他有此定見），則「看得見、改得動」的編輯介面有位置——此時 Univer 與 OfficeCLI 分工：CLI 負責精確操作、Univer 負責人審介面；但此分工以 Univer Pro（Worktree／協作）為前提，OSS 核心單獨不足以支撐。
 
 ---
 
