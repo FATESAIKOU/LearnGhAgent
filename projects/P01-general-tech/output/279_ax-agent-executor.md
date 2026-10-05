@@ -3,6 +3,8 @@
 > 標的：`google/ax`（官網 `agentexecutor.io`）／Go／Apache-2.0
 > 調研時點：2026-09-26。repo 最新 push 同日、最新 release `v0.3.1`（2026-09-25）、建於 2026-03-30。
 > 全名對照：repo 自我定位為 *declarative orchestrator to run billions of autonomous agent workloads in a cluster*；產品別名 Agent Executor。
+> R3 複查（2026-09-27 HEAD `ac23328`）：控制面已由「Redis Streams 佇列＋`ax-controller`」改為 **direct execution ＋ fine-grained distributed locks**（見 §3.1 更正）；stars 13,127；description 改為 "Google's open agentic orchestration runtime"。
+> R3 使用者判定：**試用（Accept Weak）**，並擬實際部署（試用路徑見 §5）。
 
 ---
 
@@ -127,7 +129,14 @@ AX 分兩層：**AX 本身是宣告式控制平面；實際的 sandbox 執行外
 | `ax-controller` | Reconciliation worker。消費 Redis stream，在 Substrate 上建 atespace 與 actor，把 task 推向期望狀態。加 replica 即擴充 |
 | `ax-task-runner` | 每個 task 容器內的 entrypoint（PID 1）。建置 workspace、提供 metadata、執行 agent 命令 |
 
-**關鍵設計選擇：狀態不存 etcd 而存 Redis。** DESIGN.md 明寫理由：把百萬級短命 task 當 CRD 會把 etcd 推過舒適區（單數字 GB 儲存上限、寫入速率瓶頸、控制平面退化）。以 Redis Streams 當 API server 與 controller 之間的工作佇列。
+**關鍵設計選擇：狀態不存 etcd 而存 Redis。** DESIGN.md 明寫理由：把百萬級短命 task 當 CRD 會把 etcd 推過舒適區（單數字 GB 儲存上限、寫入速率瓶頸、控制平面退化）。以 Redis 存放 Task 狀態與事件。
+
+> **R3 架構更正（HEAD `ac23328`，2026-09-27）**：上圖的「Redis Streams 當工作佇列 ＋ `ax-controller` 消費」**已不是現況**。該 commit 標題為 *Replace Redis Streams queue and controller with direct execution and resource locking*；`cmd/` 已無 `ax-controller`。現況為：
+> - `ax-server` 以 **direct-execution** 模式（gRPC）直接呼叫 Substrate 建 Actor／Suspend／Resume，不再經佇列。
+> - 併發控制改由 **fine-grained distributed locks**（`internal/lock`，per `kind/atespace/name` 排他鎖）承擔，避免同一資源被重複協調。
+> - Redis 仍保留，但角色收斂為 **Resource Store ＋ Locks ＋ PubSub**。
+>
+> 此更正使「AX 有無佇列」在 §5 Q5 的判定需以現況為準：**現行 AX 控制面不再以工作佇列解耦**。
 
 ### 3.2 核心資源模型：三個 primitive
 
@@ -228,7 +237,7 @@ Substrate 提供的能力，也就是 AX 對外宣稱的密度與恢復能力：
 | 資源 kind | 數十種 | 3 種（Task／Workspace／Model） |
 | 狀態存放 | etcd | **Redis**（明言避開 etcd 限制） |
 | 執行單位 | Pod／container | Substrate actor |
-| 工作佇列 | controller 直讀 API server | Redis Streams + XREADGROUP |
+| 工作佇列 | controller 直讀 API server | direct execution ＋ per-resource locks（R3 更正，已無佇列） |
 | 執行層 | 內含 | **外包給 Substrate** |
 
 README 的自我對照句為 "If you have used Kubernetes, `ax` will feel similar."。形式層「像」，狀態層與執行層「不同」。
@@ -238,7 +247,7 @@ README 的自我對照句為 "If you have used Kubernetes, `ax` will feel simila
 | 項目 | 現況 |
 |---|---|
 | 版本 | v0.3.1（2026-09-25）；README 明載「stable release 前會有 major breaking changes」 |
-| 熱度 | 11,655 stars／558 forks／48 open issues |
+| 熱度 | 13,127 stars／558 forks（R3 複查 `gh api`，2026-09-27；R1 為 11,655） |
 | 維護主體 | 首貢獻者 `rakyll`（Jaana Dogan，480 次 commit），另有 Google 員工 |
 | roadmap 五大項 | ① 穩定核心 spec（含新增 Sandbox／SandboxConfig）② Actor 架構（遷移到新 Actor API、把 workspace 建置拆成獨立 actor、最小權限政策、閒置偵測自動 suspend、stateful task branching）③ agentic environment（動態策展 workspace、可自訂 agent runtime）④ 網路／身分／治理／可觀測（**SPIFFE 身分與 mTLS**、Google 平台治理要求、OTel telemetry 與 trajectory 收集）⑤ 文件 |
 
@@ -261,7 +270,7 @@ README 的自我對照句為 "If you have used Kubernetes, `ax` will feel simila
 
 ### 4.2 對照第二大腦（FATESAIKOU/MyBrain）
 
-> 鏡像 `530133b`（2026-09-26 同步）。以下每則標信任層級；`draft` 者為未經使用者 review 的 AI 草稿。**這些是他的判定，不是本報告的判定。**
+> 鏡像 `c3319a0`（R3 同步）。以下每則標信任層級；`draft` 者為未經使用者 review 的 AI 草稿。**這些是他的判定，不是本報告的判定。**
 
 #### 4.2.1 直接命中：他手上的座標
 
@@ -325,7 +334,7 @@ AX 的設計方向與此一致：
 | [統一的兩端稅](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/統一的兩端稅.md)（骨幹）：「把兩個性質不同的東西收進同一套機制，代價由差異最大的兩端付」；判準是「這兩個是同一件事的不同實作，還是不同的事」 | `draft`，`by: claude-code/opus-5` | 直接可用於判 AX：它把互動式 coding、長命 agent server、Jupyter、無頭瀏覽器全收進同一組 primitive |
 | [技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md)（骨幹）：MVP→Feature 唯一閘門＝「**要真的能影響到我個人 workflow 我才會立刻進 Feature**」 | `draft`，`by: claude-code/opus-5`（內含他原話） | AX 需 K8s＋Substrate＋Go＋`ko`＋registry；依此準則停在 Judge（理解）階段 |
 
-**查不到（明寫）**：第二大腦**沒有** `google/ax`／Agent Executor／Open Agentic Orchestration 任何紀錄（0 命中）；**沒有** herdr 與 AX／編排器的直接對比；**沒有**「AX 是否滿足 AI 公司需求」的既有判定——該判定屬本輪（R2）新作。
+**查不到（明寫）**：第二大腦**沒有** `google/ax`／Agent Executor／Open Agentic Orchestration 任何紀錄（0 命中）；**沒有** herdr 與 AX／編排器的直接對比；**沒有**「AX 是否滿足 AI 公司需求」的既有判定——該判定屬本輪（R2）新作。**R3 補查**：第二大腦**沒有**「ai 工位」一詞（`grep 工位` 0 命中）——此詞為 R3 使用者新提，§5 Q5 對照以其既有 MyLinuxPool worker／AIContainer 座標為準，不將該詞冒充其舊語彙。
 
 ### 4.3 小結（不評論優劣，僅定位）
 
@@ -344,6 +353,8 @@ AX 的設計方向與此一致：
 ## 5. User Q&A
 
 > R2（2026-09-26）使用者揭露真正的目的為「建立一個 AI 公司」，並提出三組質問。依「子問題不可合併」規則，Q1 的 a／b 拆為兩題，本輪共 4 則 QA。
+>
+> R3（2026-09-27）使用者給出正式判定 **試用（Accept Weak）**，並提兩點：①「這東西很像我的 MyLinuxPool 將要擔當的 **ai 工位** 的概念」為比較型質問 → 追加 **Q5**；②「可能要實際部署嘗試一下」為行動意向（非質問句構），不觸發 §5，收斂為 §5.1 試用路徑。故本輪新 QA 自 Q5 起算。
 
 ### Q1：AX 這麼重型，到底有沒有內建「產出持久化」？
 
@@ -478,7 +489,116 @@ AX 的三個 primitive 各自對應的是**執行要素**而非**組織要素**�
 
 **與他既有準則方向一致處**：[技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md)「AI agent 的信任邊界：約束在 harness，不在權限」的例外明確寫道「把邊界挪到該機器上的執行身分、憑證有無、網路規則」。AX 的設計方向與此一致——roadmap 的 SPIFFE 身分與 mTLS、Model 的 K8s Secret 憑證、Substrate 的網路隔離分別對應這三者；其中 Secret 與網路隔離已實作，SPIFFE 尚未。
 
+---
 
+### Q5：AX 的 Task／Workspace，是不是就是我 MyLinuxPool 將要擔當的「ai 工位」？
+
+使用者原意：我真正的目的是建立 AI 公司，MyLinuxPool 的 worker 未來要當員工的「ai 工位」。AX 的執行單元看起來很像這個東西——到底是不是同一個概念？
+
+**A**：**方向相同，粒度與職責不同。AX 的 Task 是他「ai 工位」的企業級版本；但他要的「工位」是「一台完整的電腦」，AX 給的是「一個被排程、可丟棄的隔離執行單元」。**
+
+先確認語彙座標（**重要**）：第二大腦**沒有**「ai 工位」一詞（`grep 工位` 0 命中）。此詞為 R3 使用者新提，不可當成他既有定稿語彙。以下對照取他既有且已寫下的兩個座標：
+
+| 既有座標 | 他在公司裡的角色 | 信任層級 |
+|---|---|---|
+| [MyLinuxPool](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/MyLinuxPool.md) worker | 「員工的辦公室」：拋棄式 Linux 容器＋CodeAgent；**刻意沒有**排程／佇列／自動擴縮／多租戶 | `draft`，`by: ai:claude-opus-5`（未經他 review） |
+| [AIContainer](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/靈感/AIContainer.md) | 同一件事的另一個名字；2026-10-04 併入 MyLinuxPool | `draft`，`by: claude-code/opus-5.5`（未經他 review） |
+
+**逐面向對照**（依 R3 重抓的 HEAD `ac23328`）：
+
+| 面向 | AX Task（含 Workspace） | MyLinuxPool worker | 判定 |
+|---|---|---|---|
+| 單位 | 沙箱化 Substrate **Actor**（以 task 命名） | 拋棄式 Linux 容器＋CodeAgent | 同型：隔離、可丟棄 |
+| 生命週期 | Running／Suspended／Failed／Terminating，可 suspend/resume | 無狀態，`create`／`delete` 兩態 | **AX 多** |
+| 排程 | Substrate 把 actor 排到 ready worker | **無排程**（他刻意標為沒有） | **AX 多** |
+| 佇列 | 已改 direct execution ＋ per-resource 鎖（R3 更正） | **無佇列** | **AX 多**（但仍非使用者層工作佇列） |
+| 環境準備 | Workspace 宣告式（git／MCP／skills／goal），命令啟動前完成 | 無宣告層，進容器後自理 | **AX 多** |
+| 隔離 | gVisor／microVM（Substrate） | provider 互不連、無多租戶 | **AX 較強** |
+| 對外路由 | 無自帶 Service，經 `atenet-router`＋header | 經 Gateway 反向隧道 | 同題不同法 |
+| 職務／身分 | 無 profile、無職務、無交接 | 身分與授權以 **profile** 為單位（AIContainer 9/23 段） | 兩者皆缺職務；AX 連 profile 都無 |
+
+**關鍵差異（一句話）**：AX 的 Task 是「**被編排器管理的隔離執行格**」；他的「ai 工位」是「**一台 agent 可以在裡面裝東西、跑東西、留檔案的完整電腦**」。
+
+> [AIContainer](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/靈感/AIContainer.md) 原話：「要的是一個**完整作業環境**——不是被包成幾個 tool 的受限沙箱……**這必須是一台電腦**。」
+> MyLinuxPool 現行 worker 的邊界：「worker 是無狀態的。容器沒有掛持久卷，刪掉就沒了。」
+
+```
+MyLinuxPool worker ＝ 一台可進的電腦（拋棄式、無狀態、無排程）
+AX Task           ＝ 一個被排程、可 suspend 的隔離格（有生命週期、有宣告式環境、無職務）
+                     ────── 兩者在「隔離＋可丟棄」重疊；在「生命週期/排程」AX 多、
+                            「完整電腦感/職務」他要自己補 ──────
+```
+
+**反證表（若說「AX 就是他的 ai 工位」，哪裡不成立）**：
+
+| 若把 AX Task 當他的 ai 工位 | 缺什麼 | 他的座標依據 |
+|---|---|---|
+| 產出持久化 | AX 持久化止於單一 task `/workspace` 卷；員工產出要進 AiStorage | Q1、AiStorage（`draft`） |
+| 職務 | AX 無 know／do／judge／dont 的職務模型 | AIContainer：harness 來自 Atelier 職務（`draft`） |
+| 身分／授權 | AX 無 profile，授權無法「依 profile 注入憑證」 | AIContainer 9/23 段（`draft`） |
+| 拓樸自由 | AX 以三 primitive 固定執行拓樸 | munder-difflin 判**不採用**（固定拓樸，`draft`） |
+
+**結論**：若他的「ai 工位」定義是「拋棄式、隔離、可丟棄的執行位」，AX 的 Task **就是**它的企業級實作（且補上他自建刻意省略的排程與生命週期）；若定義是「員工的一台完整電腦＋職務＋產出歸屬」，AX 只覆蓋最底層的「執行格」，其餘四項仍須由 MyLinuxPool＋AiStorage 自建。**同軸，不同粒度。**
+
+---
+
+### 試用路徑（R3 判定「試用（Accept Weak）」後，非 QA）
+
+> 本節非使用者質問，為 R3 第二點「可能要實際部署嘗試一下」的行動意向收斂；記錄判定語意與部署最小路徑。
+
+**判定語意對照（Accept Weak）**：[判定總表](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/判定總表.md)（`draft`，`by: ollama-cloud/deepseek-v4-flash`，未經他 review）的三道關卡為 Judge（理解）→ MVP（試用）→ Feature（追加功能）；「試用」＝做個能用的、多數在 MVP 階段關閉。據 [技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md)（`draft`，`by: claude-code/opus-5`，內含他原話），MVP→Feature 的唯一閘門是「能否影響我個人 workflow」。**本次試用的目的為理解本質（原則一），非導入 Feature。**
+
+**「實際部署」的真實前置（依 HEAD `ac23328`）**：
+
+| 前置 | 內容 | 是否可繞 |
+|---|---|---|
+| K8s 叢集 | 需可 pull 自建 registry 的叢集 | 需（門檻） |
+| Agent Substrate | `ate-system` namespace；Control API `api.ate-system.svc:443`；**另裝** | **不可繞**，AX 非自足 |
+| Go 1.27+／`ko`／registry | 建置與部署控制面映像 | 可繞（用預建映像） |
+| Redis | `deploy/redis.yaml`（單 replica） | `make deploy` 自帶 |
+| `GEMINI_API_KEY` secret | 僅當 workspace 綁定帶 `goal` 時需要 | 可繞（用無 goal 的 Workspace） |
+
+**最小路徑**：
+
+```bash
+# 前置：一個 K8s 叢集 ＋ 一份已安裝的 Agent Substrate（ate-system）
+make deploy                                       # = deploy-redis + deploy-server（ko apply）
+ax apply -f examples/simple.yaml                  # 零 Workspace/Model 的最小 Task
+ax get tasks                                      # 確認 Running
+ax suspend task simple && ax resume task simple   # 驗 suspend/resume
+```
+
+**試用門檻與既有判定的關係**：
+
+| 他的既有判準 | 來源與信任層級 | 對 AX 試用的意涵 |
+|---|---|---|
+| 「為一台低價 VPS 導入外部 ControlPanelService 過重」→ 判**不採用** Openship | [Openship](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Openship.md)，`stable`，`verified by human:fatesaikou`（2026-08-09） | AX 是叢集級控制平面，規模遠大於 Openship；**但問題域不同**——Openship 管部署服務，AX 管 agent workload。衝突成立於「為個人導入」判斷，不成立於技術定位 |
+| 「引入一種固定拓樸，實際需要能自由切換的拓樸」→ 判**不採用** munder-difflin | [munder-difflin](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/munder-difflin.md)，`draft`，`by: process:learn-gh-agent`（**未經他 review**） | AX 以三 primitive 固定執行拓樸，同構 |
+| MVP→Feature 閘門＝影響個人 workflow | [技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md)，`draft`，`claude-code/opus-5` | AX 需 K8s＋Substrate＋Go＋`ko`＋registry；依此準則停在 MVP（試用） |
+
+**「AX 補上 MyLinuxPool 刻意沒有的排程／佇列，是否正好？」**
+
+MyLinuxPool 的四項「刻意沒有」是明文設計邊界（`draft`，`ai:claude-opus-5`）；AX 逐項有對應能力：
+
+| MyLinuxPool 明文邊界 | AX 對應能力 | 判定 |
+|---|---|---|
+| 沒有排程 | Substrate 排程 actor 到 ready worker | 能力互補；引入即改變定位 |
+| 沒有佇列 | direct execution（R3 已非佇列） | 同上 |
+| 沒有自動擴縮 | Substrate 高密度多工 | 同上 |
+| 沒有多租戶 | gVisor／microVM 強隔離 | 同上 |
+
+```
+MyLinuxPool 的定位：可達性基礎設施（「不是工作調度器」）
+AX 的定位：工作負載編排控制平面（排程/生命週期/多租戶 皆一等公民）
+```
+
+**衝突與互補並存**：能力「清單上正確」但「歸屬上錯位」。把編排層搬進 MyLinuxPool 會違反其定位；而 [Ai公司架構](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/Ai公司架構.md)（`draft`，`claude-code/opus-5.5`）原則 1「兩個東西，不是兩層」與原則 2「共用媒體，不共用流程」指向：**不應把編排層塞進可達性基礎設施**。試用應視為獨立的第四個東西，而非 MyLinuxPool 的功能擴充。
+
+**試用時的邊界（依他既有準則）**：
+- ✅ 應補：驗證機制（suspend/resume 是否真 sub-500ms、Workspace goal 是否真能裝好 toolchain）——對應「你怎麼知道自己做對了（verify）」。
+- ❌ 不要做：**加人工審核關卡**（[技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md)第 5 項明訂會被視為錯解問題）。
+
+---
 
 ## 附錄 A：影片觀點的事實校正
 
@@ -496,9 +616,10 @@ AX 的三個 primitive 各自對應的是**執行要素**而非**組織要素**�
 | repo | `google/ax` | GitHub |
 | 官網 | `agentexecutor.io` | metadata |
 | 語言／授權 | Go／Apache-2.0 | metadata |
-| stars／forks／open issues | 11,655／558／48 | metadata（2026-09-26） |
-| 建立／最新 push | 2026-03-30／2026-09-26 | metadata |
+| stars／forks／open issues | 13,127／558／48（R3 複查；R1 為 11,655） | metadata（2026-09-27） |
+| 建立／最新 push | 2026-03-30／2026-09-27 | metadata |
 | 最新 release | v0.3.1（2026-09-25） | releases |
+| HEAD commit | `ac23328`（2026-09-27）Replace Redis Streams queue & controller → direct execution + resource locking | repo |
 | 實作 kind 數 | 3（Task／Workspace／Model） | types.go／ax.proto |
 | 底層依賴 | Agent Substrate（3,814 stars，Apache-2.0，建於 2026-05-13） | Substrate repo |
 | 官方部落格 | 2026-05-20，Jaana Dogan（rakyll）／Ethan Bao | cloud.google.com |
