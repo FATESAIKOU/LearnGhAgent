@@ -2,9 +2,10 @@
 
 > 調研標的：https://github.com/dream-num/univer
 > 官網／文件：https://univer.ai/ ｜ https://docs.univer.ai
-> 來源：GitHub 一週熱點 132 期（https://youtu.be/q7HMQLM93qY）；issue #275，PR #280（R1 初版、R2 追加 Q&A）
-> 對齊版本：v1.0.2（2026-09-24 發布）；metadata 取自 2026-09-24 pushed、18,824 stars、Apache-2.0、TypeScript（R2 複查：18,993 stars／1,618 forks）
-> 產出時間：2026-09-26（R2 更新）
+> 來源：GitHub 一週熱點 132 期（https://youtu.be/q7HMQLM93qY）；issue #275，PR #280（R1 初版、R2 追加 Q&A、R3 最終判定）
+> 對齊版本：v1.0.3（2026-09-29 發布）；metadata 取自 2026-10-05、22,383 stars、1,872 forks、Apache-2.0、TypeScript
+> 產出時間：2026-10-05（R3 更新）
+> **使用者最終判定：不採用（Reject）**——理由「我沒有寫編輯器的需求」（需求層不成立，非技術缺陷）；並指示「技術本身可以放入參考，記住有這類寫編輯器的工具」。判定詳見 §6。
 
 ---
 
@@ -162,60 +163,44 @@ load/edit Unit ──▶ Office file import/export ──▶ visual inspection �
 
 ### 4.3 與第二大腦（FATESAIKOU/MyBrain）對照
 
-> 查詢方式：`mybrain-read` skill，鏡像 `/tmp/mybrain` @ d2aeff7（2026-09-26 同步）。以下附 GitHub URL、信任層級與時間座標（首見＝日誌首次連結日）。
+> 查詢方式：`mybrain-read` skill，鏡像 `/tmp/mybrain` @ `c3319a0`（2026-10-05 同步）。以下附 GitHub URL、信任層級與時間座標（首見＝日誌首次連結日；產生日＝條目判定定稿日）。R1／R2 兩度讀到的條目合併為單一總表。
 
 | 條目 | MyBrain 判定 | 信任層級 | 時間座標 | 與 Univer 的關係 |
 |---|---|---|---|---|
 | **Univer 本身** | **查無此主題** | — | — | 第二大腦無 Univer 任何評估；不得以通用知識冒充其舊結論 |
-| [OfficeCLI](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/OfficeCLI.md) | **試用** | `human:fatesaikou` / `stable`（**本人結論**） | 2026-07-12 | 最接近的相鄰判定。同為「AI agent × Office」，但**方向不同**：OfficeCLI＝操作成品檔（CLI），Univer＝提供編輯能力（嵌入式 SDK） |
-| [嘗試使用 OfficeCLI](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/嘗試使用%20OfficeCLI.md) | 已落地使用（`officecli watch` 編輯 pptx，結論「完美」） | `human:fatesaikou` / `stable` | 2026-07-14 | 他**真正的 agent-office workflow 已由 OfficeCLI 覆蓋** |
-| [Aionui](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Aionui.md) | **採用** | `human:fatesaikou` / `stable`（**本人結論**） | 2026-07-12 | 理由明寫「特別在意 OfficeCLI 連動與 MultiAgent」——辦公＋agent 整合軸的上位脈絡 |
-| [技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md) | 理解優先；MVP→Feature 唯一閘門＝**能否影響個人 workflow**；**不用技術優劣評估工具** | `claude-code/opus-5` / `draft`（**AI 草稿，未經他 review**） | 首見 2026-08-01，更新 2026-09-13 | 評估 Univer 的主判準：是否有要嵌入編輯器的自有產品存在 |
-| [判定總表](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/判定總表.md) | 117 筆：採用 17／試用 19／觀望 8／不採用 65／未判定 8 | `ollama-cloud/deepseek-v4-flash` / `draft`（**AI 草稿，未經他 review**） | 首見 2026-08-01，更新 2026-08-22 | 大型／包太多的方案多有「不採用」前例 |
-| [munder-difflin](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/munder-difflin.md) | **不採用**：理由「**還太早而且包太多**」 | `process:learn-gh-agent` / `draft`（**自動流程產出，未經他 review**） | 2026-08-30 | 與 Univer 同屬「大而全平台」，為最接近的否決型前例 |
-| [Gemini Spark](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Gemini%20Spark.md) | **不採用**：擴展性不足，不如自己兜 workflow（自建 MCP／自己買 LLM，Google 資源用 GAS） | `opencode/deepseek-v4-pro` / `draft`（**AI 草稿，未經他 review**） | 2026-08-02 | 顯示他對「整合型便利平台」的預設傾向是自兜 |
-| [下一步清單](https://github.com/FATESAIKOU/MyBrain/blob/main/專案/下一步清單.md) | **無 Univer 條目**，亦無以「嵌入式 Office SDK」為題的下一步 | `claude-code/opus-5` / `draft`（**AI 草稿，未經他 review**） | 首見 2026-08-09 | 目前不存在需要嵌入編輯器的自有產品 |
-| [專案現況表](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/專案現況表.md) | 20 專案：日常在用 4／進行中 1／理解已達成 10／索引 5；**無編輯器 SDK 類專案** | `ollama-cloud/deepseek-v4-flash` / `draft`（**AI 草稿，未經他 review**） | 首見 2026-08-01 | 其「Office 內容產出」是 agent 產檔（pptx/xlsx 對人溝通），不是嵌入編輯 |
+| [OfficeCLI](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/OfficeCLI.md) | **試用** | `human:fatesaikou` / `stable`（**本人結論**） | 首見 2026-07-12 | 同為「AI agent × Office」，但**方向不同**：操作成品檔（CLI）vs 提供編輯能力（SDK） |
+| [嘗試使用 OfficeCLI](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/嘗試使用%20OfficeCLI.md) | `officecli watch` 編輯 pptx，結論「完美」 | `human:fatesaikou` / `stable` | 首見 2026-07-14 | 他真正的 agent-office workflow 已由 OfficeCLI 覆蓋 |
+| [Aionui](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Aionui.md) | **採用** | `human:fatesaikou` / `stable` | 首見 2026-07-12 | 明寫在意「OfficeCLI 連動與 MultiAgent」——辦公＋agent 整合軸的上位脈絡 |
+| [整備 claude web chat](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/整備%20claude%20web%20chat.md) | `officeCLI` 在 Claude web chat「需要外裝工具的基本不能用」，自動改用 `pptxgenjs` | `human:fatesaikou` / `stable` | 首見 2026-07-14 | **反面證據**：他對 CLI 型 office 工具有環境限制的實測 |
+| [技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md) ＋ [判定總表](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/判定總表.md) | 閘門＝能否影響個人 workflow；不用技術優劣評估；Reject ≠ 沒價值。總表 117 筆：採用 17／試用 19／觀望 8／不採用 65／未判定 8 | `claude-code/opus-5`／`ollama-cloud/deepseek-v4-flash` / `draft`（**AI 草稿，未經他 review**） | 首見 2026-08-01 | 評估 Univer 的主判準；不採用佔比最高，重型方案多落此區 |
+| [munder-difflin](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/munder-difflin.md)／[Buzz](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Buzz.md)／[Semantica](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Semantica.md)／[macro](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/macro.md) | munder-difflin、Semantica、macro 皆「不採用／Reject」（還太早、過度重型）；Buzz 規模過大值得觀察 | `process:learn-gh-agent` / `draft`（**未經他 review**） | 產生日 2026-09-05／2026-07-26／2026-08-16 | 「重型＝不採用」前例群；munder-difflin 記「基於 GUI、只是多 agent 協作的一種拓樸、還太早且包太多」 |
+| [DeepSeek Harness](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/DeepSeek%20Harness.md) | **觀望（Reserve）**：重型無法立刻 Accept，機制可參考個人 AiAgent 入口 | `process:learn-gh-agent` / `draft`（**未經他 review**） | 產生日 2026-08-16 | 同屬「重型／觀望」前例；**可比性僅止於此** |
+| [下一步清單](https://github.com/FATESAIKOU/MyBrain/blob/main/專案/下一步清單.md) ＋ [專案現況表](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/專案現況表.md) | 清單無 Univer／「嵌入式 Office SDK」條目；現況表 20 專案中無編輯器 SDK 類 | `claude-code/opus-5`／`ollama-cloud/deepseek-v4-flash` / `draft`（**未經他 review**） | 首見 2026-08-09／2026-08-01 | 目前不存在需要嵌入編輯器的自有產品；其「Office 內容產出」是 agent 產檔，非嵌入編輯 |
+| [AI 產出的人類 Review 策略](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/AI%20產出的人類%20Review%20策略.md) | 依「壞了的影響」分四層級 review，盡量推向低影響層 | `ollama-cloud/deepseek-v4-flash` / `draft`（**未經他 review**） | 首見 2026-08-15 | 人類仍需 review 且需 verify 機制；對應 Worktree／Viewer 人審段 |
+
+> **外部查證事實（非 MyBrain 條目）**：`dsh-univer-office`（470★，Apache-2.0）為 DeepSeek Harness 的官方 Office 插件來源。此項自 `dream-num` repo 查得，屬**外部事實**，與上表 `DeepSeek Harness.md` 的「觀望」判定不同層，**不得混用同一信任層級**。
 
 #### 明確指出的衝突
 
 | # | 衝突點 | 說明 |
 |---|---|---|
-| C1 | **行銷定位 vs OSS 實質** | 影片與標語主打「The Office Harness for AI Agents」，但他已實際在用的 agent-office 路徑是 **OfficeCLI（CLI 操作成品檔，試用，human/stable）**；Univer OSS 核心是**瀏覽器端嵌入 SDK**，agent 相關的 Worktree／協作／import-export 反在 Pro。以此 repo 的 OSS 範圍，**並不直接服務他現有的 agent-office workflow**。 |
-| C2 | **重型 vs 他的既有否決模式** | `munder-difflin`（不採用，理由「包太多」）、`Buzz`、`Semantica` 皆因「太重型」被拒。Univer 為 60+ 套件的完整框架，同屬重型候選；依 [技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md)（draft），**是否採用取決於有無要嵌入編輯器的自有產品**，而非技術優劣。第二大腦目前**無此類產品**。 |
-| C3 | **判準層級** | 依技術取捨準則，**「會不會進日常 workflow」強於技術優劣**。Univer 需要一個宿主產品；`下一步清單`（draft）無此條目，故現階段不具備進入 Feature 的條件。 |
+| C1 | **行銷定位 vs OSS 實質** | 標語主打「Office Harness for AI Agents」，但他實際在用路徑是 **OfficeCLI（CLI 操作成品檔，試用，human/stable）**；Univer OSS 核心是瀏覽器端嵌入 SDK，agent 相關的 Worktree／協作／import-export 反在 Pro，**並不直接服務他現有的 agent-office workflow**。 |
+| C2 | **重型 vs 既有否決模式** | munder-difflin、Buzz、Semantica、macro 皆因「太重型／包太多」落於不採用或觀望。Univer 為 60+ 套件的完整框架，同屬重型候選；依 [技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md)（draft），**是否採用取決於有無要嵌入編輯器的自有產品**，非技術優劣。第二大腦目前**無此類產品**。 |
+| C3 | **判準層級** | 依技術取捨準則，**「會不會進日常 workflow」強於技術優劣**。Univer 需要宿主產品；`下一步清單`（draft）無此條目，現階段不具備進入 Feature 的條件。 |
+| C4 | **「更該用 OfficeCLI」與實測衝突** | 提問預設（OfficeCLI 更精確故更該用）與 [整備 claude web chat](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/整備%20claude%20web%20chat.md)（human/stable）「officeCLI 在 Claude web chat 基本不能用」相衝。精確性只在可操作環境成立。 |
+| C5 | **「人類只負責最終確認」與 review 策略衝突** | 提問假設與 [AI 產出的人類 Review 策略](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/AI%20產出的人類%20Review%20策略.md)（draft）「依影響分四層級、要能 verify」不符；人審需「看得見、改得動、可回滾」介面，而 Worktree 屬 Pro。 |
 
-> **結論**：第二大腦無 Univer 判定；相鄰判定中，**OfficeCLI（試用／human stable）方向不同但已覆蓋其 agent-office 需求，Aionui（採用／human stable）** 為辦公＋agent 整合脈絡。若要採用 Univer，觸發條件是「出現需要嵌入編輯器的自有產品」，而非本輪調研的「agent 操作 Office 檔」。
+### 4.4 R3：判定已由使用者本人落地
 
-### 4.4 R2 補充對照：第二大腦新增判定與衝突更新
+> R1／R2 的 C2／C3 已預測「是否採用取決於有無要嵌入編輯器的自有產品」；R3 使用者本人直接下判定（需求層不成立），**證實此預測**，未翻轉任何既有事實。原話「我沒有寫編輯器的需求」對應 [技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md)（`claude-code/opus-5` / `draft`，**AI 草稿，未經他 review**）的 `MVP → Feature` 閘門＝不通過；[OfficeCLI](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/OfficeCLI.md)（`human:fatesaikou` / `stable`）為其現行 agent-office 路徑，與 Univer 解不同題。
 
-> 查詢方式：`mybrain-read` skill，鏡像 `/tmp/mybrain` @ `530133b`（2026-09-26 同步）。R1 對照見 §4.3，本節只追加 R2 新讀到的檔案與衝突列。
-
-| 條目 | MyBrain 判定 | 信任層級 | 時間座標 | 與 Univer 的關係 |
-|---|---|---|---|---|
-| [整備 claude web chat](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/整備%20claude%20web%20chat.md) | 實測：`officeCLI` 在 Claude web chat 環境「需要外裝工具的基本不能用」，內部自動改用 `pptxgenjs` | `human:fatesaikou` / `stable`（**本人紀錄**） | 2026-07-14 | **反面證據**：他對 CLI 型 office 工具有環境限制的實測，並非無條件偏好 |
-| [AI 產出的人類 Review 策略](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/AI%20產出的人類%20Review%20策略.md) | 四層級 review 粒度：依「壞了的影響」決定 review 深度，並盡量把變更推向低影響層 | `ollama-cloud/deepseek-v4-flash` / `draft`（**AI 草稿，未經他 review**） | 2026-08-15 | 他明確認定人類仍需 review，且需要「能 verify」的機制；對應 Univer 的 Worktree／Viewer 人審段 |
-| [DeepSeek Harness](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/DeepSeek%20Harness.md) | **觀望**（重型，機制可參考入口設計） | `process:learn-gh-agent` / `draft`（**自動流程產出，未經他 review**） | 2026-08-16 | Univer 是 DSH 的官方 Office 插件來源（`dsh-univer-office`），兩者在生態上相鄰 |
-| [Buzz](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Buzz.md) | 規模過大難以採用；統一工作平台值得觀察 | `process:learn-gh-agent` / `draft`（**未經他 review**） | 2026-07-26 | 「大而全」前例 |
-| [Semantica](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/Semantica.md) | **Reject**：對個人過度重型 | `process:learn-gh-agent` / `draft`（**未經他 review**） | 2026-08-16 | 「重型＝不採用」前例 |
-| [macro](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/macro.md) | **Reject**：太重型 | `process:learn-gh-agent` / `draft`（**未經他 review**） | 2026-08-16 | 同屬重型否決 |
-| [判定總表](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/判定總表.md) | 117 筆：採用 17／試用 19／觀望 8／不採用 65／未判定 8 | `ollama-cloud/deepseek-v4-flash` / `draft`（**未經他 review**） | 2026-08-22 | 不採用佔比最高，重型方案多次落此區 |
-
-#### 明確指出的衝突（R2 追加）
-
-| # | 衝突點 | 說明 |
-|---|---|---|
-| C4 | **「更該用 OfficeCLI」與本人實測衝突** | Q3 的預設（OfficeCLI 更精確因而更該用）與 [整備 claude web chat](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/整備%20claude%20web%20chat.md)（human/stable）記載的「officeCLI 在 Claude web chat 基本不能用」相衝。精確性只在可操作的環境成立；跨宿主環境的可用性未定。 |
-| C5 | **「人類只負責最終確認」與其 review 策略衝突** | Q3 假設人類只做形式確認，但他的 [AI 產出的人類 Review 策略](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/AI%20產出的人類%20Review%20策略.md)（draft）明定依影響分四層級、且要能 verify。純形式確認與此定見不符；人審需要「看得見、改得動、可回滾」的介面，而 Worktree 屬 Pro。 |
-| C6 | **重型方案的否決前例** | Buzz、Semantica、macro、munder-difflin 皆因「太重型／規模過大／包太多」落於不採用或觀望。Univer 為 60+ 套件的完整框架，同屬重型候選；依技術取捨準則（draft），是否採用取決於有無宿主產品，而非技術優劣。 |
-
-> **結論**：R2 追加對照並未改變 R1 結論，且強化兩點——(1) 他對 CLI 型 office 工具有環境限制的實測，Q3 的預設不成立於所有環境；(2) 他明確認定人類 review 仍需要，且需要 verify 機制，故「看得見、改得動」的編輯介面在其判準下有位置，但該位置的完整形態依賴 Univer Pro。
 
 ---
 
 ## 5. User Q&A
 
 > R2 追加。使用者對 R1 提出三則質問型追問，拆為 Q1～Q3（一子題一 QA）。既有 §1～§4 內容保留，僅補充 §4.4 對照。
+> R3 為最終判定輪（非質問型句構），**不新增 Q 號**；判定內容見 §6。
 
 ### Q1：「這東西到底想解決什麼問題？是在自有網頁中搞出一個 Office365 編輯頁面的意思？」
 
@@ -310,16 +295,62 @@ OfficeCLI 與 Univer 解的不是同一題：
 
 ---
 
+## 6. 使用者最終判定與參考定位（R3）
+
+> R3 為最終判定輪，非質問型句構（無「為何／憑什麼／不能理解」），故不新增 §5 QA 條目。
+
+### 6.1 判定內容與落點
+
+| 使用者原話 | 語意解析 |
+|---|---|
+| 「我沒有寫編輯器的需求」 | 判定依據落在**需求層不成立**，非技術缺陷 |
+| 「技術本身可以放入參考，記住有這類寫編輯器的工具就行」 | 把 Univer 抽取為「這類編輯器 SDK」的**方案方向**，而非直接丟棄 |
+
+**判定：不採用（Reject）。** 對應 [技術取捨準則](https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md)（`claude-code/opus-5` / `draft`，**AI 草稿，未經他 review**）：`MVP → Feature` 唯一閘門＝**能否影響個人 workflow**；宿主產品不存在，前提不成立。準則並載明「Reject ＝ 不採用，≠ 沒價值」。此為「需求不存在」的判定，非「工具不好」。
+
+### 6.2 「這類編輯器工具」的類別參考盤點
+
+依指示，參考粒度為**類別**而非 Univer 單一 repo。以下為「提供嵌入編輯能力」類別代表方案（metadata 取自 2026-10-05）：
+
+| 技術名 | 產品形態 | 授權 | 與 Univer 的切入點差異 |
+|---|---|---|---|
+| **Univer** | 可嵌入 Office SDK（Sheets／Docs／Slides／Bases／Boards／PDF） | Apache-2.0 核心＋Pro | 六工具共用 runtime＋插件體系＋同構 headless |
+| [ONLYOFFICE/DocumentServer](https://github.com/ONLYOFFICE/DocumentServer)（6,970★） | 自架完整線上 Office 套件，iframe 嵌入 | AGPL-3.0 | 完整協作開箱即用，客製深度受限 |
+| [CollaboraOnline/online](https://github.com/CollaboraOnline/online)（3,366★） | 自架 LibreOffice 線上版 | MPL-2.0 | 以 LibreOffice 引擎為底，格式相容性廣 |
+| [tiptap](https://github.com/ueberdosis/tiptap)（38,645★） | headless rich-text 編輯器框架 | MIT | 只做文字文件，無試算表／公式 |
+| [fortune-sheet](https://github.com/ruilisi/fortune-sheet)（3,733★） | drop-in JS 試算表元件 | MIT | 輕量嵌入，無同構／無完整文件模型 |
+| [grist-core](https://github.com/gristlabs/grist-core)（11,901★） | 關聯式試算表（自架） | Apache-2.0 | 以試算表承載結構化資料，非通用 Office |
+| [jspreadsheet/ce](https://github.com/jspreadsheet/ce)（7,231★） | JS data grid／試算表 | MIT | 顯示與編輯表格，公式能力有限 |
+
+> 供日後「真的出現需要嵌入編輯器的自有產品」時直接比對。**本次未寫入第二大腦**（P0x harness 對 MyBrain 唯讀）；實際入庫須由使用者觸發 `sync-to-mybrain`。
+
+### 6.3 R3 標的覆核（2026-10-05）
+
+| 覆核面向 | R3 結果 | 相對 R1／R2 變動 |
+|---|---|---|
+| Stars／Forks | 22,383★／1,872 forks | 持續成長 |
+| 最新版本 | **v1.0.3（2026-09-29）** | R1 記 v1.0.2（2026-09-24） |
+| 活躍度／API 穩定性 | 最近 commit 2026-10-04；`docs/API_STABILITY.md` 自稱仍 **pre-1.0** | 未變 |
+| 授權邊界 | 協作／import-export／列印／圖表／pivot／server 計算仍屬 Pro | 未變，R1 結論不翻轉 |
+| 工具命名 | README 現列 Spreadsheets・Documents・Presentations・Bases・Boards・PDFs | 與 R1 記的 Canvas／Relational Tables 為同線不同列法，非矛盾 |
+
+**覆核結論**：標的技術面事實**無重大反轉**——仍是可嵌入 Office SDK，agent 相關能力仍在 Pro，API 仍自稱 pre-1.0。使用者「需求層不成立」的判定**站得住**（不依賴技術優劣）。
+
+> **與 OfficeCLI 的關係**：兩者解不同題、不互相取代。OfficeCLI 為 **試用**（`human:fatesaikou` / `stable`，[OfficeCLI](https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/OfficeCLI.md)），Univer 為**不採用**（本輪，需求層不成立）；R3 指示「放入參考」以**類別**粒度落記於 §6.2，本次未寫入第二大腦。
+
+
+---
+
 ## 附錄：專案 metadata
 
 | 項目 | 值 |
 |---|---|
 | GitHub | https://github.com/dream-num/univer |
-| Stars / Forks | 18,824 / 1,609 |
+| Stars / Forks | 22,383 / 1,872（2026-10-05） |
 | 授權 | Apache-2.0（核心）；Pro 為商業層 |
 | 主要語言 | TypeScript |
 | 建立 | 2022-09-29；default branch `dev` |
-| 最新版本 | v1.0.2（2026-09-24，v1.0.0/1/2 同日發布；前版 v0.25.2 為 2026-09-17） |
+| 最新版本 | **v1.0.3（2026-09-29）**；前版 v0.25.2（2026-09-17） |
 | npm 月下載 | `@univerjs/core` ≈ 1,621,054；`@univerjs/sheets` ≈ 1,508,516 |
 | 前身 | Luckysheet（MIT，已封存，16,641 stars） |
 | 生態 | univer-workspace、univer-cli、univer-sdk-skills、univer-mcp、dsh-univer-office |
