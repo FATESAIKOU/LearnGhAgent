@@ -4,7 +4,8 @@
 > 調研日期：2026-10-05
 > repo 實查（`gh api`）：Stars 97,420、License MIT、主要語言 TypeScript（87.8MB）＋ Rust（2.7MB）、建立 2026-03-02、預設分支 `master`、fork 16,478、homepage paperclip.ing、最新 release v2026.1001.0（2026-10-02）、最新 commit 2026-10-05、npm 首發 2026-03-03
 > 定位：AI agent 團隊的開源**控制平面（control plane）**。README 核心類比句：「If OpenClaw is an *employee*, Paperclip is the *company*.」
-> **資料來源限制**：GitHub 一周熱點 133 期影片無字幕軌（YouTube transcripts disabled），逐字稿取不到，影片觀點與示範內容未納入本報告；本報告內容全部來自 repo 文件（README／`doc/GOAL.md`／`doc/PRODUCT.md`）與 GitHub API 實查。
+> repo 實查（R2 @ 2026-10-05）：Stars 97,626、fork 16,499、27 個 release、adapters 13、sandbox-providers 8（詳見 §5 Q2）。
+> **資料來源限制**：GitHub 一周熱點 133 期影片無字幕軌（YouTube transcripts disabled），逐字稿取不到，影片觀點與示範內容未納入本報告；本報告內容全部來自 repo 文件（README／`doc/GOAL.md`／`doc/PRODUCT.md`／`doc/SPEC.md`／`doc/plugins/PLUGIN_SPEC.md`／`doc/memory-landscape.md`）與 GitHub API 實查。
 
 ---
 
@@ -223,6 +224,111 @@ Paperclip 以 **Node.js server ＋ React UI** 為殼，實作一個**控制平�
 
 **結論**：Paperclip 是「AI 公司控制平面」這一題**目前最完整的外顯實作**，與他的 Ai公司架構在多個構面**同構**，是機制抽取的高價值來源；但作為**導入標的**，它同時觸發他過去對 munder-difflin／Buzz／macro 的三條拒絕理由（GUI、太重、時序太早），並在 approval gate 上與他的技術取捨準則相衝突。「參考其控制面機制」與「採用此產品」在此應分開判定。
 
+> **R2 補充（2026-10-05）**：官方 `doc/PRODUCT.md` 明訂 **「Thin core, rich edges」**（把 chat／knowledge 等可選面推往 plugin，避免膨脹控制面），此為上述「太重」衝突的**官方反證**。但 `doc/plugins/PLUGIN_SPEC.md` 自述現況：**single-tenant、self-hosted、single-node；plugin UI 視為 trusted code 非沙箱；dynamic plugin install 尚不 cloud-ready、無共享 artifact store**——設計意圖（thin core）與當前實作（擴張仍受限）存在落差。此條亦為「全整合→難局部擴張」的官方正證，詳見 §5 Q3。
+
+---
+
+## 5. User Q&A
+
+> 使用者於 R2 判「觀望（Reserve）」並提出 5 點追問。以下依 AGENTS.md §5 拆為 Q1–Q5（每個子問題一題，不合併），既有內容不刪改。
+> 判定語意（依 `技術/技術評估/判定總表.md`）：**「觀望」＝有價值但未排入下一步**，≠「不採用」。本節回覆一律據此，不寫成 Reject。
+
+### Q1：跟我的 Ai公司構想大幅同構，但這樣不構成我替換的理由
+
+**A**：同構是事實，但「同構」只支持「可抽取機制」，不支持「替換」。兩者是不同的判定層級。
+
+| 命題 | 成立程度 | 依據 |
+|---|---|---|
+| 兩者同構 | **成立** | Paperclip「control plane, not execution plane」↔ Ai公司架構「兩個東西，不是兩層」；org chart＋adapter ↔ Atelier／profile；goal ancestry ↔ MyPMO 工單樹（見 §4.5） |
+| 同構 ⇒ 應該替換 | **不成立** | 同構只意味「解同一題」。是否替換另受規模、擴張性、需求穩定性三條判準約束（Q2–Q4） |
+
+他既有架構的定義句本身即排除「以同構為替換理由」：Ai公司架構為 **AiEntry 與 AiContainer「互不為前提」**、**「共用媒體，不共用流程」**，且**狀態在執行體之外（AiStorage）**。Paperclip 若替換之，等於把「互不為前提的兩個東西」重新綁進**一個 server＋DB＋UI 的統一體**——這正是統一的反向。
+
+> Ai公司架構原文（`claude-code/opus-5.5` / `draft`，未經他 review）：https://github.com/FATESAIKOU/MyBrain/blob/main/技術/動手做/Ai公司架構.md
+
+**結論**：同構成立、且 Paperclip 是可抽取的機制來源，但「同構」不構成替換理由。
+
+### Q2：反而是他規模大，我需要觀望
+
+**A**：「規模大」在本輪是**客觀事實**，非感知。R2 實查數據如下：
+
+| 指標 | 數值 | 意義 |
+|---|---|---|
+| Stars | 97,626（R1 97,420 → R2 97,626，續增） | 關注度高 |
+| Forks | 16,499 | 生態分叉活躍 |
+| Releases | 27 個，最新 v2026.1001.0（2026-10-02） | 近月每 1–2 週一發 |
+| Adapters | 13（claude／codex／cursor／gemini／grok／hermes／kimi／opencode／pi／openclaw／cursor-cloud…） | 「整合了很多」之硬數據 |
+| Sandbox providers | 8（cloudflare／daytona／e2b／exe-dev／kubernetes／modal／novita／createos） | 執行環境廣度 |
+| Plugins | 6 子件＋mcp-server | 擴充面 |
+| doc 目錄 | 逾 80 檔（含 SPEC、PLUGIN_SPEC、architecture…） | 系統化程度 |
+
+對照他過去對「規模」的判準：Buzz 被判不採用之因即「規模過大、個人使用不必要」；macro 因「太重型」；munder-difflin 因「還太早而且包太多」。**Paperclip 的 scope 在此三者之上**（多公司、預算、adapter、plugin、Rust runner）。
+
+> 技術取捨準則原文（`claude-code/opus-5` / `draft`，未經他 review）：https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md
+> 判定總表（`ollama-cloud/deepseek-v4-flash` / `draft`，未經他 review）：https://github.com/FATESAIKOU/MyBrain/blob/main/技術/技術評估/判定總表.md
+
+**結論**：規模為硬事實；依既有判準，規模大正是「觀望」而非「採用」的觸發條件。
+
+### Q3：它整合了窗口／儲存／工作空間，部分要素更完整，但整合了全部，想擴張某一部分能力目前還很困難
+
+**A**：此知覺對**當前版本**成立，且有官方正反兩面文件為證。
+
+| 面向 | 官方文件 | 內容 | 對本題的意義 |
+|---|---|---|---|
+| 設計意圖（反證） | `doc/PRODUCT.md` | 明訂 **「Thin core, rich edges」**；把 chat／knowledge 等放進 plugins；**Do not build enterprise-grade RBAC first** | 官方**自己承認**全包是風險，故設計上把可選面往 plugin 推——不是無節制大一統 |
+| 當前實作（正證） | `doc/plugins/PLUGIN_SPEC.md` | 自述 **single-tenant、self-hosted、single-node**；plugin UI 為 **trusted code 非沙箱**；**dynamic plugin install 尚不 cloud-ready**、無共享 artifact store | 設計意圖與實作有落差；「想擴張某一部分」的官方路徑（plugin）**尚未成熟** |
+| 記憶整合取徑（對照） | `doc/memory-landscape.md` | 目標為「坐在多個差異很大的 memory 系統之上的**最小契約**，而不抹平差異」 | 官方亦警覺「統一會抹平兩端」 |
+
+他第二大腦中已有一條直接對應此現象的本質洞察——**「統一的兩端稅」**：
+
+| 抱怨方向 | 意思 |
+|---|---|
+| **相反**（一端嫌太重，一端嫌不夠細） | **分界劃錯了**，這兩個東西不該共用一套機制；修任何一邊都會加深另一邊的痛 |
+| 相同（都嫌慢、都嫌難用） | 分界可能對，是實作沒做好，可修 |
+
+Paperclip 的統一體（窗口＋儲存＋工作空間＋治理＋預算收進一個控制面）若兩端性質不同，代價即由兩端反向支付——與他「想擴張某一部分能力很困難」的知覺同構。
+
+> 統一的兩端稅（`claude-code/opus-5` / `draft`，未經他 review）：https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/統一的兩端稅.md
+
+**結論**：官方設計意圖（thin core）認同此風險，但當前實作（single-node、plugin 未 cloud-ready）佐證「局部擴張仍困難」；此為「觀望」的技術理由。
+
+### Q4：此領域目前沒有最佳解，原始需求大規模變動導致的擴張重構在所難免；既然我已有同構服務，就先繼續運用、摸清需求輪廓，再轉換也不遲
+
+**A**：此判斷與他既有的**汰換準則**一致。技術取捨準則第四條：
+
+| 會汰換 | 不會汰換 |
+|---|---|
+| 維護停更或社群死了（外部客觀事實） | ❌ 出現更好的替代（**他不追新**） |
+| 用不到了，需求消失 | ❌ 「能跑就不動」 |
+
+Paperclip 維護活躍（27 releases、2,700+ merged PR、團隊維護），**上游未死**；且他有同構服務在用。依準則，此情境**不觸發汰換**。更根本的理由是：汰換判準的兩個入選條件都是外部客觀事實，而「此領域無最佳解、需求將大規模變動」意味著**現在替換只是把重構成本提前**，且換到一個同構但更重的系統。
+
+| 選項 | 現在替換 | 先續用同構服務 |
+|---|---|---|
+| 需求輪廓 | 尚未摸清即鎖定 | 續摸清，轉換時機可選 |
+| 重構成本 | 立即支付，且可能重付 | 延後至需求穩定後支付 |
+| 上游風險 | Paperclip 若重構，跟著動 | 既有服務已熟悉 |
+
+> 技術取捨準則第四（`claude-code/opus-5` / `draft`，未經他 review）；技術取捨準則三「Reject ≠ 沒價值，抽取需求理解與方案方向」：https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/本質洞察/技術取捨準則.md
+
+**結論**：先續用同構服務、摸清需求輪廓再轉換，與汰換準則一致；Paperclip 的角色是**需求理解與機制方向的抽取來源**，非替換標的。
+
+### Q5：我認為 AI 時代最珍貴的是對 AI 應用的需求想像，以及能力邊界的理解
+
+**A**：此為本輪（R2）使用者的**新宣示**。第二大腦中查無以「需求想像」為措辭的既有條目（`grep "需求想像"` 0 命中，鏡像 @ `c3319a0`／2026-10-05），不得歸因為其既有立場；既有相近者為各評估中的「**能力邊界**」（如 gods-eye-view／Jev／VoiceStudio 之「測試能力邊界」）。
+
+與既有骨幹的關係（對照，非等同）：
+
+| 既有條目 | 內容 | 與本宣示的關係 |
+|---|---|---|
+| 核心價值觀「產出形態：會動的機制 vs 判斷材料」 | 價值是什麼——會動的機制；價值怎麼創造——實際執行 | **同軸**：需求想像與能力邊界皆屬「機制設計所需的判斷」，非判斷材料本身 |
+| 技術取捨準則一「理解優先」 | 先自己兜是為了**理解本質**，不是省成本 | **同軸**：能力邊界的理解即理解本質的具體對象 |
+| 技術取捨準則二「MVP→Feature 唯一閘門是能否影響 workflow」 | 不穩定或不熟悉先自兜 | **同軸**：需求想像決定該開什麼 MVP |
+
+> 核心價值觀（`claude-code/opus-5` / `draft`，未經他 review）：https://github.com/FATESAIKOU/MyBrain/blob/main/抽象理解/價值觀/核心價值觀.md
+
+**結論**：本宣示與其「理解優先」「產出形態」兩條骨幹同軸，但「需求想像」一詞為本輪新提出，報告僅以原話呈現，不升格為既有定稿。
+
 ---
 
 ## 附錄：調研資料來源
@@ -231,7 +337,10 @@ Paperclip 以 **Node.js server ＋ React UI** 為殼，實作一個**控制平�
 |---|---|
 | `README.md`（593 行） | 產品定位、四支柱、功能表、Without／With 對照、架構圖、FAQ、Roadmap、telemetry |
 | `doc/GOAL.md` | 願景、問題定義（control plane for a company of AI agents）、兩層架構 |
-| `doc/PRODUCT.md` | company 為 first-order object、adapter 定義 agent、目標樹、skill policy、principles、邊界 |
+| `doc/PRODUCT.md` | company 為 first-order object、adapter 定義 agent、目標樹、skill policy、principles、邊界；**R2：Thin core, rich edges／Do not build enterprise-grade RBAC first** |
+| `doc/SPEC.md`（DRAFT，R2） | V1 治理＝Single human Board＋approval gates（hire、CEO 策略）；budget 逐層下放 |
+| `doc/plugins/PLUGIN_SPEC.md`（R2） | plugin runtime 自述現況：single-tenant／self-hosted／single-node；UI 為 trusted code；dynamic plugin install 尚不 cloud-ready |
+| `doc/memory-landscape.md`（R2） | 跨多 memory 系統之最小契約，不抹平差異 |
 | `doc/DESIGN.md`／`AGENTS.md`／`ROADMAP.md`／`package.json` | 技術棧、repo map、工程邊界 |
 | GitHub API（`gh repo view`／`gh api`／`gh api releases`／`/commits`／`/languages`） | stars／license／語言／建立時間／release 節奏／活躍度交叉驗證 |
 | npm registry（`registry.npmjs.org/paperclipai`） | 發布狀態、latest、channel |
