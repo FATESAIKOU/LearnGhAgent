@@ -237,6 +237,91 @@ OctopServer.start()
 
 ---
 
+## 5. User Q&A
+
+> 本節 Q1–Q3 為 R2 追問輪新增（R1 未建立本節）。Q1 對照第二大腦自建架構；Q2 為 R1 未量化之一手事實補查；Q3 為概念抽取。第二大腦相關檔均為 AI draft／未經他 review，除 `Harness Engineering.md`（`human:fatesaikou`／stable）外，引用時不升格為其定見。
+
+### Q1：這東西跟我的 Ai 公司，想解的問題與解法，到底是不是同一件事？
+
+**A**：分「問題」與「解法」兩層比對，兩層結論不同。
+
+**（一）問題層：核心問題域重疊，服務對象不同。**
+
+| 比對面向 | 我的 Ai 公司 | Octop | 是否相同 |
+|---|---|---|---|
+| 被解決的核心問題 | 個人用 AI 處理「簡單問答 ↔ 複雜任務」的日常 | 家庭／小團隊自架「多用戶、多 agent」AI 助理 | 問題域重疊（跨介面、長期記憶、工具執行） |
+| 服務對象 | 第一個人是自己（個人基礎設施） | households and small teams（多租戶） | **不同**：個人 vs 多用戶 |
+| 交付模式 | 自己兜、各元件自建 | 現成開源、單一 wheel、MIT | **不同**：自建 vs 採用現成 |
+
+**（二）解法層：方向相反，此為分歧點。**
+
+以他自建判準「統一的兩端稅」量測，只問一句：簡單問答與複雜任務，是「同一件事的不同實作」，還是「不同的事」？
+
+| | 我的 Ai 公司 | Octop |
+|---|---|---|
+| 兩端關係 | 判定為**不同的事** → 刻意拆成 AiEntry 與 AiContainer，互不為前提 | 預設收進**同一 Python 進程**：Web／CLI／IM／cron 四 surface＋多 agent＋知識庫＋瀏覽器共用一 runtime |
+| 對應判準 | 拆開＝「兩個東西，不是兩層」 | 單進程＝統一的整合體 |
+| 判準推得方向 | 統一會收「兩端稅」 | 依同一判準，落在被否定的方向 |
+
+**反證（避免直接套判準誤判）**：Octop 未在單進程裡強迫同一抽象。它為每 agent 建一條 `HarnessAgentRuntime`，並以「房間＝主持人 `thread_id`、成員各自 checkpoint」做 per-agent 隔離；ADR 001 亦自陳單進程代價（只能垂直擴展、重 CPU 阻塞 event loop）。判準的「分界劃錯」不必然成立，張力須由使用者判定其整合是否落在「同一件事的不同實作」。
+
+**結論：問題層是同一問題域的兩種服務對象；解法層方向相反——我的 Ai 公司拆開、Octop 收攏。**
+
+### Q2：這東西穩定性如何、誰在維護、規模多大？
+
+**A**：先修正前提：不是新創小團隊，是**騰訊雲官方 org（TencentCloud）**；但維護高度集中於少數人。
+
+| 面向 | 事實（一手） | 判讀 |
+|---|---|---|
+| 維護者身分 | org＝TencentCloud；SECURITY.md 窗口 jubaoliang（Tencent 員工） | 官方團隊，非小團隊 |
+| 集中度 | jubaoliang＋jubaoliang-tencent（同人雙帳號）340/637 ≈ 53.4%；top5 ≈ 75.7% | **Bus factor ≈ 1**，實質集中 |
+| 貢獻者規模 | 48 名；外部貢獻多為單檔小修 | 尚未形成外部核心 |
+| 星數／fork | 6,992★／864 forks（2026-10-05 實查） | 社群熱度高 |
+| 專案年齡 | 2026-07-08 建立、07-09 首提交 | 約 3 個月，極年輕 |
+| 版本成熟度 | v0.9.35→v1.0.0(09-14)→v1.0.2b6(10-04) | 迭代快、API 未凍結、仍在 beta |
+| 工程紀律 | 481 測試檔；9 條 workflow（含 CodeQL）；`make all` 為 ship bar | 高於同期專案 |
+| 待辦負載 | open 663（issue 389＋PR 274） | 吞吐高、消化不及 |
+| 治理 | 有 CONTRIBUTING／SECURITY；**無** GOVERNANCE／CODEOWNERS／MAINTAINERS | 有流程、無明文決策權歸屬 |
+| 採用數據 | repo 僅提供星數與 fork | **無公開使用者數／部署量**，規模只以社群訊號推估 |
+
+**反證表：短期活躍 vs 長期穩定**
+
+| 支持「穩定」的訊號 | 不支持「穩定」的訊號 |
+|---|---|
+| commit 高頻（近 12 週多在 20～94） | 專案僅 3 個月、版本仍 beta |
+| 481 測試檔、9 條 CI、CodeQL | bus factor ≈ 1、top5 佔 76% |
+| 官方 org 背書 | 無 GOVERNANCE／CODEOWNERS；open 663 待辦堆積 |
+
+**結論：官方專案、工程紀律高，但實質由個位數人支撐、版本未凍結、無公開採用規模；以「可長期依賴的穩定基礎」論，證據不足。**
+
+### Q3：若維護薄弱，我傾向吸收他的概念進我的 Ai 公司，該吸收哪些概念與教訓？
+
+**A**：前提不成立（Q2 已證為騰訊官方），但抽取不依賴前提——依技術取捨準則「Reject ＝ 不採用，≠ 沒價值」，仍抽取其需求理解與方案方向。以 Harness Engineering 五問（memory／read／action／permission／verify）為量尺落位。
+
+**建議吸收（與既有準則同向）**
+
+| # | 可吸收機制 | Octop 做法 | 對應我的準則 | 移植落點 |
+|---|---|---|---|---|
+| 1 | 工具權減法（action／permission） | 主持人 `init_workspace=False`、`tools_disabled` 只留 `agent_list`／`ask_agent`／記憶／`current_time` | 技術取捨準則五「禁止的能力做成不存在」 | 職務定義（Atelier／agent-harness） |
+| 2 | 狀態外部化（memory） | 「房間＝主持人 `thread_id`、成員 checkpoint＝`主thread~成員id`」；重啟由 DB 重建 runtime tree | Ai公司架構原則 4「狀態在執行體之外」 | AiStorage／交接單 |
+| 3 | inbox 並發模型 | 同成員串行、不同成員並行；非同步 `ask_agent`＋回叫 | 可借 AiContainer worker 編排 | AiContainer 編排層 |
+| 4 | permission／verify | tool approval、shell guardrails、PII redaction | Harness Engineering permission／verify 五問 | harness 驗證層（注意教訓 4） |
+| 5 | 互操作介面 | ACP 雙向 inbound／outbound，帶 permission gate | harness 接口與 CodeAgent 委派 | 委派 worker agent |
+
+**應吸收的教訓（負面，不照抄）**
+
+| # | 教訓 | 事實依據 | 對我的意義 |
+|---|---|---|---|
+| 1 | 單進程垂直擴展有上限 | ADR 001：只能垂直擴展、重 CPU 阻塞 event loop、無水平 worker | 與 AiContainer 拋棄式 worker 相反，**不吸收單進程形態** |
+| 2 | 大一統整合帶來維護稅 | open 663、版本未凍結、bus factor 1 | 正是「統一的兩端稅」的實證，佐證拆開方向 |
+| 3 | 固定拓樸風險 | AgentTeams 為 Beta 的一種拓樸 | 呼應 munder-difflin 拒因「只引入一種拓樸」；抽取時保留可換編制 |
+| 4 | 通用執行能力不能用黑名單守 | 技術取捨準則例外：給 AI 一台機器時 shell 黑名單擋不住真正需要擋的情形 | 吸收 permission 機制時，機器邊界放機器配置，不放 harness |
+| 5 | 記憶防腐化未知 | 同廠 TencentDB-Agent-Memory 曾判「無防腐化機制」 | 吸收 `octop-memory` 前先查 dedup／衝突合併／回滾 |
+
+**結論：可抽取五項機制與五項教訓；吸收時以我的 Ai公司架構原則與 Harness 五問為閘門，不吸收其單進程整合方向。此為概念抽取，非採用建議，亦未排入下一步清單。**
+
+---
+
 ## 附錄：資料來源
 
 - repo README：https://github.com/TencentCloud/Octop/blob/main/README.md
@@ -248,4 +333,5 @@ OctopServer.start()
 - 騰訊雲開發者社群〈游向開源的海洋：騰訊雲自研 AI 助手 Octop 正式開源〉：https://cloud.tencent.com/developer/article/2710079
 - 衛星 repo：octop-harness、octop-gateway、octop-memory、octop-browser
 - 影片來源：GitHub 一周熱點 133 期 https://youtu.be/gv9IGo9qqZM（該期無可取得字幕，觀點未取得）
+- R2 新增一手事實：`gh api repos/TencentCloud/Octop`（6,992★）、`.../contributors?anon`、`users/jubaoliang`、`.../releases`、`.../stats/commit_activity`＋`participation`、`.../git/trees?recursive=1`、`.../contents/.github/workflows`、`.../commits?until=2026-07-10`、`search/issues`、`CONTRIBUTING.md`、`SECURITY.md`
 - 第二大腦（FATESAIKOU/MyBrain，2026-10-05 鏡像 @ c3319a0）：`技術/技術評估/判定總表.md`、`Aionui.md`、`munder-difflin.md`、`odysseus.md`、`Buzz.md`、`TencentDB-Agent-Memory.md`、`macro.md`、`EverOS.md`、`技術/動手做/個人 AiAgent 入口.md`、`技術/動手做/Ai公司架構.md`、`技術/靈感/AIContainer.md`、`抽象理解/本質洞察/技術取捨準則.md`、`抽象理解/本質洞察/統一的兩端稅.md`、`抽象理解/本質洞察/Harness Engineering.md`、`抽象理解/價值觀/不做清單.md`、`專案/下一步清單.md`
