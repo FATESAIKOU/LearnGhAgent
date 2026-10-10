@@ -18,7 +18,7 @@ jobs:
     permissions:
       contents: read
     env:
-      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+      OLLAMA_API_KEY: ${{ secrets.GH_LEARNGHAGENT__OLLAMA_CLOUD__LLM }}
       OPENCODE_MODEL: ollama-cloud/${{ github.event.inputs.model }}
     steps:
       - name: Checkout
