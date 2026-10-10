@@ -20,9 +20,9 @@ jobs:
       actions: write
     env:
       GH_REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ secrets.LEARNGHAGENT_TOKEN }}
+      GH_TOKEN: ${{ secrets.GH_LEARNGHAGENT__GH_LEARNGHAGENT__PRRW }}
       # 軟判定（sync 意圖分類）用。判斷「這則留言有沒有 sync-to-mybrain 意圖」。
-      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+      OLLAMA_API_KEY: ${{ secrets.GH_LEARNGHAGENT__OLLAMA_CLOUD__LLM }}
       CLASSIFIER_MODEL: ${{ vars.OLLAMA_DEFAULT_MODEL || 'deepseek-v4.1-flash' }}
     steps:
       - name: Checkout
