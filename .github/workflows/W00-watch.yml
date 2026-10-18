@@ -41,7 +41,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           # 取所有 open issue（帶 label）
-          issues=$(gh issue list --repo "$GH_REPO" --state open --json number,title,body,labels --limit 100)
+          # 只留帶 project: 標籤的 issue（調研輸入）；其他是工單，W00 不碰。
+          issues=$(gh issue list --repo "$GH_REPO" --state open --json number,title,body,labels --limit 100 \
+            | jq -c '[.[] | select(any(.labels[]?; .name | startswith("project:")))]')
 
           # 取所有 open PR 的 head branch 名（用來判重複）
           existing_branches=$(gh pr list --repo "$GH_REPO" --state open --json headRefName -q '.[].headRefName')
@@ -52,7 +54,7 @@ jobs:
             body=$(echo "$issue" | jq -r .body)
 
             # 從 label 抓 project name
-            project=$(echo "$issue" | jq -r '.labels[].name' | grep -E '^project:' | head -1 | sed 's/^project://')
+            project=$(echo "$issue" | jq -r '.labels[].name' | grep -E '^project:' | head -1 | sed 's/^project://' || true)
             if [[ -z "$project" ]]; then
               continue
             fi
@@ -139,7 +141,7 @@ jobs:
             pr_number=$(echo "$pr" | jq -r .number)
 
             # 從 label 抓 project name
-            project=$(echo "$pr" | jq -r '.labels[].name' | grep -E '^project:' | head -1 | sed 's/^project://')
+            project=$(echo "$pr" | jq -r '.labels[].name' | grep -E '^project:' | head -1 | sed 's/^project://' || true)
             if [[ -z "$project" ]]; then
               continue
             fi
